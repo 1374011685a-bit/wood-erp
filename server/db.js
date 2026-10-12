@@ -49,8 +49,6 @@ export const dataDir = resolveDataDir()
 
 writeLog(`[db] 数据目录：${dataDir}`)
 
-export const dbPath = path.join(dataDir, 'data.db')
-
 // better-sqlite3 是原生模块：这里用动态 import，加载失败（架构不匹配、缺 so 文件等）
 // 也能打出一行明确日志，而不是静默崩溃
 writeLog('[db] … 正在加载 better-sqlite3 原生绑定')
@@ -65,18 +63,112 @@ try {
   process.exit(1)
 }
 
-writeLog(`[db] … 正在打开数据库：${dbPath}`)
-export const db = new Database(dbPath)
-writeLog('[db] ✓ 数据库已打开')
-
-// 本地单机使用：WAL 提升并发写入表现，并开启外键约束
-// 个别挂载卷（网络盘等）不支持 WAL，失败就退回默认模式，不影响使用
-try {
-  db.pragma('journal_mode = WAL')
-} catch (err) {
-  writeLog(`[警告] 开启 WAL 失败（${err.message}），继续使用默认日志模式`)
+/**
+ * 打开数据库之前先探测目录：能不能建文件、能不能读回、能不能删掉。
+ * 网络卷/只读挂载这类问题在这里就能发现，避免走到 SQLite 原生调用里再出事
+ * （原生层如果直接段错误，JS 是接不住的）。
+ */
+function probeDirectory(dir) {
+  const probeFile = path.join(dir, `.write-probe-${process.pid}`)
+  try {
+    fs.writeFileSync(probeFile, 'probe')
+    if (fs.readFileSync(probeFile, 'utf8') !== 'probe') {
+      throw new Error('写入后读回内容不一致')
+    }
+    fs.unlinkSync(probeFile)
+    writeLog(`[db] 目录读写探测通过：${dir}`)
+    return true
+  } catch (err) {
+    writeLog(
+      `[db] 目录读写探测失败：${dir}\n` +
+        `        code=${err?.code ?? '（无）'}\n` +
+        `        message=${err?.message ?? err}`,
+    )
+    try {
+      fs.unlinkSync(probeFile)
+    } catch {
+      // 清理不掉就算了
+    }
+    return false
+  }
 }
-db.pragma('foreign_keys = ON')
+
+/**
+ * 打开数据库。所有失败都打完整信息（code / message / stack）后返回 null，
+ * 交给调用方决定是否换目录重试。
+ *
+ * 注意：如果原生模块内部是段错误（架构/libc 不匹配）或卡在文件锁上，
+ * JS 层 try/catch 是接不住的 —— 那种情况只能靠下面的「换目录重试」绕过。
+ */
+function openDatabase(targetPath, label) {
+  writeLog(`[db] 即将打开数据库，路径=${targetPath}（${label}）`)
+
+  if (!probeDirectory(path.dirname(targetPath))) {
+    return null
+  }
+
+  try {
+    const instance = new Database(targetPath, {
+      // 不用 WAL、缺文件就新建、锁等待最多 5 秒后报错而不是无限等
+      verbose: null,
+      fileMustExist: false,
+      timeout: 5000,
+    })
+    writeLog('[db] 数据库实例已创建')
+
+    // 用兼容性最好的默认回滚日志模式（网络卷/对象存储挂载对 WAL 支持最差）
+    try {
+      instance.pragma('journal_mode = DELETE')
+      writeLog(
+        `[db] journal_mode = ${instance.pragma('journal_mode', { simple: true })}`,
+      )
+    } catch (err) {
+      writeLog(`[警告] 设置 journal_mode 失败：${err?.code ?? ''} ${err?.message ?? err}`)
+    }
+
+    try {
+      instance.pragma('foreign_keys = ON')
+    } catch (err) {
+      writeLog(`[警告] 开启外键约束失败：${err?.message ?? err}`)
+    }
+
+    // 轻量自检：文件损坏时早点说清楚（只记录，不因此退出）
+    try {
+      const check = instance.pragma('quick_check', { simple: true })
+      writeLog(`[db] 完整性自检：${check}`)
+    } catch (err) {
+      writeLog(`[警告] 完整性自检未能执行：${err?.message ?? err}`)
+    }
+
+    return instance
+  } catch (err) {
+    writeLog(
+      `[db] 打开数据库失败：路径=${targetPath}\n` +
+        `        code=${err?.code ?? '（无）'}\n` +
+        `        message=${err?.message ?? err}\n` +
+        `        stack=${err?.stack ?? '（无）'}`,
+    )
+    return null
+  }
+}
+
+let activeDbPath = path.join(dataDir, 'data.db')
+let dbInstance = openDatabase(activeDbPath, 'DATA_DIR')
+
+// /data 这类网络卷可能根本不支持 SQLite 的文件锁，这里自动回退到容器本地目录重试一次
+if (!dbInstance && dataDir !== serverDir) {
+  writeLog('[警告] /data 卷不支持 SQLite，已回退到容器本地目录（数据不持久）')
+  activeDbPath = path.join(serverDir, 'data.db')
+  dbInstance = openDatabase(activeDbPath, '回退到 server 本地目录')
+}
+
+if (!dbInstance) {
+  writeLog('[启动失败] 两个目录都打不开数据库，请检查挂载卷与目录权限')
+  process.exit(1)
+}
+
+export const dbPath = activeDbPath
+export const db = dbInstance
 
 const schema = `
   -- 入库单头
