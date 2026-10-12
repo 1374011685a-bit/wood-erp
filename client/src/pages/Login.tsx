@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, setSession } from '../api'
 import { resetPassword } from '../api'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -19,6 +20,8 @@ export default function Login() {
   const [resetError, setResetError] = useState('')
   const [resetDone, setResetDone] = useState(false)
   const [resetting, setResetting] = useState(false)
+
+  useEscapeKey(showHelp, () => setShowHelp(false))
 
   const openReset = () => {
     setResetForm({ resetCode: '', newPassword: '', confirm: '' })
@@ -132,12 +135,15 @@ export default function Login() {
       {showHelp && (
         <div className="overlay" onClick={() => setShowHelp(false)}>
           <div
-            className="modal modal-narrow"
+            className="modal modal-narrow modal-sheet"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
               <h2 className="modal-title">重置密码</h2>
-              <button className="btn" onClick={() => setShowHelp(false)}>
+              <button
+                className="btn btn-sm btn-quiet"
+                onClick={() => setShowHelp(false)}
+              >
                 关闭
               </button>
             </div>

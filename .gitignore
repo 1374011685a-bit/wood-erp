@@ -7,6 +7,9 @@ client/dist/
 *.sqlite
 *.sqlite3
 server/data.db
+server/data.db.bak
+server/data.db.lock
+server/data.db.tmp-*
 server/data.db-wal
 server/data.db-shm
 server/.env

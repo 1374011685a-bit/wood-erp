@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
@@ -7,6 +7,7 @@ import {
   getStoredUsername,
   resetPassword,
 } from '../api'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import { ToastHost, type ToastItem } from './Ui'
 
 type NavItem = {
@@ -79,6 +80,27 @@ export default function Layout() {
   const [resetCode, setResetCode] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastItem | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const accountRef = useRef<HTMLDivElement | null>(null)
+
+  // 点击空白处收起账号菜单（苹果的菜单行为）
+  useEffect(() => {
+    if (!menuOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [menuOpen])
+
+  useEscapeKey(menuOpen, () => setMenuOpen(false))
+  useEscapeKey(passwordOpen, () => setPasswordOpen(false))
+
+  const initial = (username.trim().charAt(0) || 'U').toUpperCase()
 
   const handleLogout = () => {
     clearSession()
@@ -159,13 +181,59 @@ export default function Layout() {
       </aside>
       <main className="content">
         <div className="topbar">
-          <span className="topbar-user">{username}</span>
-          <button className="btn btn-sm" onClick={openPassword}>
-            修改密码
-          </button>
-          <button className="btn btn-sm btn-danger" onClick={handleLogout}>
-            退出登录
-          </button>
+          <div className="account" ref={accountRef}>
+            <button
+              type="button"
+              className={menuOpen ? 'account-trigger account-trigger-open' : 'account-trigger'}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((open) => !open)}
+            >
+              <span className="account-avatar" aria-hidden="true">
+                {initial}
+              </span>
+              <span className="account-name">{username}</span>
+              <svg
+                className="account-chevron"
+                viewBox="0 0 10 6"
+                aria-hidden="true"
+              >
+                <path
+                  d="M1 1.2 5 5 9 1.2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+
+            {menuOpen && (
+              <div className="account-menu" role="menu">
+                <button
+                  type="button"
+                  className="account-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
+                    openPassword()
+                  }}
+                >
+                  修改密码
+                </button>
+                <div className="account-menu-sep" />
+                <button
+                  type="button"
+                  className="account-menu-item account-menu-item-danger"
+                  role="menuitem"
+                  onClick={handleLogout}
+                >
+                  退出登录
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <Outlet />
@@ -174,12 +242,15 @@ export default function Layout() {
       {passwordOpen && (
         <div className="overlay" onClick={() => setPasswordOpen(false)}>
           <div
-            className="modal modal-narrow"
+            className="modal modal-narrow modal-sheet"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
               <h2 className="modal-title">修改密码</h2>
-              <button className="btn" onClick={() => setPasswordOpen(false)}>
+              <button
+                className="btn btn-sm btn-quiet"
+                onClick={() => setPasswordOpen(false)}
+              >
                 关闭
               </button>
             </div>

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   createInbound,
   deleteInbound,
@@ -216,6 +217,20 @@ export default function Inbound() {
     Record<string, { cubic: number; bundles: number }>
   >({})
   const lookedUpSpecies = useRef<Set<string>>(new Set())
+
+  // 详情弹层的关闭入口统一走这里，Esc / 点遮罩 / 关闭按钮行为一致
+  const closeDetail = useCallback(() => {
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
+  }, [])
+
+  // Esc 关闭最上面那层弹层（删除确认优先于详情）
+  useEscapeKey(Boolean(deleteTarget) && !deleting, () => setDeleteTarget(null))
+  useEscapeKey(
+    !deleteTarget && Boolean(detail || detailLoading || detailError),
+    closeDetail,
+  )
 
   const loadList = useCallback(
     async (override?: InboundListFilters) => {
@@ -768,7 +783,7 @@ export default function Inbound() {
       )}
 
       {(detail || detailLoading || detailError) && (
-        <div className="overlay" onClick={() => setDetail(null)}>
+        <div className="overlay" onClick={closeDetail}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-head">
               <h2 className="modal-title">
@@ -788,7 +803,7 @@ export default function Inbound() {
                     删除
                   </button>
                 )}
-                <button className="btn" onClick={() => setDetail(null)}>
+                <button className="btn btn-quiet" onClick={closeDetail}>
                   关闭
                 </button>
               </div>
@@ -851,7 +866,7 @@ export default function Inbound() {
       {deleteTarget && (
         <div className="overlay" onClick={() => setDeleteTarget(null)}>
           <div
-            className="modal modal-narrow"
+            className="modal modal-narrow modal-alert"
             onClick={(event) => event.stopPropagation()}
           >
             <h2 className="modal-title">删除确认</h2>
@@ -867,7 +882,7 @@ export default function Inbound() {
                 取消
               </button>
               <button
-                className="btn btn-sm btn-danger"
+                className="btn btn-danger-solid"
                 onClick={() => void confirmDelete()}
                 disabled={deleting}
               >

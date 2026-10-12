@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   createOutbound,
   deleteOutbound,
@@ -225,6 +226,26 @@ export default function Outbound() {
   // 规格 -> 当前库存（实时提示用）
   const [stockMap, setStockMap] = useState<Record<string, StockSnapshot>>({})
   const requestedSpecs = useRef<Set<string>>(new Set())
+
+  // 详情弹层的关闭入口统一走这里，Esc / 点遮罩 / 关闭按钮行为一致
+  const closeDetail = useCallback(() => {
+    setDetail(null)
+    setDetailError('')
+    setDetailLoading(false)
+  }, [])
+
+  // Esc 只关最上面那层：规格选择 > 删除确认 > 详情
+  useEscapeKey(pickerRowKey !== null, () => setPickerRowKey(null))
+  useEscapeKey(
+    pickerRowKey === null && Boolean(deleteTarget) && !deleting,
+    () => setDeleteTarget(null),
+  )
+  useEscapeKey(
+    pickerRowKey === null &&
+      !deleteTarget &&
+      Boolean(detail || detailLoading || detailError),
+    closeDetail,
+  )
 
   const loadList = useCallback(
     async (override?: OutboundListFilters) => {
@@ -875,7 +896,7 @@ export default function Outbound() {
       )}
 
       {(detail || detailLoading || detailError) && (
-        <div className="overlay" onClick={() => setDetail(null)}>
+        <div className="overlay" onClick={closeDetail}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-head">
               <h2 className="modal-title">
@@ -895,7 +916,7 @@ export default function Outbound() {
                     删除
                   </button>
                 )}
-                <button className="btn" onClick={() => setDetail(null)}>
+                <button className="btn btn-quiet" onClick={closeDetail}>
                   关闭
                 </button>
               </div>
@@ -963,7 +984,10 @@ export default function Outbound() {
           >
             <div className="modal-head">
               <h2 className="modal-title">选择规格</h2>
-              <button className="btn" onClick={() => setPickerRowKey(null)}>
+              <button
+                className="btn btn-sm btn-quiet"
+                onClick={() => setPickerRowKey(null)}
+              >
                 关闭
               </button>
             </div>
@@ -1051,7 +1075,7 @@ export default function Outbound() {
       {deleteTarget && (
         <div className="overlay" onClick={() => setDeleteTarget(null)}>
           <div
-            className="modal modal-narrow"
+            className="modal modal-narrow modal-alert"
             onClick={(event) => event.stopPropagation()}
           >
             <h2 className="modal-title">删除确认</h2>
@@ -1067,7 +1091,7 @@ export default function Outbound() {
                 取消
               </button>
               <button
-                className="btn btn-sm btn-danger"
+                className="btn btn-danger-solid"
                 onClick={() => void confirmDelete()}
                 disabled={deleting}
               >

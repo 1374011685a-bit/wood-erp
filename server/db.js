@@ -129,6 +129,78 @@ if (!probeDirectory(activeDir)) {
 
 export const dbPath = path.join(activeDir, 'data.db')
 
+// ---------- 单实例锁 ----------
+//
+// 两个后端进程同时对着同一个 data.db 跑，各自都会把「内存里的整库」覆盖回文件，
+// 后写的那个会把前一个进程的数据整体抹掉（这个坑真实踩过：一个空库把整份数据盖没了）。
+// 所以启动时先抢锁，抢不到就直接退出，绝不碰数据文件。
+
+const lockPath = path.join(activeDir, 'data.db.lock')
+
+function pidAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    // EPERM：进程在，只是没权限发信号
+    return err?.code === 'EPERM'
+  }
+}
+
+function acquireLock() {
+  try {
+    if (fs.existsSync(lockPath)) {
+      let stale = true
+      try {
+        stale = !pidAlive(Number(JSON.parse(fs.readFileSync(lockPath, 'utf8'))?.pid))
+      } catch {
+        stale = true // 锁文件坏了，当过期处理
+      }
+
+      if (!stale) {
+        writeLog(
+          `[启动失败] 数据库正被另一个后端进程占用：${lockPath}\n` +
+            '        同一个 data.db 不能让两个进程同时打开，否则会互相覆盖、丢数据。\n' +
+            '        请先停掉已经在运行的后端（确认 3001 端口没被占用），再重新启动。',
+        )
+        process.exit(1)
+      }
+
+      writeLog('[警告] 发现上次遗留的锁文件（所属进程已退出），继续启动')
+    }
+
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
+    )
+
+    const release = () => {
+      try {
+        fs.unlinkSync(lockPath)
+      } catch {
+        // 已经没了就算了
+      }
+    }
+    process.on('exit', release)
+    for (const signal of ['SIGINT', 'SIGTERM']) {
+      process.on(signal, () => {
+        release()
+        process.exit(0)
+      })
+    }
+
+    writeLog(`[db] ✓ 已取得数据库独占锁：${lockPath}`)
+  } catch (err) {
+    // 锁机制本身出问题不该挡住启动，但必须说清楚
+    writeLog(
+      `[警告] 单实例锁创建失败（${err?.code ?? ''} ${err?.message ?? err}），继续启动`,
+    )
+  }
+}
+
+acquireLock()
+
 // ---------- 从文件载入（sql.js 是内存数据库，需要自己落盘） ----------
 
 writeLog(`[db] 即将打开数据库，路径=${dbPath}`)
@@ -174,6 +246,10 @@ function persist(reason) {
   writeLog(`[db] … 落盘中（${reason}）：${data.length} 字节 → ${dbPath}`)
 
   try {
+    // 覆盖前把上一版留一份，万一盖错了还能人工找回
+    if (fs.existsSync(dbPath) && fs.statSync(dbPath).size > 0) {
+      fs.copyFileSync(dbPath, `${dbPath}.bak`)
+    }
     // 先写临时文件再改名，避免写一半被中断留下半个库
     fs.writeFileSync(tmpPath, data)
     fs.renameSync(tmpPath, dbPath)
@@ -395,6 +471,47 @@ function seedDefaultAdmin() {
 }
 
 /**
+ * 空库 + 有备份 = 库多半是被覆盖掉了，必须喊出来，
+ * 而不是安安静静地当成「一个全新的空系统」继续跑。
+ */
+function warnIfSuspiciouslyEmpty() {
+  const backupPath = `${dbPath}.bak`
+
+  try {
+    const countOrders = () =>
+      Number(db.prepare('SELECT COUNT(*) AS n FROM inbound_orders').get()?.n ?? 0) +
+      Number(db.prepare('SELECT COUNT(*) AS n FROM outbound_orders').get()?.n ?? 0)
+
+    if (countOrders() > 0 || !fs.existsSync(backupPath)) return
+
+    const backup = new SQL.Database(fs.readFileSync(backupPath))
+    let backupOrders = 0
+    try {
+      const readCount = (table) => {
+        try {
+          return Number(backup.exec(`SELECT COUNT(*) FROM ${table}`)[0]?.values?.[0]?.[0] ?? 0)
+        } catch {
+          return 0
+        }
+      }
+      backupOrders = readCount('inbound_orders') + readCount('outbound_orders')
+    } finally {
+      backup.close()
+    }
+
+    if (backupOrders > 0) {
+      writeLog(
+        `[警告] 当前数据库一张单据都没有，但备份里还有 ${backupOrders} 张：${backupPath}\n` +
+          '        如果不是你自己清空的，说明数据文件被覆盖过。恢复办法：\n' +
+          `        先停掉后端，把 ${backupPath} 复制成 ${dbPath}，再启动即可。`,
+      )
+    }
+  } catch (err) {
+    writeLog(`[警告] 空库检查失败：${err?.message ?? err}`)
+  }
+}
+
+/**
  * 建表（幂等），可重复调用
  *
  * 注意：在模块加载时就执行一次。各个路由模块会在 import 阶段就 prepare 语句，
@@ -404,6 +521,7 @@ export function initDB() {
   writeLog('[db] … initDB 开始建表')
   db.exec(schema)
   seedDefaultAdmin()
+  warnIfSuspiciouslyEmpty()
   writeLog('[db] ✓ initDB 完成')
   return db
 }
