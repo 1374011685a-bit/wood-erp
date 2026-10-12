@@ -651,9 +651,9 @@ export default function Inbound() {
                 <th>单号</th>
                 <th>供应商</th>
                 <th>日期</th>
-                <th>总立方</th>
-                <th>总金额</th>
-                <th>明细数</th>
+                <th className="num">总立方</th>
+                <th className="num">总金额</th>
+                <th className="num">明细数</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -750,8 +750,8 @@ export default function Inbound() {
                     {label}
                   </th>
                 ))}
-                <th>立方</th>
-                <th>金额</th>
+                <th className="num">立方</th>
+                <th className="num">金额</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -904,15 +904,15 @@ export default function Inbound() {
                   <thead>
                     <tr>
                       <th>品名</th>
-                      <th>等级</th>
-                      <th>厚度mm</th>
-                      <th>宽度mm</th>
-                      <th>长度m</th>
-                      <th>片数</th>
-                      <th>件数</th>
-                      <th>立方</th>
-                      <th>单价</th>
-                      <th>金额</th>
+                  <th>等级</th>
+                  <th className="num">厚度mm</th>
+                  <th className="num">宽度mm</th>
+                  <th className="num">长度m</th>
+                  <th className="num">片数</th>
+                  <th className="num">件数</th>
+                  <th className="num">立方</th>
+                  <th className="num">单价</th>
+                  <th className="num">金额</th>
                     </tr>
                   </thead>
                   <tbody>
