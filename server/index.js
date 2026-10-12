@@ -1,8 +1,10 @@
+import crypto from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import express from 'express'
-import { initDB } from './db.js'
+import { dbPath, initDB } from './db.js'
 import { requireAuth } from './middleware/auth.js'
 import authRouter from './routes/auth.js'
 import exportRouter from './routes/export.js'
@@ -14,21 +16,61 @@ import recordsRouter from './routes/records.js'
 
 const app = express()
 
+/**
+ * 容器里日志走管道，stdout/stderr 是异步写入的，
+ * process.exit() 会把没 flush 的内容丢掉（这就是「崩溃但日志空白」的原因），
+ * 所以启动期的错误一律用同步写。
+ */
+function writeStderr(message) {
+  try {
+    fs.writeSync(2, `${message}\n`)
+  } catch {
+    // 写不出去就只能放弃了
+  }
+}
+
+function fatal(message) {
+  writeStderr(`[启动失败] ${message}`)
+  process.exit(1)
+}
+
+process.on('uncaughtException', (err) => {
+  writeStderr(`[启动失败] 未捕获异常：${err?.stack ?? err}`)
+  process.exit(1)
+})
+
+process.on('unhandledRejection', (reason) => {
+  writeStderr(`[启动失败] 未处理的 Promise 异常：${reason?.stack ?? reason}`)
+  process.exit(1)
+})
+
 // 无论从哪个目录启动，都读 server/.env
 const serverDir = path.dirname(fileURLToPath(import.meta.url))
 dotenv.config({ path: path.join(serverDir, '.env'), quiet: true })
 
+// JWT_SECRET：没配置时给一个随机的临时密钥，保证容器能起来（重启后登录态失效）
 if (!process.env.JWT_SECRET) {
-  console.error(
-    '缺少 JWT_SECRET：本地请在 server/.env 配置，部署到 Railway 请在 Variables 里配置',
+  process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex')
+  writeStderr(
+    '[警告] 未配置 JWT_SECRET，本次启动使用随机临时密钥：重启后所有登录态失效。\n' +
+      '        请在平台的环境变量里配置一个固定的 32 位以上随机串（本地写在 server/.env）。',
   )
-  process.exit(1)
 }
 
 const PORT = Number(process.env.PORT) || 3001
+// 监听所有网卡，容器里必须这样，否则健康检查连不上
+const HOST = process.env.HOST || '0.0.0.0'
 
-initDB()
-console.log('数据库初始化成功')
+try {
+  initDB()
+} catch (err) {
+  fatal(
+    `数据库初始化失败：${err?.message ?? err}\n` +
+      `        数据库文件：${dbPath}\n` +
+      `        DATA_DIR：${process.env.DATA_DIR ?? '（未设置，使用 server 目录）'}`,
+  )
+}
+console.log(`数据库初始化成功：${dbPath}`)
 
 app.use(express.json())
 
@@ -50,6 +92,13 @@ app.use('/api/records', requireAuth, recordsRouter)
 
 // 生产模式：同时把前端构建产物当静态资源服务（先执行 cd client && pnpm build）
 const clientDist = path.join(serverDir, '..', 'client', 'dist')
+
+if (!fs.existsSync(path.join(clientDist, 'index.html'))) {
+  writeStderr(
+    `[警告] 没有找到前端构建产物：${clientDist}/index.html，页面会 404（生产镜像请先执行 cd client && pnpm build）`,
+  )
+}
+
 app.use(express.static(clientDist))
 
 // 前端路由兜底：非 /api 的 GET 请求一律返回 index.html，刷新子路由不会 404
@@ -60,6 +109,8 @@ app.use((req, res, next) => {
   })
 })
 
-app.listen(PORT, () => {
-  console.log(`[server] http://localhost:${PORT}`)
+app.listen(PORT, HOST, () => {
+  console.log(`[server] 已启动，监听 ${HOST}:${PORT}`)
+  console.log(`[server] 数据库：${dbPath}`)
+  console.log(`[server] 前端静态目录：${clientDist}`)
 })

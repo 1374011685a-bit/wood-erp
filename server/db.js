@@ -12,21 +12,53 @@ dotenv.config({ path: path.join(serverDir, '.env'), quiet: true })
 
 /**
  * 数据库目录：
- * - 生产（Railway）用 DATA_DIR=/data 指向挂载卷
+ * - 生产（Railway / Sealos）用 DATA_DIR=/data 指向挂载卷
  * - 本地不配 DATA_DIR 时仍落在 server/，沿用现有的 server/data.db，不会丢数据
+ *
+ * 目录不存在会自动创建；万一 DATA_DIR 不可写（卷没挂上、只读、权限不足），
+ * 自动回退到 server 目录并打警告，保证容器不会因为一个目录就起不来。
  */
-const dataDir = process.env.DATA_DIR
-  ? path.resolve(process.env.DATA_DIR)
-  : serverDir
+function resolveDataDir() {
+  const configured = process.env.DATA_DIR
+    ? path.resolve(process.env.DATA_DIR)
+    : serverDir
 
-fs.mkdirSync(dataDir, { recursive: true })
+  const candidates = configured === serverDir ? [configured] : [configured, serverDir]
+  const failures = []
+
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      if (dir !== configured) {
+        fs.writeSync(
+          2,
+          `[警告] DATA_DIR 不可用（${configured}），已回退到 ${dir}，数据不会持久化，请检查挂载卷\n`,
+        )
+      }
+      return dir
+    } catch (err) {
+      failures.push(`${dir}（${err.code ?? err.message}）`)
+    }
+  }
+
+  throw new Error(
+    `数据目录不可写：${failures.join('、')}。请检查 DATA_DIR 环境变量与挂载卷权限`,
+  )
+}
+
+export const dataDir = resolveDataDir()
 
 export const dbPath = path.join(dataDir, 'data.db')
 
 export const db = new Database(dbPath)
 
 // 本地单机使用：WAL 提升并发写入表现，并开启外键约束
-db.pragma('journal_mode = WAL')
+// 个别挂载卷（网络盘等）不支持 WAL，失败就退回默认模式，不影响使用
+try {
+  db.pragma('journal_mode = WAL')
+} catch (err) {
+  fs.writeSync(2, `[警告] 开启 WAL 失败（${err.message}），继续使用默认日志模式\n`)
+}
 db.pragma('foreign_keys = ON')
 
 const schema = `
@@ -99,6 +131,10 @@ function seedDefaultAdmin() {
 
 /**
  * 建表（幂等），可重复调用
+ *
+ * 注意：这里在模块加载时就执行一次。各个路由模块（auth / inbound / outbound / home …）
+ * 会在 import 阶段就 prepare 语句，如果那时表还不存在（全新的空数据库，比如容器里
+ * 刚挂上的空卷），会直接抛 "no such table: xxx" 让进程在打日志之前就退出。
  * @returns {import('better-sqlite3').Database} db 实例
  */
 export function initDB() {
@@ -106,3 +142,5 @@ export function initDB() {
   seedDefaultAdmin()
   return db
 }
+
+initDB()
