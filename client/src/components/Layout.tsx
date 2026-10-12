@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ReactNode } from 'react'
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   changePassword,
@@ -82,6 +82,7 @@ export default function Layout() {
   const [toast, setToast] = useState<ToastItem | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const accountRef = useRef<HTMLDivElement | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
 
   // 点击空白处收起账号菜单（苹果的菜单行为）
   useEffect(() => {
@@ -99,6 +100,27 @@ export default function Layout() {
 
   useEscapeKey(menuOpen, () => setMenuOpen(false))
   useEscapeKey(passwordOpen, () => setPasswordOpen(false))
+
+  // 菜单一打开就把焦点交给第一项，键盘可以直接上下选、回车确认
+  useEffect(() => {
+    if (!menuOpen) return
+    menuRef.current?.querySelector<HTMLButtonElement>('.account-menu-item')?.focus()
+  }, [menuOpen])
+
+  const handleMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('.account-menu-item') ?? [],
+    )
+    if (items.length === 0) return
+
+    event.preventDefault()
+    const step = event.key === 'ArrowDown' ? 1 : -1
+    const current = items.indexOf(document.activeElement as HTMLButtonElement)
+    const next = (current + step + items.length) % items.length
+    items[next]?.focus()
+  }
 
   const initial = (username.trim().charAt(0) || 'U').toUpperCase()
 
@@ -210,7 +232,12 @@ export default function Layout() {
             </button>
 
             {menuOpen && (
-              <div className="account-menu" role="menu">
+              <div
+                className="account-menu"
+                role="menu"
+                ref={menuRef}
+                onKeyDown={handleMenuKeyDown}
+              >
                 <button
                   type="button"
                   className="account-menu-item"
@@ -220,7 +247,21 @@ export default function Layout() {
                     openPassword()
                   }}
                 >
-                  修改密码
+                  <svg
+                    className="account-menu-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.6" />
+                    <path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7" />
+                    <path d="M12 14.2v2.4" />
+                  </svg>
+                  <span>修改密码</span>
                 </button>
                 <div className="account-menu-sep" />
                 <button
@@ -229,7 +270,21 @@ export default function Layout() {
                   role="menuitem"
                   onClick={handleLogout}
                 >
-                  退出登录
+                  <svg
+                    className="account-menu-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M14.5 4h3.6A1.9 1.9 0 0 1 20 5.9v12.2a1.9 1.9 0 0 1-1.9 1.9h-3.6" />
+                    <path d="M9.8 8.2 6 12l3.8 3.8" />
+                    <path d="M6.4 12H15" />
+                  </svg>
+                  <span>退出登录</span>
                 </button>
               </div>
             )}
