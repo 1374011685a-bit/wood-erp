@@ -60,6 +60,7 @@ export default function Login() {
           {submitting ? '登录中…' : '登录'}
         </button>
       </form>
+      <p className="login-version">立川木业木材管理系统 · v0.1.0</p>
     </div>
   )
 }

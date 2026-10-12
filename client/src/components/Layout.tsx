@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { ReactNode } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   changePassword,
@@ -11,14 +12,59 @@ type NavItem = {
   to: string
   label: string
   end?: boolean
+  icon: ReactNode
 }
 
 const navItems: NavItem[] = [
-  { to: '/', label: '首页', end: true },
-  { to: '/inbound', label: '入库' },
-  { to: '/outbound', label: '出库' },
-  { to: '/stock', label: '库存' },
-  { to: '/records', label: '流水' },
+  {
+    to: '/',
+    label: '首页',
+    end: true,
+    icon: <path d="M3 10.6 12 3l9 7.6V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1z" />,
+  },
+  {
+    to: '/inbound',
+    label: '入库',
+    icon: (
+      <>
+        <path d="M12 3v10" />
+        <path d="m8 9 4 4 4-4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </>
+    ),
+  },
+  {
+    to: '/outbound',
+    label: '出库',
+    icon: (
+      <>
+        <path d="M12 13V3" />
+        <path d="m8 7 4-4 4 4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </>
+    ),
+  },
+  {
+    to: '/stock',
+    label: '库存',
+    icon: (
+      <>
+        <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" />
+        <path d="M3 7.5 12 12l9-4.5" />
+        <path d="M12 12v9" />
+      </>
+    ),
+  },
+  {
+    to: '/records',
+    label: '流水',
+    icon: (
+      <>
+        <path d="M8 6h13M8 12h13M8 18h13" />
+        <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+      </>
+    ),
+  },
 ]
 
 export default function Layout() {
@@ -79,7 +125,19 @@ export default function Layout() {
                 isActive ? 'nav-item nav-item-active' : 'nav-item'
               }
             >
-              {item.label}
+              <svg
+                className="nav-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                {item.icon}
+              </svg>
+              <span>{item.label}</span>
             </NavLink>
           ))}
         </nav>
