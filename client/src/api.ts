@@ -143,6 +143,19 @@ export function changePassword(oldPassword: string, newPassword: string) {
   })
 }
 
+// 忘记密码：用重置口令直接改密码（不需要登录）
+export function resetPassword(payload: {
+  username: string
+  resetCode: string
+  newPassword: string
+}) {
+  return request<{ ok: boolean; username: string }>('/api/auth/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 /**
  * 需要登录态的下载：链接直连带不上 Authorization 头，
  * 所以这里用 fetch 取回文件再触发下载（文件名从响应头里取，保留中文）

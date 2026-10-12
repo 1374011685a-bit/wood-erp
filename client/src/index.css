@@ -21,9 +21,17 @@
 
   /* 圆角 */
   --r-card: 16px;
-  --r-btn: 10px;
-  --r-input: 10px;
+  --r-btn: 12px;
+  --r-input: 12px;
   --r-pill: 999px;
+
+  /* 苹果的字号阶梯（SF Pro 的常用档位） */
+  --fs-title: 28px; /* 页面标题 */
+  --fs-h2: 17px; /* 区块标题 / 强调正文 */
+  --fs-body: 15px; /* 正文 */
+  --fs-ui: 14px; /* 表格、按钮 */
+  --fs-label: 13px; /* 辅助文字 */
+  --fs-tag: 12px; /* 标签 */
 
   /* 阴影：多层、极淡 */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.03), 0 4px 14px rgba(0, 0, 0, 0.04);
@@ -56,6 +64,8 @@ body {
   margin: 0;
   min-height: 100vh;
   background-color: var(--bg);
+  font-size: var(--fs-body);
+  line-height: 1.47;
   letter-spacing: -0.002em;
 }
 
@@ -206,15 +216,15 @@ input[inputmode='decimal'] {
 
 .page-head h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: var(--fs-title);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.025em;
   color: var(--text);
 }
 
 .page-head p {
   margin: 6px 0 0;
-  font-size: 14px;
+  font-size: var(--fs-label);
   color: var(--text-2);
 }
 
@@ -274,9 +284,9 @@ input[inputmode='decimal'] {
 
 .section-title {
   margin: 0 0 14px;
-  font-size: 15px;
+  font-size: var(--fs-h2);
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
 }
 
 /* ---------- 首页数字卡片 ---------- */
@@ -345,10 +355,10 @@ input[inputmode='decimal'] {
 }
 
 .stat-value {
-  font-size: 32px;
+  font-size: 34px;
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: -0.03em;
+  letter-spacing: -0.04em;
   color: var(--text);
 }
 
@@ -427,7 +437,7 @@ input[inputmode='decimal'] {
   border-radius: var(--r-input);
   background-color: #ffffff;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-ui);
   font-family: inherit;
   outline: none;
   box-shadow: none;
@@ -494,15 +504,16 @@ input[inputmode='decimal'] {
 /* ---------- 按钮 ---------- */
 
 .btn {
-  height: 36px;
-  padding: 0 16px;
+  height: 38px;
+  padding: 0 18px;
   border: 1px solid #d2d2d7;
   border-radius: var(--r-btn);
   background-color: #ffffff;
   background-image: none;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-ui);
   font-family: inherit;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   box-shadow: none;
@@ -570,7 +581,7 @@ input[inputmode='decimal'] {
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: var(--fs-ui);
 }
 
 .table th {
@@ -578,12 +589,12 @@ input[inputmode='decimal'] {
   padding: 0 14px;
   background-color: #fafafa;
   border-bottom: 1px solid var(--line);
-  font-size: 13px;
+  font-size: var(--fs-label);
   font-weight: 500;
   color: var(--text-2);
   text-align: left;
   white-space: nowrap;
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
 }
 
 .table td {

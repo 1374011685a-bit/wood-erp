@@ -5,6 +5,7 @@ import {
   changePassword,
   clearSession,
   getStoredUsername,
+  resetPassword,
 } from '../api'
 import { ToastHost, type ToastItem } from './Ui'
 
@@ -74,6 +75,8 @@ export default function Layout() {
   const [passwordOpen, setPasswordOpen] = useState(false)
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [useResetCode, setUseResetCode] = useState(false)
+  const [resetCode, setResetCode] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastItem | null>(null)
 
@@ -85,18 +88,30 @@ export default function Layout() {
   const openPassword = () => {
     setOldPassword('')
     setNewPassword('')
+    setResetCode('')
+    setUseResetCode(false)
     setPasswordOpen(true)
   }
 
   const submitPassword = async () => {
     setSaving(true)
     try {
-      await changePassword(oldPassword, newPassword)
+      if (useResetCode) {
+        await resetPassword({
+          username: username || 'admin',
+          resetCode,
+          newPassword,
+        })
+      } else {
+        await changePassword(oldPassword, newPassword)
+      }
       setPasswordOpen(false)
       setToast({
         id: 'password-changed',
         kind: 'success',
-        message: '密码已修改，下次请用新密码登录',
+        message: useResetCode
+          ? '密码已通过重置口令修改，下次请用新密码登录'
+          : '密码已修改，下次请用新密码登录',
         onClose: () => setToast(null),
       })
     } catch (err) {
@@ -169,16 +184,29 @@ export default function Layout() {
               </button>
             </div>
 
-            <label className="field">
-              <span>原密码</span>
-              <input
-                className="input"
-                type="password"
-                value={oldPassword}
-                autoComplete="current-password"
-                onChange={(event) => setOldPassword(event.target.value)}
-              />
-            </label>
+            {useResetCode ? (
+              <label className="field">
+                <span>重置口令</span>
+                <input
+                  className="input"
+                  type="password"
+                  value={resetCode}
+                  autoComplete="off"
+                  onChange={(event) => setResetCode(event.target.value)}
+                />
+              </label>
+            ) : (
+              <label className="field">
+                <span>原密码</span>
+                <input
+                  className="input"
+                  type="password"
+                  value={oldPassword}
+                  autoComplete="current-password"
+                  onChange={(event) => setOldPassword(event.target.value)}
+                />
+              </label>
+            )}
 
             <label className="field" style={{ marginTop: 14 }}>
               <span>新密码（至少 6 位）</span>
@@ -203,6 +231,19 @@ export default function Layout() {
                 {saving ? '保存中…' : '保存'}
               </button>
             </div>
+
+            <button
+              type="button"
+              className="login-forgot"
+              style={{ display: 'block', marginTop: 12 }}
+              onClick={() => {
+                setUseResetCode((prev) => !prev)
+                setResetCode('')
+                setOldPassword('')
+              }}
+            >
+              {useResetCode ? '改回用原密码修改' : '忘记原密码？用重置口令修改'}
+            </button>
           </div>
         </div>
       )}

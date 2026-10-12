@@ -176,6 +176,12 @@ pnpm run dev          # 前端 http://localhost:5173，后端 http://localhost:3
 | `JWT_SECRET` | 是 | 写在 `server/.env`（已被 gitignore） | Variables 里配置 | JWT 签名密钥，≥32 位随机串 |
 | `PORT` | 否 | 3001 | 不用配，Railway 自动注入 | 服务监听端口 |
 | `DATA_DIR` | 否 | 不配时落在 `server/`（沿用 `server/data.db`） | `/data` | 数据库目录，配了会自动建目录 |
+| `RESET_CODE` | 否 | `123` | 建议设成只有你知道的字符串 | 登录页「忘记密码」用的重置口令 |
+
+> ⚠️ 关于「忘记密码」：登录页和顶部「修改密码」弹窗都能用重置口令直接把密码改掉。
+> 这是单机部署的过渡方案，**一定要把 `RESET_CODE` 从默认的 123 改掉**；
+> 连续 5 次输错会被限流 10 分钟，每次尝试都会写日志（`[auth] 重置口令校验失败…`）。
+> 另一种重置方式（不需要服务在跑）：`node server/reset-password.js` 生成一个随机新密码。
 
 ---
 

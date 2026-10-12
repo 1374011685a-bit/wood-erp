@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { login, setSession } from '../api'
+import { resetPassword } from '../api'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -10,6 +11,54 @@ export default function Login() {
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
+  const [resetForm, setResetForm] = useState({
+    resetCode: '',
+    newPassword: '',
+    confirm: '',
+  })
+  const [resetError, setResetError] = useState('')
+  const [resetDone, setResetDone] = useState(false)
+  const [resetting, setResetting] = useState(false)
+
+  const openReset = () => {
+    setResetForm({ resetCode: '', newPassword: '', confirm: '' })
+    setResetError('')
+    setResetDone(false)
+    setShowHelp(true)
+  }
+
+  const submitReset = async () => {
+    if (resetting) return
+    if (!resetForm.resetCode.trim()) {
+      setResetError('请输入重置口令')
+      return
+    }
+    if (resetForm.newPassword.length < 6) {
+      setResetError('新密码至少 6 位')
+      return
+    }
+    if (resetForm.newPassword !== resetForm.confirm) {
+      setResetError('两次输入的新密码不一致')
+      return
+    }
+
+    setResetting(true)
+    setResetError('')
+    try {
+      const result = await resetPassword({
+        username: username.trim() || 'admin',
+        resetCode: resetForm.resetCode.trim(),
+        newPassword: resetForm.newPassword,
+      })
+      setResetDone(true)
+      setUsername(result.username)
+      setPassword('')
+    } catch (err) {
+      setResetError(err instanceof Error ? err.message : '重置失败')
+    } finally {
+      setResetting(false)
+    }
+  }
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -71,7 +120,7 @@ export default function Login() {
           <button
             type="button"
             className="login-forgot"
-            onClick={() => setShowHelp(true)}
+            onClick={openReset}
           >
             忘记密码？
           </button>
@@ -87,30 +136,100 @@ export default function Login() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
-              <h2 className="modal-title">忘记密码怎么办</h2>
+              <h2 className="modal-title">重置密码</h2>
               <button className="btn" onClick={() => setShowHelp(false)}>
                 关闭
               </button>
             </div>
 
-            <p className="confirm-text">
-              本系统是单机部署，没有接入邮箱或短信服务，所以不支持自助找回。
-              请在<strong>部署本系统的机器</strong>上执行下面的命令重置（需要先停止服务）。
-            </p>
+            {resetDone ? (
+              <>
+                <p className="confirm-text">
+                  用户 <strong>{username.trim() || 'admin'}</strong> 的密码已重置成功，
+                  请用新密码登录。
+                </p>
+                <div className="confirm-actions">
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setShowHelp(false)}
+                  >
+                    去登录
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="confirm-text">
+                  输入重置口令和新密码即可重置用户
+                  <strong> {username.trim() || 'admin'} </strong>
+                  的密码。重置口令由部署时配置（默认 123，可在服务端环境变量
+                  RESET_CODE 中修改）。
+                </p>
 
-            <p className="help-label">重置为随机新密码（推荐）</p>
-            <pre className="help-code">node server/reset-password.js</pre>
+                <label className="field">
+                  <span>重置口令</span>
+                  <input
+                    className="input"
+                    type="password"
+                    value={resetForm.resetCode}
+                    autoComplete="off"
+                    onChange={(event) =>
+                      setResetForm((prev) => ({
+                        ...prev,
+                        resetCode: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
 
-            <p className="help-label">也可以指定用户名和新密码</p>
-            <pre className="help-code">node server/reset-password.js admin 你的新密码</pre>
+                <label className="field" style={{ marginTop: 14 }}>
+                  <span>新密码（至少 6 位）</span>
+                  <input
+                    className="input"
+                    type="password"
+                    value={resetForm.newPassword}
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setResetForm((prev) => ({
+                        ...prev,
+                        newPassword: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
 
-            <p className="help-label">如果跑在 Docker 里</p>
-            <pre className="help-code">docker exec -it &lt;容器名&gt; node server/reset-password.js</pre>
+                <label className="field" style={{ marginTop: 14 }}>
+                  <span>确认新密码</span>
+                  <input
+                    className="input"
+                    type="password"
+                    value={resetForm.confirm}
+                    autoComplete="new-password"
+                    onChange={(event) =>
+                      setResetForm((prev) => ({
+                        ...prev,
+                        confirm: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
 
-            <p className="hint" style={{ marginTop: 16 }}>
-              注意：数据库是「读进内存 + 写回文件」的模式，重置必须在服务停止的状态下执行，
-              否则会被运行中的服务覆盖回去。
-            </p>
+                {resetError && <p className="login-error">{resetError}</p>}
+
+                <div className="confirm-actions" style={{ marginTop: 22 }}>
+                  <button className="btn" onClick={() => setShowHelp(false)}>
+                    取消
+                  </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => void submitReset()}
+                    disabled={resetting}
+                  >
+                    {resetting ? '重置中…' : '重置密码'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
