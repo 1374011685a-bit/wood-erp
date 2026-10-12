@@ -109,13 +109,8 @@ input[inputmode='decimal'] {
 .sidebar {
   width: 236px;
   flex: 0 0 236px;
-  background-color: rgba(246, 246, 248, 0.86);
-  background-image: url('/wood-oak.jpg');
-  background-size: 620px;
-  background-blend-mode: soft-light;
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-right: 1px solid rgba(0, 0, 0, 0.04);
+  background-color: #f5f5f7;
+  border-right: 1px solid rgba(0, 0, 0, 0.05);
   padding: 22px 14px;
   display: flex;
   flex-direction: column;
@@ -1041,38 +1036,26 @@ input[inputmode='decimal'] {
   justify-content: center;
   min-height: 100vh;
   padding: 48px 24px 80px;
-  background-color: #1a1108;
+  background-color: #17110b;
   overflow: hidden;
 }
 
-/* 整页背景就是一块木料：重度模糊 + 压暗，成为「材料」而不是一张贴上去的照片 */
+/* 背景不用任何图片：均匀的深胡桃渐变 + 顶部一束暖光，干净、有质感 */
 .login-page::before {
-  content: '';
-  position: absolute;
-  inset: -70px;
-  background-image: url('/wood-hero.jpg');
-  background-size: cover;
-  background-position: center;
-  filter: blur(34px) saturate(1.05) brightness(0.92);
-  transform: scale(1.08);
-}
-
-/* 再压一层暖色氛围光，让白卡片浮在材料之上 */
-.login-page::after {
   content: '';
   position: absolute;
   inset: 0;
   background-image: radial-gradient(
-      120% 80% at 50% 0%,
-      rgba(255, 206, 152, 0.18) 0%,
-      rgba(0, 0, 0, 0) 55%
+      90% 60% at 50% -12%,
+      rgba(255, 196, 133, 0.22) 0%,
+      rgba(255, 196, 133, 0) 62%
     ),
-    linear-gradient(
-      180deg,
-      rgba(22, 13, 6, 0.62) 0%,
-      rgba(22, 13, 6, 0.55) 45%,
-      rgba(16, 10, 4, 0.72) 100%
-    );
+    radial-gradient(
+      70% 50% at 50% 120%,
+      rgba(150, 104, 60, 0.22) 0%,
+      rgba(150, 104, 60, 0) 60%
+    ),
+    linear-gradient(180deg, #241a12 0%, #1b130d 46%, #140e09 100%);
 }
 
 /* 居中一栏，只有一张卡片 */
@@ -1085,18 +1068,37 @@ input[inputmode='decimal'] {
 }
 
 .login-card {
+  position: relative;
+  overflow: hidden;
   width: 100%;
   max-width: 400px;
   display: flex;
   flex-direction: column;
   padding: 40px 36px 36px;
-  border-radius: 20px;
-  background-color: rgba(255, 255, 255, 0.97);
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16), 0 40px 90px rgba(0, 0, 0, 0.4);
+  border-radius: 18px;
+  background-color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.28), 0 12px 32px rgba(0, 0, 0, 0.32),
+    0 48px 100px rgba(0, 0, 0, 0.45);
   animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* 卡片顶边一道木色细渐变——整页唯一的材质提示，克制到位 */
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background-image: linear-gradient(
+    90deg,
+    rgba(138, 90, 43, 0) 0%,
+    #b07a45 28%,
+    #d8a56b 50%,
+    #b07a45 72%,
+    rgba(138, 90, 43, 0) 100%
+  );
 }
 
 .login-brand-row {
