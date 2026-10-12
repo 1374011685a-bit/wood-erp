@@ -1,5 +1,6 @@
 import express from 'express'
 import { db } from '../db.js'
+import { fromCents } from '../utils/cubic.js'
 import { buildWorkbook } from '../utils/excel.js'
 
 const router = express.Router()
@@ -71,8 +72,9 @@ const inboundRowsSql = (where) => `
          i.pieces,
          i.bundles,
          i.cubic,
-         i.unit_price,
-         i.amount
+         COALESCE(i.unit_price_cents, ROUND(i.unit_price * 100)) / 100.0 AS unit_price,
+         COALESCE(i.amount_cents,     ROUND(i.amount     * 100))       AS amount_cents,
+         COALESCE(i.amount_cents,     ROUND(i.amount     * 100)) / 100.0 AS amount
     FROM inbound_orders o
     JOIN order_items i ON i.order_id = o.id AND i.order_type = 'in'
    ${where}
@@ -97,16 +99,20 @@ router.get('/inbound', async (req, res) => {
     params.push(String(dateTo))
   }
 
+  let amountCents = 0
   const rows = db
     .prepare(inboundRowsSql(conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''))
     .all(...params)
-    .map((row) => ({
-      ...row,
-      grade: row.grade ?? '',
-      remark: row.remark ?? '',
-      cubic: roundTo(row.cubic, 4),
-      amount: roundTo(row.amount, 2),
-    }))
+    .map((row) => {
+      amountCents += Number(row.amount_cents ?? 0)
+      return {
+        ...row,
+        grade: row.grade ?? '',
+        remark: row.remark ?? '',
+        cubic: roundTo(row.cubic, 4),
+        amount: roundTo(row.amount, 2),
+      }
+    })
 
   const columns = ORDER_ITEM_COLUMNS.map((column) =>
     column.key === 'partner' ? { ...column, header: '供应商' } : column,
@@ -114,7 +120,7 @@ router.get('/inbound', async (req, res) => {
   const totals = {
     order_no: '合计',
     cubic: roundTo(rows.reduce((sum, row) => sum + row.cubic, 0), 4),
-    amount: roundTo(rows.reduce((sum, row) => sum + row.amount, 0), 2),
+    amount: fromCents(amountCents),
   }
 
   await sendWorkbook(res, `入库明细_${fileStamp()}.xlsx`, {
@@ -141,8 +147,9 @@ const outboundRowsSql = (where) => `
          i.pieces,
          i.bundles,
          i.cubic,
-         i.unit_price,
-         i.amount
+         COALESCE(i.unit_price_cents, ROUND(i.unit_price * 100)) / 100.0 AS unit_price,
+         COALESCE(i.amount_cents,     ROUND(i.amount     * 100))       AS amount_cents,
+         COALESCE(i.amount_cents,     ROUND(i.amount     * 100)) / 100.0 AS amount
     FROM outbound_orders o
     JOIN order_items i ON i.order_id = o.id AND i.order_type = 'out'
    ${where}
@@ -167,16 +174,20 @@ router.get('/outbound', async (req, res) => {
     params.push(String(dateTo))
   }
 
+  let amountCents = 0
   const rows = db
     .prepare(outboundRowsSql(conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''))
     .all(...params)
-    .map((row) => ({
-      ...row,
-      grade: row.grade ?? '',
-      remark: row.remark ?? '',
-      cubic: roundTo(row.cubic, 4),
-      amount: roundTo(row.amount, 2),
-    }))
+    .map((row) => {
+      amountCents += Number(row.amount_cents ?? 0)
+      return {
+        ...row,
+        grade: row.grade ?? '',
+        remark: row.remark ?? '',
+        cubic: roundTo(row.cubic, 4),
+        amount: roundTo(row.amount, 2),
+      }
+    })
 
   const columns = ORDER_ITEM_COLUMNS.map((column) =>
     column.key === 'partner' ? { ...column, header: '客户' } : column,
@@ -184,7 +195,7 @@ router.get('/outbound', async (req, res) => {
   const totals = {
     order_no: '合计',
     cubic: roundTo(rows.reduce((sum, row) => sum + row.cubic, 0), 4),
-    amount: roundTo(rows.reduce((sum, row) => sum + row.amount, 0), 2),
+    amount: fromCents(amountCents),
   }
 
   await sendWorkbook(res, `出库明细_${fileStamp()}.xlsx`, {
@@ -209,7 +220,7 @@ const stockRowsSql = (hasSpeciesFilter) => `
                   THEN i.pieces * i.bundles
                   ELSE -i.pieces * i.bundles END) AS pieces,
          SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) AS cubic,
-         (SELECT s.unit_price
+         (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100))
             FROM order_items s
            WHERE s.order_type = 'in'
              AND COALESCE(s.species, '') = COALESCE(i.species, '')
@@ -218,7 +229,7 @@ const stockRowsSql = (hasSpeciesFilter) => `
              AND s.width     = i.width
              AND s.length    = i.length
            ORDER BY s.id DESC
-           LIMIT 1) AS unit_price
+           LIMIT 1) AS unit_price_cents
     FROM order_items i
    ${hasSpeciesFilter ? `WHERE i.species LIKE ?` : ''}
    GROUP BY i.species, i.grade, i.thickness, i.width, i.length
@@ -230,12 +241,15 @@ router.get('/stock', async (req, res) => {
   const species = String(req.query.species ?? '').trim()
   const params = species ? [`%${species}%`] : []
 
+  let amountCents = 0
   const rows = db
     .prepare(stockRowsSql(Boolean(species)))
     .all(...params)
     .map((row) => {
       const cubic = roundTo(row.cubic, 4)
-      const unitPrice = row.unit_price ?? 0
+      const unitPriceCents = Number(row.unit_price_cents ?? 0)
+      const rowAmountCents = Math.round(cubic * unitPriceCents)
+      amountCents += rowAmountCents
       return {
         species: row.species,
         grade: row.grade ?? '',
@@ -245,8 +259,8 @@ router.get('/stock', async (req, res) => {
         bundles: row.bundles ?? 0,
         pieces: row.pieces ?? 0,
         cubic,
-        unit_price: unitPrice,
-        amount: roundTo(cubic * unitPrice, 2),
+        unit_price: Number((unitPriceCents / 100).toFixed(2)),
+        amount: fromCents(rowAmountCents),
       }
     })
 
@@ -268,7 +282,7 @@ router.get('/stock', async (req, res) => {
     bundles: rows.reduce((sum, row) => sum + row.bundles, 0),
     pieces: rows.reduce((sum, row) => sum + row.pieces, 0),
     cubic: roundTo(rows.reduce((sum, row) => sum + row.cubic, 0), 4),
-    amount: roundTo(rows.reduce((sum, row) => sum + row.amount, 0), 2),
+    amount: fromCents(amountCents),
   }
 
   await sendWorkbook(res, `库存表_${fileStamp()}.xlsx`, {

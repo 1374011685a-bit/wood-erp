@@ -58,6 +58,17 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    to: '/count',
+    label: '盘点',
+    icon: (
+      <>
+        <path d="M9 4.5h6a1 1 0 0 1 1 1v1H8v-1a1 1 0 0 1 1-1z" />
+        <path d="M6.5 6.5h11v12a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2z" />
+        <path d="m9.6 13.4 1.7 1.7 3.4-3.6" />
+      </>
+    ),
+  },
+  {
     to: '/records',
     label: '流水',
     icon: (

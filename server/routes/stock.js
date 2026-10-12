@@ -21,7 +21,7 @@ const stockSql = (hasSpeciesFilter) => `
          SUM(CASE WHEN i.order_type = 'in'
                   THEN i.pieces * i.bundles
                   ELSE -i.pieces * i.bundles END) AS total_pieces,
-         (SELECT s.unit_price
+         (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100)) / 100.0
             FROM order_items s
            WHERE s.order_type = 'in'
              AND COALESCE(s.species, '') = COALESCE(i.species, '')

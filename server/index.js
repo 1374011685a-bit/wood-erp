@@ -57,6 +57,9 @@ const stockRouter = await load('./routes/stock.js', async () =>
 const recordsRouter = await load('./routes/records.js', async () =>
   (await import('./routes/records.js')).default,
 )
+const countRouter = await load('./routes/count.js', async () =>
+  (await import('./routes/count.js')).default,
+)
 
 writeLog('[load] 全部模块加载完成')
 
@@ -112,6 +115,7 @@ app.use('/api/inbound', requireAuth, inboundRouter)
 app.use('/api/outbound', requireAuth, outboundRouter)
 app.use('/api/stock', requireAuth, stockRouter)
 app.use('/api/records', requireAuth, recordsRouter)
+app.use('/api/count', requireAuth, countRouter)
 
 // 生产模式：同时把前端构建产物当静态资源服务（先执行 cd client && pnpm build）
 const clientDist = path.join(serverDir, '..', 'client', 'dist')

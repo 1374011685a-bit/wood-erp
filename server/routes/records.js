@@ -33,8 +33,8 @@ const listSql = (where) => `
          i.pieces,
          i.bundles,
          i.cubic,
-         i.unit_price,
-         i.amount
+         COALESCE(i.unit_price_cents, ROUND(i.unit_price * 100)) / 100.0 AS unit_price,
+         COALESCE(i.amount_cents,     ROUND(i.amount     * 100)) / 100.0 AS amount
   ${baseFrom}
   ${where}
   ORDER BY i.created_at DESC, i.id DESC

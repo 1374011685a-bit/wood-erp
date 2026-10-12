@@ -1,6 +1,6 @@
 import express from 'express'
 import { db } from '../db.js'
-import { calcCubic, calcAmount } from '../utils/cubic.js'
+import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
 
 const router = express.Router()
@@ -127,7 +127,6 @@ function normalizeItems(items) {
     const spec = specOf(item)
     const pieces = optionalNumber(item.pieces, 1)
     const bundles = optionalNumber(item.bundles, 1)
-    const unitPrice = toNumber(item.unit_price)
     const cubic = calcCubic(
       spec.thickness,
       spec.width,
@@ -135,14 +134,19 @@ function normalizeItems(items) {
       pieces,
       bundles,
     )
+    // 金额一律走整数分，避免浮点累加误差；unit_price / amount 只是显示镜像
+    const unitPriceCents = toCents(item.unit_price)
+    const amountCents = calcAmountCents(cubic, unitPriceCents)
 
     return {
       ...spec,
       pieces,
       bundles,
       cubic,
-      unit_price: unitPrice,
-      amount: calcAmount(cubic, unitPrice),
+      unit_price: fromCents(unitPriceCents),
+      amount: fromCents(amountCents),
+      unit_price_cents: unitPriceCents,
+      amount_cents: amountCents,
     }
   })
 }
@@ -229,10 +233,10 @@ const insertOrder = db.prepare(
 const insertItem = db.prepare(
   `INSERT INTO order_items
      (order_id, order_type, species, grade, thickness, width, length,
-      pieces, bundles, cubic, unit_price, amount)
+      pieces, bundles, cubic, unit_price, amount, unit_price_cents, amount_cents)
    VALUES
      (@order_id, 'out', @species, @grade, @thickness, @width, @length,
-      @pieces, @bundles, @cubic, @unit_price, @amount)`,
+      @pieces, @bundles, @cubic, @unit_price, @amount, @unit_price_cents, @amount_cents)`,
 )
 
 // 事务：库存校验与写入放在同一事务里，避免并发超卖
@@ -335,7 +339,8 @@ router.get('/', (req, res) => {
               o.customer,
               o.order_date,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
-              ROUND(COALESCE(SUM(i.amount), 0), 2) AS total_amount,
+              ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
+                                                   AS total_amount,
               COUNT(i.id)                          AS item_count
          FROM outbound_orders o
          LEFT JOIN order_items i
@@ -368,15 +373,23 @@ router.get('/:id', (req, res) => {
     )
     .all(id)
 
+  // 金额按整数分累加，最后一次性换算成元
   const totals = items.reduce(
     (acc, item) => ({
       total_cubic: roundTo(acc.total_cubic + (item.cubic ?? 0), 4),
-      total_amount: roundTo(acc.total_amount + (item.amount ?? 0), 2),
+      amountCents:
+        acc.amountCents +
+        Number(item.amount_cents ?? Math.round((item.amount ?? 0) * 100)),
     }),
-    { total_cubic: 0, total_amount: 0 },
+    { total_cubic: 0, amountCents: 0 },
   )
 
-  res.json({ ...order, ...totals, items })
+  res.json({
+    ...order,
+    total_cubic: totals.total_cubic,
+    total_amount: fromCents(totals.amountCents),
+    items,
+  })
 })
 
 /* ---------- 删除 ---------- */

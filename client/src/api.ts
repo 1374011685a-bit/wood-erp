@@ -348,6 +348,90 @@ export function fetchStockList(species = '') {
   return request<StockRow[]>(`/api/stock${search ? `?${search}` : ''}`)
 }
 
+/* ---------- 盘点 ---------- */
+
+export type CountListRow = {
+  id: number
+  count_no: string
+  count_date: string | null
+  remark: string | null
+  item_count: number
+  diff_cubic: number
+  in_order_no: string | null
+  out_order_no: string | null
+  created_at: string
+}
+
+export type CountDetailItem = {
+  id: number
+  count_id: number
+  species: string | null
+  grade: string | null
+  thickness: number
+  width: number
+  length: number
+  pieces: number
+  book_bundles: number
+  book_cubic: number
+  actual_bundles: number
+  diff_bundles: number
+  diff_cubic: number
+  unit_price: number
+  created_at: string
+}
+
+export type CountDetail = CountListRow & { items: CountDetailItem[] }
+
+export type CountLinePayload = {
+  species: string
+  grade: string
+  thickness: number
+  width: number
+  length: number
+  pieces: number
+  actual_bundles: number
+  unit_price: number
+}
+
+export type CreateCountPayload = {
+  count_date: string
+  remark?: string
+  items: CountLinePayload[]
+}
+
+export type CreateCountResult = {
+  id: number
+  count_no: string
+  item_count: number
+  diff_cubic: number
+  in_order_no: string | null
+  out_order_no: string | null
+}
+
+// 盘点单列表
+export function fetchCountList() {
+  return request<CountListRow[]>('/api/count')
+}
+
+// 盘点单详情（含账面 / 实盘 / 差异明细）
+export function fetchCountDetail(id: number) {
+  return request<CountDetail>(`/api/count/${id}`)
+}
+
+// 新增盘点单：盘盈生成入库单、盘亏生成出库单，由服务端算差异
+export function createCount(payload: CreateCountPayload) {
+  return request<CreateCountResult>('/api/count', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+// 撤销盘点单（连带删掉它生成的盘盈 / 盘亏单）
+export function deleteCount(id: number) {
+  return request<{ ok: true }>(`/api/count/${id}`, { method: 'DELETE' })
+}
+
 /* ---------- 首页 ---------- */
 
 export type HomeRecord = {

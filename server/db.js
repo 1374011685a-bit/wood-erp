@@ -445,6 +445,55 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_order_items_order
     ON order_items (order_type, order_id);
 
+  -- 库存归组（品名+等级+尺寸）与「取该规格最近入库单价」的子查询共用这一组列
+  CREATE INDEX IF NOT EXISTS idx_items_spec
+    ON order_items (order_type, species, grade, thickness, width, length, id);
+
+  -- 流水按时间倒序翻页
+  CREATE INDEX IF NOT EXISTS idx_items_created
+    ON order_items (created_at, id);
+
+  -- 单据按日期筛选、按创建时间排序
+  CREATE INDEX IF NOT EXISTS idx_inbound_date    ON inbound_orders  (order_date);
+  CREATE INDEX IF NOT EXISTS idx_outbound_date   ON outbound_orders (order_date);
+  CREATE INDEX IF NOT EXISTS idx_inbound_created ON inbound_orders  (created_at);
+  CREATE INDEX IF NOT EXISTS idx_outbound_created ON outbound_orders (created_at);
+
+  -- 盘点单头
+  CREATE TABLE IF NOT EXISTS stock_counts (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    count_no     TEXT    NOT NULL UNIQUE,
+    count_date   TEXT,
+    remark       TEXT,
+    item_count   INTEGER NOT NULL DEFAULT 0,
+    diff_cubic   REAL    NOT NULL DEFAULT 0,
+    in_order_no  TEXT,
+    out_order_no TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  -- 盘点明细：账面 / 实盘 / 差异，留档可追溯
+  CREATE TABLE IF NOT EXISTS stock_count_items (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    count_id         INTEGER NOT NULL,
+    species          TEXT,
+    grade            TEXT,
+    thickness        REAL,
+    width            REAL,
+    length           REAL,
+    pieces           REAL,
+    book_bundles     INTEGER NOT NULL DEFAULT 0,
+    book_cubic       REAL    NOT NULL DEFAULT 0,
+    actual_bundles   INTEGER NOT NULL DEFAULT 0,
+    diff_bundles     INTEGER NOT NULL DEFAULT 0,
+    diff_cubic       REAL    NOT NULL DEFAULT 0,
+    unit_price       REAL    NOT NULL DEFAULT 0,
+    unit_price_cents INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_count_items_count ON stock_count_items (count_id);
+
   -- 系统用户（只做登录认证，暂无角色权限）
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -455,6 +504,45 @@ const schema = `
 `
 
 const DEFAULT_ADMIN = { username: 'admin', password: 'admin123' }
+
+/** 表里有没有这一列（给可重复执行的加列迁移用） */
+function hasColumn(table, column) {
+  return db
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .some((row) => row.name === column)
+}
+
+function addColumnIfMissing(table, column, definition) {
+  if (hasColumn(table, column)) return false
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  writeLog(`[db] 迁移：${table} 新增列 ${column} ${definition}`)
+  return true
+}
+
+/**
+ * 金额改为「整数分」。
+ *
+ * 浮点金额在按客户/规格做汇总核对时会累积误差（0.1 + 0.2 那类问题），所以新增
+ * unit_price_cents / amount_cents 整数列作为金额的唯一真相：写入时算分、汇总时
+ * 把分相加，只在接口输出时除以 100。老的 unit_price / amount 保留为显示镜像，
+ * 写入时一起维护，读的地方不用全部改写。
+ */
+function migrateMoneyToCents() {
+  const addedPrice = addColumnIfMissing('order_items', 'unit_price_cents', 'INTEGER')
+  const addedAmount = addColumnIfMissing('order_items', 'amount_cents', 'INTEGER')
+  if (!addedPrice && !addedAmount) return
+
+  const result = db
+    .prepare(
+      `UPDATE order_items
+          SET unit_price_cents = CAST(ROUND(COALESCE(unit_price, 0) * 100) AS INTEGER),
+              amount_cents     = CAST(ROUND(COALESCE(amount, 0) * 100) AS INTEGER)
+        WHERE unit_price_cents IS NULL OR amount_cents IS NULL`,
+    )
+    .run()
+  writeLog(`[db] 迁移：金额转整数分，已回填 ${result.changes} 行`)
+}
 
 // 首次初始化时建一个默认管理员（表非空则跳过）
 function seedDefaultAdmin() {
@@ -520,6 +608,7 @@ function warnIfSuspiciouslyEmpty() {
 export function initDB() {
   writeLog('[db] … initDB 开始建表')
   db.exec(schema)
+  migrateMoneyToCents()
   seedDefaultAdmin()
   warnIfSuspiciouslyEmpty()
   writeLog('[db] ✓ initDB 完成')

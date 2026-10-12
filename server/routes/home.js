@@ -24,14 +24,14 @@ const totalStockStmt = db.prepare(
 const dailyStmt = {
   in: db.prepare(
     `SELECT COALESCE(SUM(i.cubic), 0)  AS cubic,
-            COALESCE(SUM(i.amount), 0) AS amount
+            COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0 AS amount
        FROM order_items i
        JOIN inbound_orders o ON o.id = i.order_id
       WHERE i.order_type = 'in' AND o.order_date = ?`,
   ),
   out: db.prepare(
     `SELECT COALESCE(SUM(i.cubic), 0)  AS cubic,
-            COALESCE(SUM(i.amount), 0) AS amount
+            COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0 AS amount
        FROM order_items i
        JOIN outbound_orders o ON o.id = i.order_id
       WHERE i.order_type = 'out' AND o.order_date = ?`,
@@ -43,10 +43,10 @@ const dailyStmt = {
  * 每个有库存的规格取「当前立方 × 该规格最近一次入库单价」，再全部相加
  */
 const stockAmountStmt = db.prepare(
-  `SELECT ROUND(COALESCE(SUM(t.cubic * COALESCE(t.last_unit_price, 0)), 0), 2) AS amount
+  `SELECT COALESCE(SUM(ROUND(t.cubic * COALESCE(t.last_unit_price_cents, 0))), 0) / 100.0 AS amount
      FROM (
        SELECT SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) AS cubic,
-              (SELECT s.unit_price
+              (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100))
                  FROM order_items s
                 WHERE s.order_type = 'in'
                   AND COALESCE(s.species, '') = COALESCE(i.species, '')
@@ -55,7 +55,7 @@ const stockAmountStmt = db.prepare(
                   AND s.width     = i.width
                   AND s.length    = i.length
                 ORDER BY s.id DESC
-                LIMIT 1) AS last_unit_price
+                LIMIT 1) AS last_unit_price_cents
          FROM order_items i
         GROUP BY i.species, i.grade, i.thickness, i.width, i.length
        HAVING SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) > 0
@@ -73,7 +73,8 @@ const recentStmt = db.prepare(
               o.order_date,
               o.created_at,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
-              ROUND(COALESCE(SUM(i.amount), 0), 2) AS total_amount,
+              ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
+                                                   AS total_amount,
               COUNT(i.id)                          AS item_count
          FROM inbound_orders o
          LEFT JOIN order_items i ON i.order_id = o.id AND i.order_type = 'in'
@@ -87,7 +88,8 @@ const recentStmt = db.prepare(
               o.order_date,
               o.created_at,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
-              ROUND(COALESCE(SUM(i.amount), 0), 2) AS total_amount,
+              ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
+                                                   AS total_amount,
               COUNT(i.id)                          AS item_count
          FROM outbound_orders o
          LEFT JOIN order_items i ON i.order_id = o.id AND i.order_type = 'out'
