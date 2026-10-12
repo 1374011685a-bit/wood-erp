@@ -617,6 +617,29 @@ export type HomeComposition = {
   share: number
 }
 
+export type HomeCompare = {
+  cubic: number
+  amount: number
+  prev_cubic: number
+  prev_amount: number
+  yoy_cubic: number
+  yoy_amount: number
+  /** 基数为 0 时是 null，前端显示「—」 */
+  mom_percent: number | null
+  yoy_percent: number | null
+  mom_amount_percent: number | null
+  yoy_amount_percent: number | null
+}
+
+export type HomeArrival = {
+  order_no: string
+  order_date: string | null
+  supplier: string | null
+  cubic: number
+  amount: number
+  days_ago: number | null
+}
+
 export type HomeSummary = {
   total_stock_cubic: number
   total_stock_bundles: number
@@ -627,6 +650,22 @@ export type HomeSummary = {
   payable_total: number
   trend: HomeTrendDay[]
   composition: HomeComposition[]
+  composition_dimension: HomeCompositionDimension
+  compare: {
+    days: number
+    dimension: HomeCompositionDimension
+    period: { from: string; to: string }
+    prev: { from: string; to: string }
+    yoy: { from: string; to: string }
+    in: HomeCompare
+    out: HomeCompare
+  }
+  daily_out_cubic: number
+  outbound_30d_cubic: number
+  sold_days: number
+  days_of_supply: number | null
+  recent_arrival: HomeArrival | null
+  arrival_batches_365: number
   today_in_cubic: number
   today_in_amount: number
   today_out_cubic: number
@@ -634,9 +673,22 @@ export type HomeSummary = {
   recent_records: HomeRecord[]
 }
 
-// 首页汇总（库存、应收应付、近 14 天走势、库存构成、最近 10 条流水）
-export function fetchHomeSummary() {
-  return request<HomeSummary>('/api/home/summary')
+export type HomeCompositionDimension = 'spec' | 'species' | 'grade'
+
+export type HomeSummaryQuery = {
+  /** 走势周期：7 / 14 / 30 天 */
+  days?: 7 | 14 | 30
+  /** 库存构成维度：规格 / 品名 / 等级 */
+  dimension?: HomeCompositionDimension
+}
+
+// 首页汇总（库存、出货速度、应收应付、走势、构成、最近流水）
+export function fetchHomeSummary(query: HomeSummaryQuery = {}) {
+  const search = new URLSearchParams()
+  if (query.days) search.set('days', String(query.days))
+  if (query.dimension) search.set('dimension', query.dimension)
+  const qs = search.toString()
+  return request<HomeSummary>(`/api/home/summary${qs ? `?${qs}` : ''}`)
 }
 
 /* ---------- 流水 ---------- */

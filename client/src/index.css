@@ -802,6 +802,104 @@ input[inputmode='decimal'] {
   color: #a15c00;
 }
 
+/* 「还能卖多久」胶囊：源头进口商最关心的一个数，给它单独的位置 */
+.hero-chip {
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  background-color: rgba(10, 132, 255, 0.12);
+  color: #0a5fbf;
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.hero-note {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 最近到货：进货是一次一大批，用「批次」的讲法，不跟出货比走势 */
+.arrival {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.arrival-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.arrival-title {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+}
+
+.arrival-count {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.arrival-main {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.arrival-cubic {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.arrival-amount {
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.arrival-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  flex-wrap: wrap;
+}
+
+.arrival-empty {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.delta-chip {
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.delta-chip.is-up {
+  background-color: rgba(48, 209, 88, 0.14);
+  color: #1c7c3a;
+}
+
+.delta-chip.is-down {
+  background-color: rgba(255, 149, 0, 0.16);
+  color: #a15c00;
+}
+
 /* 大号数字：苹果那种「大而轻」的观感，靠字距收紧压住体量 */
 .hero-value {
   margin-top: 10px;
@@ -843,14 +941,68 @@ input[inputmode='decimal'] {
   background-color: var(--line-strong);
 }
 
-/* 走势柱：每格两根细柱（入库绿 / 出库橙） */
+/* 卡片头：标题 + 右侧切换控件，沿用 section-title 的观感但不带分隔线 */
+.card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.card-head .section-title {
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+/* 小号分段控件：周期切换 / 构成维度切换 */
+.segmented.is-sm {
+  padding: 2px;
+  border-radius: 9px;
+}
+
+.segmented.is-sm .segmented-item {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 7px;
+  font-size: 12.5px;
+}
+
+.chart-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.chart-figure b {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.trend-foot-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 走势：只画出库，进货当天在柱子上方点一个绿方块 */
 .trend {
   display: flex;
-  /* 必须 stretch：每天那一格要撑满 84px，柱子里的百分比高度才有参照 */
+  /* 必须 stretch：每一格要撑满高度，柱子里的百分比高度才有参照 */
   align-items: stretch;
   gap: 4px;
-  height: 84px;
-  margin-top: 18px;
+  height: 96px;
   padding-bottom: 1px;
   border-bottom: 1px solid var(--line);
 }
@@ -859,15 +1011,30 @@ input[inputmode='decimal'] {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: flex-end;
-  justify-content: center;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.arrival-flag {
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  margin: 0 auto;
+  border-radius: 2px;
+  background-color: transparent;
+}
+
+.arrival-flag.is-on {
+  background-color: #30d158;
+  animation: tab-in 0.32s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .trend-bars {
   display: flex;
   align-items: flex-end;
   gap: 3px;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   width: 100%;
   justify-content: center;
 }
@@ -878,10 +1045,6 @@ input[inputmode='decimal'] {
   transform-origin: bottom;
   animation: bar-rise 0.5s cubic-bezier(0.32, 0.72, 0, 1);
   transition: opacity var(--ease);
-}
-
-.trend-bar.is-in {
-  background-color: #30d158;
 }
 
 .trend-bar.is-out {
@@ -928,12 +1091,17 @@ input[inputmode='decimal'] {
   background-color: #30d158;
 }
 
+.trend-dot.is-arrival {
+  background-color: #30d158;
+  border-radius: 2px;
+}
+
 .trend-dot.is-out {
   background-color: #ff9f0a;
 }
 
 .trend-range {
-  margin-left: auto;
+  margin: 0 auto;
 }
 
 /* 侧栏小卡片 */
