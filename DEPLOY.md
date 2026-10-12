@@ -176,3 +176,42 @@ pnpm run dev          # 前端 http://localhost:5173，后端 http://localhost:3
 | `JWT_SECRET` | 是 | 写在 `server/.env`（已被 gitignore） | Variables 里配置 | JWT 签名密钥，≥32 位随机串 |
 | `PORT` | 否 | 3001 | 不用配，Railway 自动注入 | 服务监听端口 |
 | `DATA_DIR` | 否 | 不配时落在 `server/`（沿用 `server/data.db`） | `/data` | 数据库目录，配了会自动建目录 |
+
+---
+
+## 附：Docker 镜像（推到 GitHub 后自动构建）
+
+仓库根目录有 `Dockerfile`（多阶段构建：build 阶段装依赖 + 构建前端，runtime 阶段只留生产依赖）
+和 `.github/workflows/docker.yml`（push 到 `main` 自动构建）。推上去之后镜像地址是：
+
+```
+ghcr.io/1374011685a-bit/wood-erp:latest
+```
+
+**第一次推送后还需要做一件事**：GHCR 的 package 默认是私有的，必须手动改成公开，
+否则 Sealos 这类平台拉取会报 401（仓库是 public 不代表镜像 package 是 public）：
+
+> GitHub → 右上角头像 → **Your profile** → **Packages** → `wood-erp` →
+> 右侧 **Package settings** → 拉到底 **Danger Zone** → **Change visibility** → 选 **Public**
+
+镜像里的约定：
+
+| 项 | 值 |
+| --- | --- |
+| 端口 | `3001`（可用 `-e PORT=` 覆盖，平台一般会自己注入） |
+| 数据库目录 | `/data`（**必须挂卷**，否则容器删了数据就没了） |
+| `JWT_SECRET` | 没有默认值，必须通过环境变量传入，否则容器启动即退出 |
+
+本地构建并运行镜像：
+
+```bash
+docker build -t wood-erp .
+
+docker run -d --name wood-erp -p 3001:3001 \
+  -e JWT_SECRET=<32位以上随机串> \
+  -e DATA_DIR=/data \
+  -v wood-erp-data:/data \
+  wood-erp
+
+# 打开 http://localhost:3001，用 admin / admin123 登录后立刻改密码
+```
