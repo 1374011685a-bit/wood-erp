@@ -1,3 +1,5 @@
+// ⚠️ 这一行必须保持在所有 import 的最前面：boot-log 会先同步打一行 [boot] 日志并挂兜底处理器
+import { writeStderr } from './boot-log.js'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -16,33 +18,10 @@ import recordsRouter from './routes/records.js'
 
 const app = express()
 
-/**
- * 容器里日志走管道，stdout/stderr 是异步写入的，
- * process.exit() 会把没 flush 的内容丢掉（这就是「崩溃但日志空白」的原因），
- * 所以启动期的错误一律用同步写。
- */
-function writeStderr(message) {
-  try {
-    fs.writeSync(2, `${message}\n`)
-  } catch {
-    // 写不出去就只能放弃了
-  }
-}
-
 function fatal(message) {
   writeStderr(`[启动失败] ${message}`)
   process.exit(1)
 }
-
-process.on('uncaughtException', (err) => {
-  writeStderr(`[启动失败] 未捕获异常：${err?.stack ?? err}`)
-  process.exit(1)
-})
-
-process.on('unhandledRejection', (reason) => {
-  writeStderr(`[启动失败] 未处理的 Promise 异常：${reason?.stack ?? reason}`)
-  process.exit(1)
-})
 
 // 无论从哪个目录启动，都读 server/.env
 const serverDir = path.dirname(fileURLToPath(import.meta.url))
@@ -109,8 +88,16 @@ app.use((req, res, next) => {
   })
 })
 
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`[server] 已启动，监听 ${HOST}:${PORT}`)
   console.log(`[server] 数据库：${dbPath}`)
   console.log(`[server] 前端静态目录：${clientDist}`)
+})
+
+// 监听失败（端口被占用等）不会走进 console，必须显式兜住，否则只能看到容器退出
+server.on('error', (err) => {
+  if (err?.code === 'EADDRINUSE') {
+    fatal(`端口 ${PORT} 已被占用：请修改 PORT 环境变量或停掉占用它的进程`)
+  }
+  fatal(`服务监听失败（${HOST}:${PORT}）：${err?.message ?? err}`)
 })

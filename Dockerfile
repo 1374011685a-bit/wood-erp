@@ -46,4 +46,7 @@ COPY --from=build /app/client/dist ./client/dist
 
 EXPOSE 3001
 
-CMD ["node", "server/index.js"]
+# 容器级兜底日志 + stderr 合并到 stdout + 保留真实退出码。
+# 这行 echo 在任何 JS 之前执行：即使 Node 因为模块解析失败之类的原因一行都打不出来，
+# Sealos 日志页也一定会看到「容器启动了」和「崩溃时的退出码」。
+CMD echo "[boot] 容器启动，node=$(node -v)，工作目录=$(pwd)"; node server/index.js 2>&1; code=$?; if [ $code -ne 0 ]; then echo "=== 容器崩溃，退出码 $code ==="; fi; exit $code
