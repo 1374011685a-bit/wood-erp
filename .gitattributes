@@ -1,0 +1,8 @@
+# 统一换行符：Windows 上 core.autocrlf=true 会把文件转成 CRLF，
+# 而带 CRLF 的 Dockerfile 在 docker build 时会报 "\r not found"（RUN 行结尾多了 \r）
+* text=auto
+
+Dockerfile text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
