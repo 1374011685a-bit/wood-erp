@@ -160,6 +160,82 @@ input[inputmode='decimal'] {
   gap: 4px;
 }
 
+/* ---------- 侧边栏功能分类 ---------- */
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.nav-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 8px;
+  background-color: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  letter-spacing: var(--track-caps);
+  cursor: pointer;
+  transition: background-color var(--ease), color var(--ease);
+}
+
+.nav-group-head:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--text-2);
+}
+
+.nav-group-chevron {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  /* 苹果的展开箭头：0.32/0.72 那条「快出缓停」曲线 */
+  transition: transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.nav-group.is-open .nav-group-chevron {
+  transform: rotate(90deg);
+}
+
+/* 0fr → 1fr 的高度展开，不用测量高度也能平滑 */
+.nav-group-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.nav-group.is-open .nav-group-body {
+  grid-template-rows: 1fr;
+}
+
+.nav-group-inner {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.22s ease-out, transform 0.34s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.nav-group.is-open .nav-group-inner {
+  opacity: 1;
+  transform: none;
+  padding-top: 2px;
+  padding-bottom: 6px;
+}
+
+.nav-group .nav-item {
+  padding-left: 16px;
+}
+
 .nav-item {
   display: flex;
   align-items: center;
@@ -417,6 +493,19 @@ input[inputmode='decimal'] {
   color: var(--text-2);
   transition: background-color var(--ease), color var(--ease),
     border-color var(--ease), box-shadow var(--ease);
+  /* 新开的标签轻微放大淡入 */
+  animation: tab-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@keyframes tab-in {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .tab-item:hover {

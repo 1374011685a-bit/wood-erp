@@ -17,14 +17,29 @@ type NavItem = {
   icon: ReactNode
 }
 
-const navItems: NavItem[] = [
+/** 首页独立放最上面，不归到任何分类里 */
+const homeItem: NavItem = {
+  to: '/',
+  label: '首页',
+  end: true,
+  icon: <path d="M3 10.6 12 3l9 7.6V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1z" />,
+}
+
+type NavGroup = {
+  key: string
+  label: string
+  hint: string
+  items: NavItem[]
+}
+
+/** 按业务归类：点分组标题可以展开 / 收起 */
+const navGroups: NavGroup[] = [
   {
-    to: '/',
-    label: '首页',
-    end: true,
-    icon: <path d="M3 10.6 12 3l9 7.6V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1z" />,
-  },
-  {
+    key: 'purchase',
+    label: '采购',
+    hint: '向供应商进货',
+    items: [
+      {
     to: '/inbound',
     label: '入库',
     icon: (
@@ -34,8 +49,15 @@ const navItems: NavItem[] = [
         <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
       </>
     ),
+      },
+    ],
   },
   {
+    key: 'sale',
+    label: '销售',
+    hint: '发货给客户',
+    items: [
+      {
     to: '/outbound',
     label: '出库',
     icon: (
@@ -45,8 +67,15 @@ const navItems: NavItem[] = [
         <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
       </>
     ),
+      },
+    ],
   },
   {
+    key: 'stock',
+    label: '仓库',
+    hint: '库存与盘点',
+    items: [
+      {
     to: '/stock',
     label: '库存',
     icon: (
@@ -56,8 +85,8 @@ const navItems: NavItem[] = [
         <path d="M12 12v9" />
       </>
     ),
-  },
-  {
+      },
+      {
     to: '/count',
     label: '盘点',
     icon: (
@@ -67,8 +96,8 @@ const navItems: NavItem[] = [
         <path d="m9.6 13.4 1.7 1.7 3.4-3.6" />
       </>
     ),
-  },
-  {
+      },
+      {
     to: '/records',
     label: '流水',
     icon: (
@@ -77,8 +106,15 @@ const navItems: NavItem[] = [
         <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
       </>
     ),
+      },
+    ],
   },
   {
+    key: 'finance',
+    label: '财务',
+    hint: '应收应付与对账',
+    items: [
+      {
     to: '/settlement',
     label: '对账',
     icon: (
@@ -90,8 +126,15 @@ const navItems: NavItem[] = [
         <path d="M9.9 15.9h4.2M9.9 17.3h4.2" />
       </>
     ),
+      },
+    ],
   },
   {
+    key: 'system',
+    label: '系统',
+    hint: '已删除的单据',
+    items: [
+      {
     to: '/recycle',
     label: '回收站',
     icon: (
@@ -102,8 +145,12 @@ const navItems: NavItem[] = [
         <path d="M10.2 10.5v6M13.8 10.5v6" />
       </>
     ),
+      },
+    ],
   },
 ]
+
+const navItems: NavItem[] = [homeItem, ...navGroups.flatMap((group) => group.items)]
 
 /** 路由 → 标签名（和左侧菜单同名） */
 function labelOf(path: string) {
@@ -117,8 +164,10 @@ export default function Layout() {
   const location = useLocation()
   // 打开的功能标签（点一个功能就像开一个网页，可以来回切、可以关）
   const [tabs, setTabs] = useState<{ path: string; label: string }[]>(() => [
-    { path: location.pathname, label: labelOf(location.pathname) },
-  ])
+    location.pathname === '/'
+      ? null
+      : { path: location.pathname, label: labelOf(location.pathname) },
+  ].filter(Boolean) as { path: string; label: string }[])
   // RequireAuth 校验通过后会把用户名写进 localStorage，这里读一次即可
   const [username] = useState(() => getStoredUsername())
   const [passwordOpen, setPasswordOpen] = useState(false)
@@ -131,6 +180,10 @@ export default function Layout() {
   const [menuOpen, setMenuOpen] = useState(false)
   const accountRef = useRef<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  // 分组默认全展开，点标题可以收起；切到某个功能时会自动把它所在的分组展开
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(navGroups.map((group) => [group.key, true])),
+  )
 
   // 点击空白处收起账号菜单（苹果的菜单行为）
   useEffect(() => {
@@ -149,8 +202,9 @@ export default function Layout() {
   useEscapeKey(menuOpen, () => setMenuOpen(false))
   useEscapeKey(passwordOpen, () => setPasswordOpen(false))
 
-  // 切到没打开过的功能就补一个标签
+  // 切到没打开过的功能就补一个标签（首页不做索引）
   useEffect(() => {
+    if (location.pathname === '/') return
     setTabs((prev) =>
       prev.some((tab) => tab.path === location.pathname)
         ? prev
@@ -158,16 +212,28 @@ export default function Layout() {
     )
   }, [location.pathname])
 
+  // 当前功能所在的分组要是被收起了，进来时自动展开
+  useEffect(() => {
+    const group = navGroups.find((item) =>
+      item.items.some((entry) => entry.to === location.pathname),
+    )
+    if (!group) return
+    setOpenGroups((prev) => (prev[group.key] ? prev : { ...prev, [group.key]: true }))
+  }, [location.pathname])
+
   // 关标签：关掉当前页就切到左边那个（没有就切到第一个）
   const closeTab = (path: string) => {
     const next = tabs.filter((tab) => tab.path !== path)
-    const safe = next.length > 0 ? next : [{ path: '/', label: '首页' }]
-    setTabs(safe)
+    setTabs(next)
 
     if (path === location.pathname) {
+      if (next.length === 0) {
+        navigate('/')
+        return
+      }
       const index = tabs.findIndex((tab) => tab.path === path)
-      const fallback = safe[Math.max(0, Math.min(index - 1, safe.length - 1))] ?? safe[0]
-      navigate(fallback.path)
+      const target = next[Math.min(Math.max(index - 1, 0), next.length - 1)] ?? next[0]
+      navigate(target.path)
     }
   }
 
@@ -245,30 +311,86 @@ export default function Layout() {
       <aside className="sidebar">
         <div className="sidebar-brand">立川木业木材管理系统</div>
         <nav className="sidebar-nav">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                isActive ? 'nav-item nav-item-active' : 'nav-item'
-              }
+          {/* 首页独立，不归到任何分类里 */}
+          <NavLink
+            to={homeItem.to}
+            end={homeItem.end}
+            className={({ isActive }) =>
+              isActive ? 'nav-item nav-item-active' : 'nav-item'
+            }
+          >
+            <svg
+              className="nav-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
             >
-              <svg
-                className="nav-icon"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                {item.icon}
-              </svg>
-              <span>{item.label}</span>
-            </NavLink>
-          ))}
+              {homeItem.icon}
+            </svg>
+            <span>{homeItem.label}</span>
+          </NavLink>
+
+          {navGroups.map((group) => {
+            const open = Boolean(openGroups[group.key])
+            return (
+              <div key={group.key} className={open ? 'nav-group is-open' : 'nav-group'}>
+                <button
+                  type="button"
+                  className="nav-group-head"
+                  aria-expanded={open}
+                  title={group.hint}
+                  onClick={() =>
+                    setOpenGroups((prev) => ({ ...prev, [group.key]: !prev[group.key] }))
+                  }
+                >
+                  <span className="nav-group-label">{group.label}</span>
+                  <svg className="nav-group-chevron" viewBox="0 0 8 8" aria-hidden="true">
+                    <path
+                      d="M2.6 1.4 5.4 4l-2.8 2.6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+
+                <div className="nav-group-body">
+                  <div className="nav-group-inner">
+                    {group.items.map((item) => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        end={item.end}
+                        className={({ isActive }) =>
+                          isActive ? 'nav-item nav-item-active' : 'nav-item'
+                        }
+                      >
+                        <svg
+                          className="nav-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          {item.icon}
+                        </svg>
+                        <span>{item.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </nav>
       </aside>
       <main className="content">
@@ -361,7 +483,8 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* 功能索引：点开过的功能都在这里，像浏览器标签一样切换 */}
+        {/* 功能索引：点开过的功能都在这里，像浏览器标签一样切换（首页不做索引） */}
+        {tabs.length > 0 && (
         <nav className="tabbar" aria-label="已打开的功能">
           {tabs.map((tab) => (
             <div
@@ -388,6 +511,7 @@ export default function Layout() {
             </div>
           ))}
         </nav>
+        )}
 
         <Outlet />
       </main>
