@@ -3,8 +3,8 @@
 #   阶段 1 build   ：装依赖 + 构建前端，产出 client/dist
 #   阶段 2 runtime ：只留生产依赖，Node 同时提供 API 和前端静态文件
 #
-# 基础镜像用 Debian 系（slim）而不是 alpine：better-sqlite3 自带 glibc 预编译产物，
-# Debian 上直接命中，行为更可预期。
+# 数据库用 sql.js（纯 JS + WebAssembly），没有原生模块，任何基础镜像都能跑；
+# 这里用 Debian 系（slim），行为更可预期。
 # 数据库文件放在 DATA_DIR（容器里默认 /data），记得挂卷。
 # ============================================================
 
@@ -46,7 +46,7 @@ RUN npm install -g pnpm@10 && mkdir -p /data
 # 基础镜像自检：node 能不能跑
 RUN node -e "console.log('node works, version:', process.version)"
 
-# 只装 server 的生产依赖（better-sqlite3 自带预编译产物，不需要编译器）
+# 只装 server 的生产依赖（sql.js 是纯 JS + WebAssembly，不需要编译器和预编译产物）
 COPY package.json ./
 COPY server/package.json server/pnpm-lock.yaml ./server/
 RUN cd server && pnpm install --prod --frozen-lockfile
@@ -56,10 +56,12 @@ COPY server ./server
 COPY --from=build /app/client/dist ./client/dist
 
 # 镜像自检：这几个文件缺任何一个都让构建直接失败，并在日志里打印出来
+# sql.js 的 wasm 必须存在，否则运行时会起不来
 RUN ls -la /app/server/index.js /app/server/boot-log.js /app/server/db.js \
  && ls -la /app/client/dist/index.html \
  && ls -la /app/server/node_modules/express/package.json \
- && ls -la /app/server/node_modules/better-sqlite3/package.json
+ && ls -la /app/server/node_modules/sql.js/package.json \
+ && ls -la /app/server/node_modules/sql.js/dist/sql-wasm.wasm
 
 EXPOSE 3001
 

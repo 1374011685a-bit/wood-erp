@@ -29,7 +29,7 @@ const { fileURLToPath } = await load('node:url', () => import('node:url'))
 const dotenv = await load('dotenv', async () => (await import('dotenv')).default)
 const express = await load('express', async () => (await import('express')).default)
 
-// 数据库模块（内部还会打 better-sqlite3 原生绑定是否加载成功）
+// 数据库模块（内部会打 sql.js 初始化、落盘等日志）
 const { dbPath, initDB } = await load('./db.js', () => import('./db.js'))
 
 // 中间件与各业务路由

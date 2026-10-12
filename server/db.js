@@ -1,11 +1,13 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import bcrypt from 'bcryptjs'
 import { writeLog } from './boot-log.js'
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url))
+const require = createRequire(import.meta.url)
 
 // 数据库文件在模块加载时就要定位，所以这里先把 server/.env 读进来（幂等）
 dotenv.config({ path: path.join(serverDir, '.env'), quiet: true })
@@ -13,10 +15,9 @@ dotenv.config({ path: path.join(serverDir, '.env'), quiet: true })
 /**
  * 数据库目录：
  * - 生产（Railway / Sealos）用 DATA_DIR=/data 指向挂载卷
- * - 本地不配 DATA_DIR 时仍落在 server/，沿用现有的 server/data.db，不会丢数据
+ * - 本地不配 DATA_DIR 时仍落在 server/，沿用现有的 server/data.db
  *
- * 目录不存在会自动创建；万一 DATA_DIR 不可写（卷没挂上、只读、权限不足），
- * 自动回退到 server 目录并打警告，保证容器不会因为一个目录就起不来。
+ * 目录不存在会自动创建；不可写（只读卷、权限不足）时自动回退到 server 目录。
  */
 function resolveDataDir() {
   const configured = process.env.DATA_DIR
@@ -45,28 +46,9 @@ function resolveDataDir() {
   )
 }
 
-export const dataDir = resolveDataDir()
-
-writeLog(`[db] 数据目录：${dataDir}`)
-
-// better-sqlite3 是原生模块：这里用动态 import，加载失败（架构不匹配、缺 so 文件等）
-// 也能打出一行明确日志，而不是静默崩溃
-writeLog('[db] … 正在加载 better-sqlite3 原生绑定')
-let Database
-try {
-  Database = (await import('better-sqlite3')).default
-  writeLog('[db] ✓ better-sqlite3 原生绑定加载成功')
-} catch (err) {
-  writeLog(
-    `[启动失败] better-sqlite3 原生绑定加载失败（容器架构与镜像架构可能不一致）：\n${err?.stack ?? err}`,
-  )
-  process.exit(1)
-}
-
 /**
- * 打开数据库之前先探测目录：能不能建文件、能不能读回、能不能删掉。
- * 网络卷/只读挂载这类问题在这里就能发现，避免走到 SQLite 原生调用里再出事
- * （原生层如果直接段错误，JS 是接不住的）。
+ * 目录读写探测：能不能建文件、能不能读回、能不能删掉。
+ * 不支持的卷在这里就挡下来，避免后面写盘才炸。
  */
 function probeDirectory(dir) {
   const probeFile = path.join(dir, `.write-probe-${process.pid}`)
@@ -93,82 +75,256 @@ function probeDirectory(dir) {
   }
 }
 
-/**
- * 打开数据库。所有失败都打完整信息（code / message / stack）后返回 null，
- * 交给调用方决定是否换目录重试。
- *
- * 注意：如果原生模块内部是段错误（架构/libc 不匹配）或卡在文件锁上，
- * JS 层 try/catch 是接不住的 —— 那种情况只能靠下面的「换目录重试」绕过。
- */
-function openDatabase(targetPath, label) {
-  writeLog(`[db] 即将打开数据库，路径=${targetPath}（${label}）`)
+export const dataDir = resolveDataDir()
+writeLog(`[db] 数据目录：${dataDir}`)
 
-  if (!probeDirectory(path.dirname(targetPath))) {
-    return null
-  }
+// ---------- 加载 sql.js（纯 JS + WebAssembly，完全不碰原生模块 / 文件锁 / mmap） ----------
 
-  try {
-    const instance = new Database(targetPath, {
-      // 不用 WAL、缺文件就新建、锁等待最多 5 秒后报错而不是无限等
-      verbose: null,
-      fileMustExist: false,
-      timeout: 5000,
-    })
-    writeLog('[db] 数据库实例已创建')
-
-    // 用兼容性最好的默认回滚日志模式（网络卷/对象存储挂载对 WAL 支持最差）
-    try {
-      instance.pragma('journal_mode = DELETE')
-      writeLog(
-        `[db] journal_mode = ${instance.pragma('journal_mode', { simple: true })}`,
-      )
-    } catch (err) {
-      writeLog(`[警告] 设置 journal_mode 失败：${err?.code ?? ''} ${err?.message ?? err}`)
-    }
-
-    try {
-      instance.pragma('foreign_keys = ON')
-    } catch (err) {
-      writeLog(`[警告] 开启外键约束失败：${err?.message ?? err}`)
-    }
-
-    // 轻量自检：文件损坏时早点说清楚（只记录，不因此退出）
-    try {
-      const check = instance.pragma('quick_check', { simple: true })
-      writeLog(`[db] 完整性自检：${check}`)
-    } catch (err) {
-      writeLog(`[警告] 完整性自检未能执行：${err?.message ?? err}`)
-    }
-
-    return instance
-  } catch (err) {
-    writeLog(
-      `[db] 打开数据库失败：路径=${targetPath}\n` +
-        `        code=${err?.code ?? '（无）'}\n` +
-        `        message=${err?.message ?? err}\n` +
-        `        stack=${err?.stack ?? '（无）'}`,
-    )
-    return null
-  }
-}
-
-let activeDbPath = path.join(dataDir, 'data.db')
-let dbInstance = openDatabase(activeDbPath, 'DATA_DIR')
-
-// /data 这类网络卷可能根本不支持 SQLite 的文件锁，这里自动回退到容器本地目录重试一次
-if (!dbInstance && dataDir !== serverDir) {
-  writeLog('[警告] /data 卷不支持 SQLite，已回退到容器本地目录（数据不持久）')
-  activeDbPath = path.join(serverDir, 'data.db')
-  dbInstance = openDatabase(activeDbPath, '回退到 server 本地目录')
-}
-
-if (!dbInstance) {
-  writeLog('[启动失败] 两个目录都打不开数据库，请检查挂载卷与目录权限')
+writeLog('[db] … 正在加载 sql.js（WebAssembly，纯 JS，无原生模块）')
+let initSqlJs
+try {
+  initSqlJs = (await import('sql.js')).default
+} catch (err) {
+  writeLog(`[启动失败] 加载 sql.js 失败：\n${err?.stack ?? err}`)
   process.exit(1)
 }
 
-export const dbPath = activeDbPath
-export const db = dbInstance
+let wasmDir
+let wasmFile
+try {
+  // sql.js 的入口是 dist/sql-wasm.js，wasm 就在同目录
+  wasmDir = path.dirname(require.resolve('sql.js'))
+  wasmFile = path.join(wasmDir, 'sql-wasm.wasm')
+  writeLog(`[db] sql.js wasm：${wasmFile}`)
+  if (!fs.existsSync(wasmFile)) {
+    throw new Error('wasm 文件不存在（打包时可能没被拷进镜像）')
+  }
+} catch (err) {
+  writeLog(`[启动失败] 定位 sql.js wasm 失败：${err?.message ?? err}`)
+  process.exit(1)
+}
+
+let SQL
+try {
+  SQL = await initSqlJs({ locateFile: (file) => path.join(wasmDir, file) })
+  writeLog('[db] ✓ sql.js 初始化完成')
+} catch (err) {
+  writeLog(`[启动失败] sql.js 初始化失败：\n${err?.stack ?? err}`)
+  process.exit(1)
+}
+
+// ---------- 决定数据库文件位置 ----------
+
+let activeDir = dataDir
+if (!probeDirectory(activeDir)) {
+  if (activeDir !== serverDir) {
+    writeLog('[警告] /data 卷不支持 SQLite，已回退到容器本地目录（数据不持久）')
+    activeDir = serverDir
+  }
+  if (!probeDirectory(activeDir)) {
+    writeLog('[启动失败] 两个目录都无法读写，请检查挂载卷与目录权限')
+    process.exit(1)
+  }
+}
+
+export const dbPath = path.join(activeDir, 'data.db')
+
+// ---------- 从文件载入（sql.js 是内存数据库，需要自己落盘） ----------
+
+writeLog(`[db] 即将打开数据库，路径=${dbPath}`)
+let raw
+try {
+  if (fs.existsSync(dbPath) && fs.statSync(dbPath).size > 0) {
+    const buffer = fs.readFileSync(dbPath)
+    writeLog(`[db] 读取现有数据库文件：${buffer.length} 字节`)
+    try {
+      raw = new SQL.Database(buffer)
+    } catch (err) {
+      // 文件损坏（比如上次写盘写了一半）：挪开留档，用新库继续启动
+      const backup = `${dbPath}.corrupt-${Date.now()}`
+      writeLog(
+        `[警告] 现有数据库文件无法解析（${err?.message ?? err}），已备份到 ${backup}，将新建空库`,
+      )
+      fs.renameSync(dbPath, backup)
+      raw = new SQL.Database()
+    }
+  } else {
+    writeLog('[db] 数据库文件不存在，新建空库')
+    raw = new SQL.Database()
+  }
+  writeLog('[db] ✓ 数据库实例已创建')
+} catch (err) {
+  writeLog(
+    `[启动失败] 打开数据库失败：路径=${dbPath}\n` +
+      `        code=${err?.code ?? '（无）'}\n` +
+      `        message=${err?.message ?? err}\n` +
+      `        stack=${err?.stack ?? '（无）'}`,
+  )
+  process.exit(1)
+}
+
+// ---------- 落盘机制：内存库 → 文件 ----------
+
+let inTransaction = false
+let pendingPersist = false
+
+function persist(reason) {
+  const data = Buffer.from(raw.export())
+  const tmpPath = `${dbPath}.tmp-${process.pid}`
+  writeLog(`[db] … 落盘中（${reason}）：${data.length} 字节 → ${dbPath}`)
+
+  try {
+    // 先写临时文件再改名，避免写一半被中断留下半个库
+    fs.writeFileSync(tmpPath, data)
+    fs.renameSync(tmpPath, dbPath)
+    pendingPersist = false
+    writeLog('[db] ✓ 落盘完成')
+    return
+  } catch (err) {
+    writeLog(`[警告] 临时文件改名失败（${err?.message ?? err}），改为直接写入`)
+  }
+
+  try {
+    fs.writeFileSync(dbPath, data)
+    pendingPersist = false
+    writeLog('[db] ✓ 落盘完成（直接写入）')
+  } catch (err) {
+    writeLog(
+      `[警告] 落盘失败：${err?.code ?? ''} ${err?.message ?? err}\n` +
+        '        数据仍在内存里，但重启会丢失，请检查挂载卷是否可写',
+    )
+  }
+}
+
+function persistIfNeeded(reason) {
+  if (inTransaction) {
+    pendingPersist = true
+    return
+  }
+  persist(reason)
+}
+
+// ---------- 兼容层：把 better-sqlite3 风格的 API 适配到 sql.js ----------
+
+/**
+ * 参数适配。
+ *
+ * sql.js 的具名参数只认「带前缀」的键（`{'@a': 1}`），传普通键名它**不报错，
+ * 但会静默绑成 NULL**（实测踩过）。所以这里把具名对象按 SQL 里 @名字 出现的
+ * 顺序转成位置参数数组，彻底绕开它的键名规则。
+ */
+function normalizeParams(params, sql) {
+  if (params.length === 0) return []
+  if (params.length === 1) {
+    const only = params[0]
+    if (only === null || only === undefined) return []
+    if (Array.isArray(only)) return only
+    if (typeof only === 'object') {
+      const names = [...sql.matchAll(/[@:$]([A-Za-z_]\w*)/g)].map((m) => m[1])
+      return names.map((name) => (name in only ? only[name] : null))
+    }
+    return [only]
+  }
+  return params
+}
+
+function lastInsertRowid() {
+  const stmt = raw.prepare('SELECT last_insert_rowid() AS id')
+  try {
+    stmt.step()
+    return stmt.getAsObject().id
+  } finally {
+    stmt.free()
+  }
+}
+
+class Statement {
+  constructor(sql) {
+    this.sql = sql
+  }
+
+  #prepare(params) {
+    const stmt = raw.prepare(this.sql)
+    const bound = normalizeParams(params, this.sql)
+    if (bound.length > 0) stmt.bind(bound)
+    return stmt
+  }
+
+  /** 取一行（没有返回 undefined） */
+  get(...params) {
+    const stmt = this.#prepare(params)
+    try {
+      if (!stmt.step()) return undefined
+      return stmt.getAsObject()
+    } finally {
+      stmt.free()
+    }
+  }
+
+  /** 取全部行 */
+  all(...params) {
+    const stmt = this.#prepare(params)
+    const rows = []
+    try {
+      while (stmt.step()) rows.push(stmt.getAsObject())
+    } finally {
+      stmt.free()
+    }
+    return rows
+  }
+
+  /** 执行写入并立即落盘 */
+  run(...params) {
+    const stmt = this.#prepare(params)
+    try {
+      stmt.step()
+    } finally {
+      stmt.free()
+    }
+    const changes = raw.getRowsModified()
+    const lastId = lastInsertRowid()
+    persistIfNeeded('写入后')
+    return { changes, lastInsertRowid: lastId }
+  }
+}
+
+export const db = {
+  prepare: (sql) => new Statement(sql),
+
+  exec: (sql) => {
+    const result = raw.exec(sql)
+    persistIfNeeded('建表/批量执行后')
+    return result
+  },
+
+  // sql.js 是内存库，没有 WAL / 文件锁概念，保留空实现让上层调用不出错
+  pragma: () => undefined,
+
+  transaction: (fn) => (...args) => {
+    raw.run('BEGIN')
+    inTransaction = true
+    try {
+      const result = fn(...args)
+      raw.run('COMMIT')
+      inTransaction = false
+      if (pendingPersist) persist('事务提交后')
+      return result
+    } catch (err) {
+      try {
+        raw.run('ROLLBACK')
+      } catch {
+        // 回滚失败也要把原始错误抛出去
+      }
+      inTransaction = false
+      pendingPersist = false
+      throw err
+    }
+  },
+
+  close: () => raw.close(),
+}
+
+// ---------- 建表 ----------
 
 const schema = `
   -- 入库单头
@@ -233,7 +389,7 @@ function seedDefaultAdmin() {
     DEFAULT_ADMIN.username,
     bcrypt.hashSync(DEFAULT_ADMIN.password, 10),
   )
-  console.log(
+  writeLog(
     `[users] 已创建默认账号 ${DEFAULT_ADMIN.username} / ${DEFAULT_ADMIN.password}，请尽快修改`,
   )
 }
@@ -241,10 +397,8 @@ function seedDefaultAdmin() {
 /**
  * 建表（幂等），可重复调用
  *
- * 注意：这里在模块加载时就执行一次。各个路由模块（auth / inbound / outbound / home …）
- * 会在 import 阶段就 prepare 语句，如果那时表还不存在（全新的空数据库，比如容器里
- * 刚挂上的空卷），会直接抛 "no such table: xxx" 让进程在打日志之前就退出。
- * @returns {import('better-sqlite3').Database} db 实例
+ * 注意：在模块加载时就执行一次。各个路由模块会在 import 阶段就 prepare 语句，
+ * 如果那时表还不存在（全新的空数据库），会直接抛 "no such table" 让进程在打日志之前退出。
  */
 export function initDB() {
   writeLog('[db] … initDB 开始建表')
