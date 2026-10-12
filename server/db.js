@@ -494,6 +494,25 @@ const schema = `
 
   CREATE INDEX IF NOT EXISTS idx_count_items_count ON stock_count_items (count_id);
 
+  -- 收付款记录（对账用）
+  -- side=customer：客户付给我们的收款（冲应收）
+  -- side=supplier：我们付给供应商的付款（冲应付）
+  CREATE TABLE IF NOT EXISTS payments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    payment_no   TEXT    NOT NULL UNIQUE,
+    side         TEXT    NOT NULL CHECK (side IN ('customer', 'supplier')),
+    partner      TEXT    NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    pay_date     TEXT,
+    method       TEXT,
+    remark       TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_payments_partner
+    ON payments (side, partner, pay_date, id);
+  CREATE INDEX IF NOT EXISTS idx_payments_date ON payments (pay_date);
+
   -- 系统用户（只做登录认证，暂无角色权限）
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

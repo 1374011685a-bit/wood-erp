@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   changePassword,
   clearSession,
@@ -79,6 +79,19 @@ const navItems: NavItem[] = [
     ),
   },
   {
+    to: '/settlement',
+    label: '对账',
+    icon: (
+      <>
+        <path d="M6.8 3.6h6.9l4.5 4.5v12.3H6.8z" />
+        <path d="M13.4 3.6v4.8h4.8" />
+        <path d="m9.9 12.3 2.1 2.4 2.1-2.4" />
+        <path d="M12 14.7v4" />
+        <path d="M9.9 15.9h4.2M9.9 17.3h4.2" />
+      </>
+    ),
+  },
+  {
     to: '/recycle',
     label: '回收站',
     icon: (
@@ -92,8 +105,20 @@ const navItems: NavItem[] = [
   },
 ]
 
+/** 路由 → 标签名（和左侧菜单同名） */
+function labelOf(path: string) {
+  const hit = navItems.find((item) => item.to === path)
+  if (hit) return hit.label
+  return path.replace(/^\//, '') || '首页'
+}
+
 export default function Layout() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // 打开的功能标签（点一个功能就像开一个网页，可以来回切、可以关）
+  const [tabs, setTabs] = useState<{ path: string; label: string }[]>(() => [
+    { path: location.pathname, label: labelOf(location.pathname) },
+  ])
   // RequireAuth 校验通过后会把用户名写进 localStorage，这里读一次即可
   const [username] = useState(() => getStoredUsername())
   const [passwordOpen, setPasswordOpen] = useState(false)
@@ -123,6 +148,28 @@ export default function Layout() {
 
   useEscapeKey(menuOpen, () => setMenuOpen(false))
   useEscapeKey(passwordOpen, () => setPasswordOpen(false))
+
+  // 切到没打开过的功能就补一个标签
+  useEffect(() => {
+    setTabs((prev) =>
+      prev.some((tab) => tab.path === location.pathname)
+        ? prev
+        : [...prev, { path: location.pathname, label: labelOf(location.pathname) }],
+    )
+  }, [location.pathname])
+
+  // 关标签：关掉当前页就切到左边那个（没有就切到第一个）
+  const closeTab = (path: string) => {
+    const next = tabs.filter((tab) => tab.path !== path)
+    const safe = next.length > 0 ? next : [{ path: '/', label: '首页' }]
+    setTabs(safe)
+
+    if (path === location.pathname) {
+      const index = tabs.findIndex((tab) => tab.path === path)
+      const fallback = safe[Math.max(0, Math.min(index - 1, safe.length - 1))] ?? safe[0]
+      navigate(fallback.path)
+    }
+  }
 
   // 菜单一打开就把焦点交给第一项，键盘可以直接上下选、回车确认
   useEffect(() => {
@@ -313,6 +360,34 @@ export default function Layout() {
             )}
           </div>
         </div>
+
+        {/* 功能索引：点开过的功能都在这里，像浏览器标签一样切换 */}
+        <nav className="tabbar" aria-label="已打开的功能">
+          {tabs.map((tab) => (
+            <div
+              key={tab.path}
+              className={
+                tab.path === location.pathname ? 'tab-item tab-item-active' : 'tab-item'
+              }
+            >
+              <button
+                type="button"
+                className="tab-label"
+                onClick={() => navigate(tab.path)}
+              >
+                {tab.label}
+              </button>
+              <button
+                type="button"
+                className="tab-close"
+                aria-label={`关闭 ${tab.label}`}
+                onClick={() => closeTab(tab.path)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </nav>
 
         <Outlet />
       </main>

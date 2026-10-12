@@ -366,6 +366,113 @@ export function fetchStockList(species = '') {
   return request<StockRow[]>(`/api/stock${search ? `?${search}` : ''}`)
 }
 
+/* ---------- 对账 / 应收应付 ---------- */
+
+export type SettlementSide = 'customer' | 'supplier'
+
+export type SettlementSummaryRow = {
+  partner: string
+  order_amount: number
+  order_count: number
+  paid: number
+  balance: number
+  last_order_date: string | null
+}
+
+export type SettlementSummary = {
+  side: SettlementSide
+  rows: SettlementSummaryRow[]
+  totals: { order_amount: number; paid: number; balance: number }
+}
+
+export type StatementRow = {
+  date: string
+  kind: 'order' | 'payment'
+  no: string
+  summary: string
+  cubic: number
+  amount: number
+  balance: number
+}
+
+export type Statement = {
+  side: SettlementSide
+  partner: string
+  date_from: string
+  date_to: string
+  opening: number
+  rows: StatementRow[]
+  period_occurred: number
+  period_paid: number
+  closing: number
+}
+
+export type PaymentRow = {
+  id: number
+  payment_no: string
+  side: SettlementSide
+  partner: string
+  amount: number
+  pay_date: string | null
+  method: string
+  remark: string
+  created_at: string
+}
+
+export type StatementQuery = {
+  side: SettlementSide
+  partner: string
+  date_from?: string
+  date_to?: string
+}
+
+// 应收 / 应付总览：按往来单位列出累计发生、已收付和当前余额
+export function fetchSettlementSummary(side: SettlementSide) {
+  return request<SettlementSummary>(`/api/settlement/summary?side=${side}`)
+}
+
+// 对账单：期初 + 本期发生 - 本期收付 = 期末，逐行带滚动余额
+export function fetchStatement(query: StatementQuery) {
+  const search = new URLSearchParams({ side: query.side, partner: query.partner })
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
+  return request<Statement>(`/api/settlement/statement?${search.toString()}`)
+}
+
+// 收付款记录
+export function fetchPayments(side: SettlementSide) {
+  return request<PaymentRow[]>(`/api/settlement/payments?side=${side}`)
+}
+
+export function createPayment(payload: {
+  side: SettlementSide
+  partner: string
+  amount: number
+  pay_date: string
+  method?: string
+  remark?: string
+}) {
+  return request<{ ok: boolean; payment_no: string }>('/api/settlement/payments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deletePayment(id: number) {
+  return request<{ ok: boolean }>(`/api/settlement/payments/${id}`, {
+    method: 'DELETE',
+  })
+}
+
+// 对账单导出链接（后端生成 xlsx）
+export function statementExportUrl(query: StatementQuery) {
+  const search = new URLSearchParams({ side: query.side, partner: query.partner })
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
+  return `/api/settlement/export?${search.toString()}`
+}
+
 /* ---------- 回收站 ---------- */
 
 export type RecycleRow = {
