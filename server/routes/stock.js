@@ -24,6 +24,7 @@ const stockSql = (hasSpeciesFilter) => `
          (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100)) / 100.0
             FROM order_items s
            WHERE s.order_type = 'in'
+             AND s.deleted_at IS NULL
              AND COALESCE(s.species, '') = COALESCE(i.species, '')
              AND COALESCE(s.grade, '')   = COALESCE(i.grade, '')
              AND s.thickness = i.thickness
@@ -32,7 +33,8 @@ const stockSql = (hasSpeciesFilter) => `
            ORDER BY s.id DESC
            LIMIT 1) AS last_unit_price
     FROM order_items i
-   ${hasSpeciesFilter ? `WHERE i.species LIKE ?` : ''}
+   WHERE i.deleted_at IS NULL
+   ${hasSpeciesFilter ? `AND i.species LIKE ?` : ''}
    GROUP BY i.species, i.grade, i.thickness, i.width, i.length
   HAVING SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) > 0
    ORDER BY i.species, i.grade, i.thickness, i.width, i.length

@@ -544,6 +544,37 @@ function migrateMoneyToCents() {
   writeLog(`[db] 迁移：金额转整数分，已回填 ${result.changes} 行`)
 }
 
+/**
+ * 软删除标记。
+ *
+ * 删除单据时不再物理删行，只打一个 deleted_at 时间戳；明细同样打标。
+ * 所有汇总查询都会带上 `deleted_at IS NULL`，所以删掉的单据自动退出库存、
+ * 流水、首页和导出，但可以整单恢复（回收站）。
+ * 单号不能被复用，所以生成新单号时故意**不**过滤已删除的单据。
+ */
+function migrateSoftDelete() {
+  const targets = [
+    ['inbound_orders', 'deleted_at', 'TEXT'],
+    ['outbound_orders', 'deleted_at', 'TEXT'],
+    ['order_items', 'deleted_at', 'TEXT'],
+    ['stock_counts', 'deleted_at', 'TEXT'],
+  ]
+
+  const added = targets.filter(([table, column, type]) =>
+    addColumnIfMissing(table, column, type),
+  )
+  if (added.length > 0) {
+    writeLog('[db] 迁移：单据与明细新增软删除标记 deleted_at')
+  }
+
+  // 明细表按「未删除」过滤是最高频的访问路径，顺手加一个部分索引
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_items_live
+       ON order_items (order_type, species, grade, thickness, width, length, id)
+     WHERE deleted_at IS NULL`,
+  )
+}
+
 // 首次初始化时建一个默认管理员（表非空则跳过）
 function seedDefaultAdmin() {
   const total = db.prepare(`SELECT COUNT(*) AS total FROM users`).get().total
@@ -562,6 +593,76 @@ function seedDefaultAdmin() {
  * 空库 + 有备份 = 库多半是被覆盖掉了，必须喊出来，
  * 而不是安安静静地当成「一个全新的空系统」继续跑。
  */
+/* ---------- 每日快照（保留最近 7 份） ---------- */
+
+const snapshotDir = path.join(activeDir, 'snapshots')
+const SNAPSHOT_KEEP = 7
+
+/** 本地日期 YYYY-MM-DD */
+function localDate(date = new Date()) {
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+/** 只留最近 N 份，其余删掉（按文件名倒序 = 按日期倒序） */
+function pruneSnapshots() {
+  const files = fs
+    .readdirSync(snapshotDir)
+    .filter((name) => /^data-\d{4}-\d{2}-\d{2}\.db$/.test(name))
+    .sort()
+    .reverse()
+
+  for (const name of files.slice(SNAPSHOT_KEEP)) {
+    try {
+      fs.unlinkSync(path.join(snapshotDir, name))
+      writeLog(`[db] 快照清理：删掉过期快照 ${name}`)
+    } catch (err) {
+      writeLog(`[警告] 删除旧快照 ${name} 失败：${err?.message ?? err}`)
+    }
+  }
+}
+
+/**
+ * 打一份当天快照到 <数据目录>/snapshots/data-YYYY-MM-DD.db
+ * 同一天只留一份；正在事务里时跳过（内存库此刻不是一致状态），下次再打。
+ */
+export function snapshotNow(reason = '定时') {
+  if (inTransaction) {
+    writeLog('[db] 快照跳过：当前正在事务中，等下次')
+    return null
+  }
+
+  try {
+    fs.mkdirSync(snapshotDir, { recursive: true })
+    const target = path.join(snapshotDir, `data-${localDate()}.db`)
+
+    if (fs.existsSync(target)) return target
+
+    const tmp = `${target}.tmp-${process.pid}`
+    fs.writeFileSync(tmp, Buffer.from(raw.export()))
+    fs.renameSync(tmp, target)
+    writeLog(`[db] 快照已保存（${reason}）：${target}`)
+    pruneSnapshots()
+    return target
+  } catch (err) {
+    writeLog(`[警告] 快照失败（${reason}）：${err?.code ?? ''} ${err?.message ?? err}`)
+    return null
+  }
+}
+
+/**
+ * 启动时补一份今天的快照，之后每小时检查一次（跨天自动生成新的一份）。
+ * setInterval 不阻止进程退出。
+ */
+export function startDailySnapshots() {
+  snapshotNow('启动')
+  const timer = setInterval(() => snapshotNow('定时'), 60 * 60 * 1000)
+  timer.unref?.()
+  writeLog(`[db] 每日快照已开启：${snapshotDir}（保留最近 ${SNAPSHOT_KEEP} 份）`)
+  return timer
+}
+
 function warnIfSuspiciouslyEmpty() {
   const backupPath = `${dbPath}.bak`
 
@@ -609,6 +710,7 @@ export function initDB() {
   writeLog('[db] … initDB 开始建表')
   db.exec(schema)
   migrateMoneyToCents()
+  migrateSoftDelete()
   seedDefaultAdmin()
   warnIfSuspiciouslyEmpty()
   writeLog('[db] ✓ initDB 完成')

@@ -57,7 +57,8 @@ const stockStmt = db.prepare(
   `SELECT COALESCE(SUM(CASE WHEN order_type = 'in'  THEN cubic   ELSE -cubic   END), 0) AS cubic,
           COALESCE(SUM(CASE WHEN order_type = 'in'  THEN bundles ELSE -bundles END), 0) AS bundles
      FROM order_items
-    WHERE species = ?
+    WHERE deleted_at IS NULL
+      AND species = ?
       AND COALESCE(grade, '') = ?
       AND thickness = ?
       AND width = ?
@@ -68,6 +69,7 @@ const stockStmt = db.prepare(
 const inboundPiecesStmt = db.prepare(
   `SELECT pieces FROM order_items
     WHERE order_type = 'in'
+      AND deleted_at IS NULL
       AND species = ?
       AND COALESCE(grade, '') = ?
       AND thickness = ?
@@ -81,6 +83,7 @@ const inboundPiecesStmt = db.prepare(
 const inboundExistsStmt = db.prepare(
   `SELECT 1 AS ok FROM order_items
     WHERE order_type = 'in'
+      AND deleted_at IS NULL
       AND species = ?
       AND COALESCE(grade, '') = ?
       AND thickness = ?
@@ -313,10 +316,136 @@ router.get('/stock', (req, res) => {
   res.json(getStock(spec))
 })
 
+/* ---------- 修改 ---------- */
+
+const updateOrderStmt = db.prepare(
+  `UPDATE outbound_orders
+      SET customer = ?, order_date = ?, remark = ?
+    WHERE id = ? AND deleted_at IS NULL`,
+)
+const replaceOrderItemsStmt = db.prepare(
+  `DELETE FROM order_items WHERE order_type = 'out' AND order_id = ?`,
+)
+
+/** 把一条明细按符号累加到「规格 → 净变化」表里 */
+function bumpGroups(groups, item, sign) {
+  const grade = item.grade ?? ''
+  const key = [item.species, grade, item.thickness, item.width, item.length].join('|')
+  const group = groups.get(key) ?? {
+    species: item.species,
+    grade,
+    thickness: item.thickness,
+    width: item.width,
+    length: item.length,
+    cubic: 0,
+    bundles: 0,
+  }
+  group.cubic += sign * (item.cubic ?? 0)
+  group.bundles += sign * (item.bundles ?? 0)
+  groups.set(key, group)
+}
+
+/**
+ * 事务：先删旧明细再插新明细。
+ *
+ * 出库的方向和入库相反：删掉旧明细把货还回来（+cubic），新明细再扣一次（−cubic）。
+ * 净影响加在当前库存上，任何规格改完为负就整单回滚——等于把「出库不能超卖」
+ * 这条规则套用到修改上。单号保持不变。
+ */
+const updateOutbound = db.transaction(({ id, customer, orderDate, remark, items }) => {
+  const order = getOrderStmt.get(id)
+  if (!order) {
+    const error = new Error('出库单不存在')
+    error.status = 404
+    throw error
+  }
+
+  const deltas = new Map()
+  for (const item of orderItemsStmt.all(id)) bumpGroups(deltas, item, 1)
+  for (const item of items) bumpGroups(deltas, item, -1)
+
+  const problems = []
+  for (const group of deltas.values()) {
+    if (group.cubic === 0 && group.bundles === 0) continue
+
+    const stock = stockStmt.get(
+      group.species,
+      group.grade,
+      group.thickness,
+      group.width,
+      group.length,
+    )
+    const currentCubic = Number((stock?.cubic ?? 0).toFixed(4))
+    const currentBundles = stock?.bundles ?? 0
+    const afterCubic = Number((currentCubic + group.cubic).toFixed(4))
+    const afterBundles = currentBundles + group.bundles
+
+    if (afterCubic < 0 || afterBundles < 0) {
+      problems.push(
+        `无法修改：${group.species}（等级 ${group.grade || '—'}）` +
+          `厚${group.thickness}×宽${group.width}×长${group.length}，` +
+          `当前库存 ${currentCubic} 立方 / ${currentBundles} 件，` +
+          `改完会变成 ${afterCubic} 立方 / ${afterBundles} 件，库存不能为负`,
+      )
+    }
+  }
+
+  if (problems.length > 0) {
+    const error = new Error(problems.join('\n'))
+    error.status = 400
+    throw error
+  }
+
+  replaceOrderItemsStmt.run(id)
+  for (const item of items) {
+    insertItem.run({ ...item, order_id: id })
+  }
+  updateOrderStmt.run(customer, orderDate, remark || null, id)
+
+  return { id, order_no: order.order_no }
+})
+
+// 修改出库单（明细整体替换，单号不变）
+router.put('/:id', (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: '出库单 ID 不合法' })
+  }
+
+  const body = req.body ?? {}
+  const customer = String(body.customer ?? '').trim()
+  const orderDate = body.order_date ? String(body.order_date) : todayLocal()
+  const remark = body.remark ? String(body.remark) : ''
+  const rawItems = Array.isArray(body.items) ? body.items : []
+
+  if (!customer) {
+    return res.status(400).json({ error: '客户不能为空' })
+  }
+  if (rawItems.length === 0) {
+    return res.status(400).json({ error: '至少需要一行明细' })
+  }
+
+  const items = normalizeItems(rawItems)
+  const problems = validateItems(items, { requirePositiveCubic: true })
+  if (problems.length > 0) {
+    return res.status(400).json({ error: problems.join('\n') })
+  }
+
+  try {
+    res.json(updateOutbound({ id, customer, orderDate, remark, items }))
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) {
+      return res.status(err.status).json({ error: err.message })
+    }
+    res.status(500).json({ error: err.message })
+  }
+})
+
 // 出库单列表（可选筛选：客户关键字、日期范围）
 router.get('/', (req, res) => {
   const { customer, date_from: dateFrom, date_to: dateTo } = req.query
-  const conditions = []
+  // 软删除的单据不参与列表
+  const conditions = [`o.deleted_at IS NULL`]
   const params = []
 
   if (customer && String(customer).trim()) {
@@ -358,7 +487,7 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id)
   const order = db
-    .prepare(`SELECT * FROM outbound_orders WHERE id = ?`)
+    .prepare(`SELECT * FROM outbound_orders WHERE id = ? AND deleted_at IS NULL`)
     .get(id)
 
   if (!order) {
@@ -368,7 +497,7 @@ router.get('/:id', (req, res) => {
   const items = db
     .prepare(
       `SELECT * FROM order_items
-        WHERE order_type = 'out' AND order_id = ?
+        WHERE order_type = 'out' AND order_id = ? AND deleted_at IS NULL
         ORDER BY id`,
     )
     .all(id)
@@ -395,12 +524,27 @@ router.get('/:id', (req, res) => {
 /* ---------- 删除 ---------- */
 
 const getOrderStmt = db.prepare(
-  `SELECT id, order_no FROM outbound_orders WHERE id = ?`,
+  `SELECT id, order_no FROM outbound_orders WHERE id = ? AND deleted_at IS NULL`,
 )
-const deleteOrderItemsStmt = db.prepare(
-  `DELETE FROM order_items WHERE order_type = 'out' AND order_id = ?`,
+
+// 修改时的差异校验要按规格比对，所以这里也要能取到未删除的明细
+const orderItemsStmt = db.prepare(
+  `SELECT species, grade, thickness, width, length, cubic, bundles
+     FROM order_items
+    WHERE order_type = 'out' AND order_id = ? AND deleted_at IS NULL`,
 )
-const deleteOrderStmt = db.prepare(`DELETE FROM outbound_orders WHERE id = ?`)
+
+// 软删除：只打时间戳，明细一起标记，回收站里可以整单恢复
+const softDeleteOrderItemsStmt = db.prepare(
+  `UPDATE order_items
+      SET deleted_at = datetime('now', 'localtime')
+    WHERE order_type = 'out' AND order_id = ? AND deleted_at IS NULL`,
+)
+const softDeleteOrderStmt = db.prepare(
+  `UPDATE outbound_orders
+      SET deleted_at = datetime('now', 'localtime')
+    WHERE id = ? AND deleted_at IS NULL`,
+)
 
 // 事务：出库单删除后库存只会回涨，不需要额外校验
 const removeOutbound = db.transaction((id) => {
@@ -411,8 +555,8 @@ const removeOutbound = db.transaction((id) => {
     throw error
   }
 
-  deleteOrderItemsStmt.run(id)
-  deleteOrderStmt.run(id)
+  softDeleteOrderItemsStmt.run(id)
+  softDeleteOrderStmt.run(id)
 
   return order
 })

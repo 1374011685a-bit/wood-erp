@@ -9,6 +9,7 @@ import {
   fetchStock,
   fetchStockList,
   outboundExportUrl,
+  updateOutbound,
   type InboundItemPayload,
   type OutboundDetail,
   type OutboundListFilters,
@@ -177,6 +178,8 @@ const SPEC_ROW_COLUMNS = 1 + specFields.length + numberFields.length + 4 // 选�
 
 export default function Outbound() {
   const [mode, setMode] = useState<'list' | 'create'>('list')
+  // 非空 = 正在修改这张单（单号不变，只替换明细）
+  const [editing, setEditing] = useState<{ id: number; order_no: string } | null>(null)
 
   const [list, setList] = useState<OutboundListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -466,9 +469,50 @@ export default function Outbound() {
   const openCreate = () => {
     setNotice('')
     setFormError('')
+    setEditing(null)
+    setRowErrors({})
+    setHasValidated(false)
     setForm({ customer: '', orderDate: todayISO(), remark: '' })
     setRows([createRow()])
     setMode('create')
+  }
+
+  // 修改：拉出原单明细填进同一套表单，保存时走 PUT，单号保持不变
+  const openEdit = async (item: { id: number; order_no: string }) => {
+    setNotice('')
+    setFormError('')
+    setActionError('')
+    try {
+      const data = await fetchOutboundDetail(item.id)
+      setForm({
+        customer: data.customer ?? '',
+        orderDate: data.order_date ?? todayISO(),
+        remark: data.remark ?? '',
+      })
+      setRows(
+        data.items.map((line) => ({
+          key: (rowSeq += 1),
+          species: line.species ?? '',
+          grade: line.grade ?? '',
+          thickness: String(line.thickness ?? ''),
+          width: String(line.width ?? ''),
+          length: String(line.length ?? ''),
+          pieces: String(line.pieces ?? 1),
+          bundles: String(line.bundles ?? 1),
+          unitPrice:
+            line.unit_price === null || line.unit_price === undefined
+              ? ''
+              : String(line.unit_price),
+        })),
+      )
+      setRowErrors({})
+      setHasValidated(false)
+      setEditing({ id: item.id, order_no: item.order_no })
+      setMode('create')
+      closeDetail()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '打开编辑失败')
+    }
   }
 
   const openDetail = async (id: number) => {
@@ -545,13 +589,17 @@ export default function Outbound() {
     setSaving(true)
     setFormError('')
     try {
-      const result = await createOutbound({
+      const payload = {
         customer,
         order_date: form.orderDate,
         remark: form.remark.trim(),
         items,
-      })
+      }
+      const result = editing
+        ? await updateOutbound(editing.id, payload)
+        : await createOutbound(payload)
       setMode('list')
+      setEditing(null)
       setForm({ customer: '', orderDate: todayISO(), remark: '' })
       setRows([createRow()])
       // 出库后库存变了，清掉缓存重新取
@@ -562,7 +610,11 @@ export default function Outbound() {
       setDateToInput('')
       setFilters(emptyFilters)
       await loadList(emptyFilters)
-      setNotice(`已保存出库单 ${result.order_no}`)
+      setNotice(
+        editing
+          ? `已保存出库单 ${result.order_no} 的修改`
+          : `已保存出库单 ${result.order_no}`,
+      )
     } catch (err) {
       // 后端返回的库存不足信息原样展示，不吞掉
       setFormError(err instanceof Error ? err.message : '保存失败')
@@ -711,6 +763,14 @@ export default function Outbound() {
                         onClick={() => void openDetail(order.id)}
                       >
                         查看
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() =>
+                          void openEdit({ id: order.id, order_no: order.order_no })
+                        }
+                      >
+                        编辑
                       </button>
                       <button
                         className="btn btn-sm btn-danger"
@@ -871,6 +931,7 @@ export default function Outbound() {
             </button>
             <span className="muted">
               点每行左侧「选择规格」从库存里挑规格；「当前库存」按该规格实时显示
+              {editing ? '（修改时可用量 = 当前库存 + 本单原有数量）' : ''}
             </span>
           </div>
 
@@ -885,12 +946,22 @@ export default function Outbound() {
               onClick={() => void handleSave()}
               disabled={saving}
             >
-              {saving ? '保存中…' : '保存'}
+              {saving ? '保存中…' : editing ? '保存修改' : '保存'}
             </button>
-            <button className="btn" onClick={() => setMode('list')}>
+            <button
+              className="btn"
+              onClick={() => {
+                setMode('list')
+                setEditing(null)
+              }}
+            >
               取消
             </button>
-            <span className="muted">单号保存时自动生成（CK + 日期 + 流水）</span>
+            <span className="muted">
+              {editing
+                ? `正在修改出库单 ${editing.order_no}，单号不变，保存时会重新校验库存`
+                : '单号保存时自动生成（CK + 日期 + 流水）'}
+            </span>
           </div>
         </div>
       )}
@@ -904,17 +975,27 @@ export default function Outbound() {
               </h2>
               <div className="modal-actions">
                 {detail && (
-                  <button
-                    className="btn btn-sm btn-danger"
-                    onClick={() =>
-                      setDeleteTarget({
-                        id: detail.id,
-                        order_no: detail.order_no,
-                      })
-                    }
-                  >
-                    删除
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() =>
+                        void openEdit({ id: detail.id, order_no: detail.order_no })
+                      }
+                    >
+                      编辑
+                    </button>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() =>
+                        setDeleteTarget({
+                          id: detail.id,
+                          order_no: detail.order_no,
+                        })
+                      }
+                    >
+                      删除
+                    </button>
+                  </>
                 )}
                 <button className="btn btn-quiet" onClick={closeDetail}>
                   关闭

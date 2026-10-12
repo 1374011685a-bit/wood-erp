@@ -12,6 +12,9 @@ server/data.db.lock
 server/data.db.tmp-*
 server/data.db-wal
 server/data.db-shm
+# 每日快照（本地/容器里的数据副本，不进仓库）
+server/snapshots/
+data/
 server/.env
 # pnpm 会自动生成，内容是待确认的占位符，不需要提交
 server/pnpm-workspace.yaml

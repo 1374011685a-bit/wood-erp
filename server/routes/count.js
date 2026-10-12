@@ -45,7 +45,8 @@ const specStockStmt = db.prepare(
                             THEN pieces * bundles
                             ELSE -pieces * bundles END), 0) AS pieces
      FROM order_items
-    WHERE COALESCE(species, '') = ?
+    WHERE deleted_at IS NULL
+      AND COALESCE(species, '') = ?
       AND COALESCE(grade, '')   = ?
       AND thickness = ?
       AND width     = ?
@@ -57,6 +58,7 @@ const lastPriceStmt = db.prepare(
   `SELECT COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
      FROM order_items
     WHERE order_type = 'in'
+      AND deleted_at IS NULL
       AND COALESCE(species, '') = ?
       AND COALESCE(grade, '')   = ?
       AND thickness = ?
@@ -325,6 +327,7 @@ router.get('/', (_req, res) => {
       `SELECT id, count_no, count_date, remark, item_count, diff_cubic,
               in_order_no, out_order_no, created_at
          FROM stock_counts
+        WHERE deleted_at IS NULL
         ORDER BY id DESC`,
     )
     .all()
@@ -355,26 +358,47 @@ router.get('/:id', (req, res) => {
 
 /* ---------- 删除盘点单 ---------- */
 
-const getCountStmt = db.prepare(`SELECT * FROM stock_counts WHERE id = ?`)
+const getCountStmt = db.prepare(
+  `SELECT * FROM stock_counts WHERE id = ? AND deleted_at IS NULL`,
+)
 const countLinesStmt = db.prepare(
   `SELECT species, grade, thickness, width, length, diff_bundles
      FROM stock_count_items
     WHERE count_id = ?`,
 )
-const findInboundStmt = db.prepare(`SELECT id FROM inbound_orders WHERE order_no = ?`)
-const findOutboundStmt = db.prepare(`SELECT id FROM outbound_orders WHERE order_no = ?`)
+const findInboundStmt = db.prepare(
+  `SELECT id FROM inbound_orders WHERE order_no = ? AND deleted_at IS NULL`,
+)
+const findOutboundStmt = db.prepare(
+  `SELECT id FROM outbound_orders WHERE order_no = ? AND deleted_at IS NULL`,
+)
 const adjustItemsStmt = db.prepare(
   `SELECT species, grade, thickness, width, length, cubic, bundles
      FROM order_items
-    WHERE order_type = ? AND order_id = ?`,
+    WHERE order_type = ? AND order_id = ? AND deleted_at IS NULL`,
 )
 const deleteAdjustItemsStmt = db.prepare(
-  `DELETE FROM order_items WHERE order_type = ? AND order_id = ?`,
+  `UPDATE order_items
+      SET deleted_at = datetime('now', 'localtime')
+    WHERE order_type = ? AND order_id = ? AND deleted_at IS NULL`,
 )
-const deleteInboundStmt = db.prepare(`DELETE FROM inbound_orders WHERE id = ?`)
-const deleteOutboundStmt = db.prepare(`DELETE FROM outbound_orders WHERE id = ?`)
+// 撤销盘点 = 把它的盘盈 / 盘亏单调进回收站（软删除，可恢复）
+const deleteInboundStmt = db.prepare(
+  `UPDATE inbound_orders
+      SET deleted_at = datetime('now', 'localtime')
+    WHERE id = ? AND deleted_at IS NULL`,
+)
+const deleteOutboundStmt = db.prepare(
+  `UPDATE outbound_orders
+      SET deleted_at = datetime('now', 'localtime')
+    WHERE id = ? AND deleted_at IS NULL`,
+)
 const deleteCountLinesStmt = db.prepare(`DELETE FROM stock_count_items WHERE count_id = ?`)
-const deleteCountStmt = db.prepare(`DELETE FROM stock_counts WHERE id = ?`)
+const deleteCountStmt = db.prepare(
+  `UPDATE stock_counts
+      SET deleted_at = datetime('now', 'localtime')
+    WHERE id = ? AND deleted_at IS NULL`,
+)
 
 /**
  * 事务：撤销盘点单，连带删掉它生成的盘盈入库单 / 盘亏出库单。

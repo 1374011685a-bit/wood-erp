@@ -30,7 +30,9 @@ const dotenv = await load('dotenv', async () => (await import('dotenv')).default
 const express = await load('express', async () => (await import('express')).default)
 
 // 数据库模块（内部会打 sql.js 初始化、落盘等日志）
-const { dbPath, initDB } = await load('./db.js', () => import('./db.js'))
+const { dbPath, initDB, startDailySnapshots } = await load('./db.js', () =>
+  import('./db.js'),
+)
 
 // 中间件与各业务路由
 const { requireAuth } = await load('./middleware/auth.js', () =>
@@ -59,6 +61,9 @@ const recordsRouter = await load('./routes/records.js', async () =>
 )
 const countRouter = await load('./routes/count.js', async () =>
   (await import('./routes/count.js')).default,
+)
+const recycleRouter = await load('./routes/recycle.js', async () =>
+  (await import('./routes/recycle.js')).default,
 )
 
 writeLog('[load] 全部模块加载完成')
@@ -98,6 +103,9 @@ try {
 }
 writeLog(`数据库初始化成功：${dbPath}`)
 
+// 每天一份快照，「删错了 / 改错了」还有得回退
+startDailySnapshots()
+
 app.use(express.json())
 
 // 认证接口：login 公开，me / change-password 在路由内部各自校验
@@ -116,6 +124,7 @@ app.use('/api/outbound', requireAuth, outboundRouter)
 app.use('/api/stock', requireAuth, stockRouter)
 app.use('/api/records', requireAuth, recordsRouter)
 app.use('/api/count', requireAuth, countRouter)
+app.use('/api/recycle', requireAuth, recycleRouter)
 
 // 生产模式：同时把前端构建产物当静态资源服务（先执行 cd client && pnpm build）
 const clientDist = path.join(serverDir, '..', 'client', 'dist')

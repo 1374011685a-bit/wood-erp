@@ -15,6 +15,7 @@ import {
   fetchInboundList,
   fetchStockList,
   inboundExportUrl,
+  updateInbound,
   type InboundDetail,
   type InboundItemPayload,
   type InboundListFilters,
@@ -174,6 +175,8 @@ const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
 
 export default function Inbound() {
   const [mode, setMode] = useState<'list' | 'create'>('list')
+  // 非空 = 正在修改这张单（单号不变，只替换明细）
+  const [editing, setEditing] = useState<{ id: number; order_no: string } | null>(null)
 
   const [list, setList] = useState<InboundListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -388,9 +391,50 @@ export default function Inbound() {
   const openCreate = () => {
     setNotice('')
     setFormError('')
+    setEditing(null)
+    setRowErrors({})
+    setHasValidated(false)
     setForm({ supplier: '', orderDate: todayISO(), remark: '' })
     setRows([createRow()])
     setMode('create')
+  }
+
+  // 修改：拉出原单明细填进同一套表单，保存时走 PUT，单号保持不变
+  const openEdit = async (item: { id: number; order_no: string }) => {
+    setNotice('')
+    setFormError('')
+    setActionError('')
+    try {
+      const data = await fetchInboundDetail(item.id)
+      setForm({
+        supplier: data.supplier ?? '',
+        orderDate: data.order_date ?? todayISO(),
+        remark: data.remark ?? '',
+      })
+      setRows(
+        data.items.map((line) => ({
+          key: (rowSeq += 1),
+          species: line.species ?? '',
+          grade: line.grade ?? '',
+          thickness: String(line.thickness ?? ''),
+          width: String(line.width ?? ''),
+          length: String(line.length ?? ''),
+          pieces: String(line.pieces ?? 1),
+          bundles: String(line.bundles ?? 1),
+          unitPrice:
+            line.unit_price === null || line.unit_price === undefined
+              ? ''
+              : String(line.unit_price),
+        })),
+      )
+      setRowErrors({})
+      setHasValidated(false)
+      setEditing({ id: item.id, order_no: item.order_no })
+      setMode('create')
+      closeDetail()
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '打开编辑失败')
+    }
   }
 
   const openDetail = async (id: number) => {
@@ -465,14 +509,18 @@ export default function Inbound() {
     setSaving(true)
     setFormError('')
     try {
-      const result = await createInbound({
+      const payload = {
         supplier,
         order_date: form.orderDate,
         remark: form.remark.trim(),
         items,
-      })
+      }
+      const result = editing
+        ? await updateInbound(editing.id, payload)
+        : await createInbound(payload)
       // 回到列表：清空筛选后重新加载，保证新单一定可见
       setMode('list')
+      setEditing(null)
       setForm({ supplier: '', orderDate: todayISO(), remark: '' })
       setRows([createRow()])
       // 入库后库存变了，清掉「已有库存」提醒缓存
@@ -483,7 +531,11 @@ export default function Inbound() {
       setDateToInput('')
       setFilters(emptyFilters)
       await loadList(emptyFilters)
-      setNotice(`已保存入库单 ${result.order_no}`)
+      setNotice(
+        editing
+          ? `已保存入库单 ${result.order_no} 的修改`
+          : `已保存入库单 ${result.order_no}`,
+      )
     } catch (err) {
       setFormError(err instanceof Error ? err.message : '保存失败')
     } finally {
@@ -495,7 +547,7 @@ export default function Inbound() {
     <section>
       <PageHead
         title="入库"
-        subtitle="录入入库单、按供应商与日期查询、查看明细；保存时自动生成单号并重算立方金额"
+        subtitle="录入与修改入库单、按供应商与日期查询、查看明细；保存时自动生成单号并重算立方金额"
         extra={
           <button className="btn" onClick={handleExport} disabled={exporting}>
             {exporting ? '导出中…' : '导出 Excel'}
@@ -623,6 +675,14 @@ export default function Inbound() {
                         onClick={() => void openDetail(order.id)}
                       >
                         查看
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() =>
+                          void openEdit({ id: order.id, order_no: order.order_no })
+                        }
+                      >
+                        编辑
                       </button>
                       <button
                         className="btn btn-sm btn-danger"
@@ -772,12 +832,22 @@ export default function Inbound() {
               onClick={() => void handleSave()}
               disabled={saving}
             >
-              {saving ? '保存中…' : '保存'}
+              {saving ? '保存中…' : editing ? '保存修改' : '保存'}
             </button>
-            <button className="btn" onClick={() => setMode('list')}>
+            <button
+              className="btn"
+              onClick={() => {
+                setMode('list')
+                setEditing(null)
+              }}
+            >
               取消
             </button>
-            <span className="muted">单号保存时自动生成（RK + 日期 + 流水）</span>
+            <span className="muted">
+              {editing
+                ? `正在修改入库单 ${editing.order_no}，单号不变，库存会按差异自动调整`
+                : '单号保存时自动生成（RK + 日期 + 流水）'}
+            </span>
           </div>
         </div>
       )}
@@ -791,17 +861,27 @@ export default function Inbound() {
               </h2>
               <div className="modal-actions">
                 {detail && (
-                  <button
-                    className="btn btn-sm btn-danger"
-                    onClick={() =>
-                      setDeleteTarget({
-                        id: detail.id,
-                        order_no: detail.order_no,
-                      })
-                    }
-                  >
-                    删除
-                  </button>
+                  <>
+                    <button
+                      className="btn btn-sm"
+                      onClick={() =>
+                        void openEdit({ id: detail.id, order_no: detail.order_no })
+                      }
+                    >
+                      编辑
+                    </button>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() =>
+                        setDeleteTarget({
+                          id: detail.id,
+                          order_no: detail.order_no,
+                        })
+                      }
+                    >
+                      删除
+                    </button>
+                  </>
                 )}
                 <button className="btn btn-quiet" onClick={closeDetail}>
                   关闭

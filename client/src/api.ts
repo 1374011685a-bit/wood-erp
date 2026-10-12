@@ -227,6 +227,15 @@ export function deleteInbound(id: number) {
   return request<{ ok: boolean }>(`/api/inbound/${id}`, { method: 'DELETE' })
 }
 
+// 修改入库单：明细整体替换，单号不变；库存会按差异自动调整
+export function updateInbound(id: number, payload: CreateInboundPayload) {
+  return request<CreateInboundResult>(`/api/inbound/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 /* ---------- 出库 ---------- */
 
 export type CreateOutboundPayload = {
@@ -314,6 +323,15 @@ export function deleteOutbound(id: number) {
   return request<{ ok: boolean }>(`/api/outbound/${id}`, { method: 'DELETE' })
 }
 
+// 修改出库单：明细整体替换，单号不变；库存不够时后端返回 400
+export function updateOutbound(id: number, payload: CreateOutboundPayload) {
+  return request<CreateOutboundResult>(`/api/outbound/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
 // 某规格的当前库存（出库表单实时提示用）
 export function fetchStock(spec: StockQuery) {
   const query = new URLSearchParams({
@@ -346,6 +364,41 @@ export function fetchStockList(species = '') {
   if (species) query.set('species', species)
   const search = query.toString()
   return request<StockRow[]>(`/api/stock${search ? `?${search}` : ''}`)
+}
+
+/* ---------- 回收站 ---------- */
+
+export type RecycleRow = {
+  type: 'in' | 'out'
+  id: number
+  order_no: string
+  partner: string | null
+  order_date: string | null
+  deleted_at: string
+  total_cubic: number
+  total_amount: number
+  item_count: number
+}
+
+// 回收站列表：被软删除的入库 / 出库单
+export function fetchRecycleList() {
+  return request<RecycleRow[]>('/api/recycle')
+}
+
+// 恢复单据（恢复出库单时库存不够会返回 400，错误信息原样展示）
+export function restoreRecycleOrder(type: 'in' | 'out', id: number) {
+  return request<{ ok: boolean }>('/api/recycle/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, id }),
+  })
+}
+
+// 彻底删除（连明细一起物理删掉，删完不可恢复）
+export function purgeRecycleOrder(type: 'in' | 'out', id: number) {
+  return request<{ ok: boolean }>(`/api/recycle/${type}/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 /* ---------- 盘点 ---------- */

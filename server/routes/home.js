@@ -17,7 +17,8 @@ function todayLocal() {
 const totalStockStmt = db.prepare(
   `SELECT COALESCE(SUM(CASE WHEN order_type = 'in' THEN cubic   ELSE -cubic   END), 0) AS cubic,
           COALESCE(SUM(CASE WHEN order_type = 'in' THEN bundles ELSE -bundles END), 0) AS bundles
-     FROM order_items`,
+     FROM order_items
+    WHERE deleted_at IS NULL`,
 )
 
 // 指定日期、指定方向的立方与金额合计
@@ -27,14 +28,16 @@ const dailyStmt = {
             COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0 AS amount
        FROM order_items i
        JOIN inbound_orders o ON o.id = i.order_id
-      WHERE i.order_type = 'in' AND o.order_date = ?`,
+      WHERE i.order_type = 'in' AND i.deleted_at IS NULL
+        AND o.deleted_at IS NULL AND o.order_date = ?`,
   ),
   out: db.prepare(
     `SELECT COALESCE(SUM(i.cubic), 0)  AS cubic,
             COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0 AS amount
        FROM order_items i
        JOIN outbound_orders o ON o.id = i.order_id
-      WHERE i.order_type = 'out' AND o.order_date = ?`,
+      WHERE i.order_type = 'out' AND i.deleted_at IS NULL
+        AND o.deleted_at IS NULL AND o.order_date = ?`,
   ),
 }
 
@@ -49,6 +52,7 @@ const stockAmountStmt = db.prepare(
               (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100))
                  FROM order_items s
                 WHERE s.order_type = 'in'
+                  AND s.deleted_at IS NULL
                   AND COALESCE(s.species, '') = COALESCE(i.species, '')
                   AND COALESCE(s.grade, '')   = COALESCE(i.grade, '')
                   AND s.thickness = i.thickness
@@ -57,6 +61,7 @@ const stockAmountStmt = db.prepare(
                 ORDER BY s.id DESC
                 LIMIT 1) AS last_unit_price_cents
          FROM order_items i
+        WHERE i.deleted_at IS NULL
         GROUP BY i.species, i.grade, i.thickness, i.width, i.length
        HAVING SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) > 0
      ) t`,
@@ -77,7 +82,9 @@ const recentStmt = db.prepare(
                                                    AS total_amount,
               COUNT(i.id)                          AS item_count
          FROM inbound_orders o
-         LEFT JOIN order_items i ON i.order_id = o.id AND i.order_type = 'in'
+         LEFT JOIN order_items i
+                ON i.order_id = o.id AND i.order_type = 'in' AND i.deleted_at IS NULL
+        WHERE o.deleted_at IS NULL
         GROUP BY o.id
 
        UNION ALL
@@ -92,7 +99,9 @@ const recentStmt = db.prepare(
                                                    AS total_amount,
               COUNT(i.id)                          AS item_count
          FROM outbound_orders o
-         LEFT JOIN order_items i ON i.order_id = o.id AND i.order_type = 'out'
+         LEFT JOIN order_items i
+                ON i.order_id = o.id AND i.order_type = 'out' AND i.deleted_at IS NULL
+        WHERE o.deleted_at IS NULL
         GROUP BY o.id
      )
     ORDER BY created_at DESC, order_no DESC

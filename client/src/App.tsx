@@ -6,6 +6,7 @@ import Home from './pages/Home'
 import Inbound from './pages/Inbound'
 import Login from './pages/Login'
 import Outbound from './pages/Outbound'
+import Recycle from './pages/Recycle'
 import Stock from './pages/Stock'
 import Records from './pages/Records'
 
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="stock" element={<Stock />} />
           <Route path="count" element={<Count />} />
           <Route path="records" element={<Records />} />
+          <Route path="recycle" element={<Recycle />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

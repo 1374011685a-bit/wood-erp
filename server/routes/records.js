@@ -14,8 +14,10 @@ const MAX_LIMIT = 1000
  */
 const baseFrom = `
   FROM order_items i
-  LEFT JOIN inbound_orders  oi ON i.order_type = 'in'  AND oi.id = i.order_id
-  LEFT JOIN outbound_orders oo ON i.order_type = 'out' AND oo.id = i.order_id
+  LEFT JOIN inbound_orders  oi
+         ON i.order_type = 'in'  AND oi.id = i.order_id AND oi.deleted_at IS NULL
+  LEFT JOIN outbound_orders oo
+         ON i.order_type = 'out' AND oo.id = i.order_id AND oo.deleted_at IS NULL
 `
 
 const listSql = (where) => `
@@ -44,7 +46,8 @@ const listSql = (where) => `
 const countSql = (where) => `SELECT COUNT(*) AS total ${baseFrom} ${where}`
 
 function buildWhere(query) {
-  const conditions = []
+  // 软删除的明细不进流水
+  const conditions = [`i.deleted_at IS NULL`]
   const params = []
 
   const type = String(query.type ?? '').trim()

@@ -76,14 +76,16 @@ const inboundRowsSql = (where) => `
          COALESCE(i.amount_cents,     ROUND(i.amount     * 100))       AS amount_cents,
          COALESCE(i.amount_cents,     ROUND(i.amount     * 100)) / 100.0 AS amount
     FROM inbound_orders o
-    JOIN order_items i ON i.order_id = o.id AND i.order_type = 'in'
+    JOIN order_items i
+      ON i.order_id = o.id AND i.order_type = 'in' AND i.deleted_at IS NULL
    ${where}
    ORDER BY o.created_at DESC, o.id DESC, i.id
 `
 
 router.get('/inbound', async (req, res) => {
   const { supplier, date_from: dateFrom, date_to: dateTo } = req.query
-  const conditions = []
+  // 软删除的单据不导出
+  const conditions = [`o.deleted_at IS NULL`]
   const params = []
 
   if (supplier && String(supplier).trim()) {
@@ -151,14 +153,16 @@ const outboundRowsSql = (where) => `
          COALESCE(i.amount_cents,     ROUND(i.amount     * 100))       AS amount_cents,
          COALESCE(i.amount_cents,     ROUND(i.amount     * 100)) / 100.0 AS amount
     FROM outbound_orders o
-    JOIN order_items i ON i.order_id = o.id AND i.order_type = 'out'
+    JOIN order_items i
+      ON i.order_id = o.id AND i.order_type = 'out' AND i.deleted_at IS NULL
    ${where}
    ORDER BY o.created_at DESC, o.id DESC, i.id
 `
 
 router.get('/outbound', async (req, res) => {
   const { customer, date_from: dateFrom, date_to: dateTo } = req.query
-  const conditions = []
+  // 软删除的单据不导出
+  const conditions = [`o.deleted_at IS NULL`]
   const params = []
 
   if (customer && String(customer).trim()) {
@@ -223,6 +227,7 @@ const stockRowsSql = (hasSpeciesFilter) => `
          (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100))
             FROM order_items s
            WHERE s.order_type = 'in'
+             AND s.deleted_at IS NULL
              AND COALESCE(s.species, '') = COALESCE(i.species, '')
              AND COALESCE(s.grade, '')   = COALESCE(i.grade, '')
              AND s.thickness = i.thickness
@@ -231,7 +236,8 @@ const stockRowsSql = (hasSpeciesFilter) => `
            ORDER BY s.id DESC
            LIMIT 1) AS unit_price_cents
     FROM order_items i
-   ${hasSpeciesFilter ? `WHERE i.species LIKE ?` : ''}
+   WHERE i.deleted_at IS NULL
+   ${hasSpeciesFilter ? `AND i.species LIKE ?` : ''}
    GROUP BY i.species, i.grade, i.thickness, i.width, i.length
   HAVING SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) > 0
    ORDER BY i.species, i.grade, i.thickness, i.width, i.length

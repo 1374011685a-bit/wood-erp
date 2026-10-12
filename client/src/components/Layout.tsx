@@ -78,6 +78,18 @@ const navItems: NavItem[] = [
       </>
     ),
   },
+  {
+    to: '/recycle',
+    label: '回收站',
+    icon: (
+      <>
+        <path d="M4 6.5h16" />
+        <path d="M9.5 6.5V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5" />
+        <path d="M6.5 6.5 7.4 19a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.9-12.5" />
+        <path d="M10.2 10.5v6M13.8 10.5v6" />
+      </>
+    ),
+  },
 ]
 
 export default function Layout() {
