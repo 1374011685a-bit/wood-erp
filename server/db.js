@@ -3,7 +3,6 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import bcrypt from 'bcryptjs'
-import Database from 'better-sqlite3'
 import { writeLog } from './boot-log.js'
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url))
@@ -48,9 +47,27 @@ function resolveDataDir() {
 
 export const dataDir = resolveDataDir()
 
+writeLog(`[db] 数据目录：${dataDir}`)
+
 export const dbPath = path.join(dataDir, 'data.db')
 
+// better-sqlite3 是原生模块：这里用动态 import，加载失败（架构不匹配、缺 so 文件等）
+// 也能打出一行明确日志，而不是静默崩溃
+writeLog('[db] … 正在加载 better-sqlite3 原生绑定')
+let Database
+try {
+  Database = (await import('better-sqlite3')).default
+  writeLog('[db] ✓ better-sqlite3 原生绑定加载成功')
+} catch (err) {
+  writeLog(
+    `[启动失败] better-sqlite3 原生绑定加载失败（容器架构与镜像架构可能不一致）：\n${err?.stack ?? err}`,
+  )
+  process.exit(1)
+}
+
+writeLog(`[db] … 正在打开数据库：${dbPath}`)
 export const db = new Database(dbPath)
+writeLog('[db] ✓ 数据库已打开')
 
 // 本地单机使用：WAL 提升并发写入表现，并开启外键约束
 // 个别挂载卷（网络盘等）不支持 WAL，失败就退回默认模式，不影响使用
@@ -138,9 +155,12 @@ function seedDefaultAdmin() {
  * @returns {import('better-sqlite3').Database} db 实例
  */
 export function initDB() {
+  writeLog('[db] … initDB 开始建表')
   db.exec(schema)
   seedDefaultAdmin()
+  writeLog('[db] ✓ initDB 完成')
   return db
 }
 
+writeLog('[db] … 模块加载时执行 initDB')
 initDB()

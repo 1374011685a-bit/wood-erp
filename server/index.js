@@ -1,20 +1,64 @@
-// ⚠️ 这一行必须保持在所有 import 的最前面：boot-log 会先同步打一行 [boot] 日志并挂兜底处理器
+// ⚠️ 唯一允许的静态 import：boot-log 会在任何其它模块加载之前先同步打一行 [boot]，
+// 并挂上 uncaughtException / unhandledRejection 兜底。
 import { writeLog } from './boot-log.js'
-import crypto from 'node:crypto'
-import fs from 'node:fs'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import dotenv from 'dotenv'
-import express from 'express'
-import { dbPath, initDB } from './db.js'
-import { requireAuth } from './middleware/auth.js'
-import authRouter from './routes/auth.js'
-import exportRouter from './routes/export.js'
-import homeRouter from './routes/home.js'
-import inboundRouter from './routes/inbound.js'
-import outboundRouter from './routes/outbound.js'
-import stockRouter from './routes/stock.js'
-import recordsRouter from './routes/records.js'
+
+/**
+ * 其余依赖全部用「动态 import + 逐步日志」加载。
+ *
+ * 为什么不写成「import 一行、writeLog 一行」：ESM 的 import 是静态声明，会被提升到
+ * 模块体之前 —— 模块图先整体链接、所有依赖先全部求值，然后才执行本模块的语句。
+ * 一旦中间某个依赖加载失败，后面的日志一行都打不出来，也定位不到是哪个模块。
+ * 动态 import 是真正的运行时边界，崩在第几个模块一目了然。
+ */
+async function load(label, loader) {
+  writeLog(`[load] … 正在加载 ${label}`)
+  try {
+    const mod = await loader()
+    writeLog(`[load] ✓ ${label}`)
+    return mod
+  } catch (err) {
+    writeLog(`[启动失败] 加载 ${label} 失败：\n${err?.stack ?? err}`)
+    process.exit(1)
+  }
+}
+
+const crypto = await load('node:crypto', () => import('node:crypto'))
+const fs = await load('node:fs', () => import('node:fs'))
+const path = await load('node:path', () => import('node:path'))
+const { fileURLToPath } = await load('node:url', () => import('node:url'))
+const dotenv = await load('dotenv', async () => (await import('dotenv')).default)
+const express = await load('express', async () => (await import('express')).default)
+
+// 数据库模块（内部还会打 better-sqlite3 原生绑定是否加载成功）
+const { dbPath, initDB } = await load('./db.js', () => import('./db.js'))
+
+// 中间件与各业务路由
+const { requireAuth } = await load('./middleware/auth.js', () =>
+  import('./middleware/auth.js'),
+)
+const authRouter = await load('./routes/auth.js', async () =>
+  (await import('./routes/auth.js')).default,
+)
+const exportRouter = await load('./routes/export.js', async () =>
+  (await import('./routes/export.js')).default,
+)
+const homeRouter = await load('./routes/home.js', async () =>
+  (await import('./routes/home.js')).default,
+)
+const inboundRouter = await load('./routes/inbound.js', async () =>
+  (await import('./routes/inbound.js')).default,
+)
+const outboundRouter = await load('./routes/outbound.js', async () =>
+  (await import('./routes/outbound.js')).default,
+)
+const stockRouter = await load('./routes/stock.js', async () =>
+  (await import('./routes/stock.js')).default,
+)
+const recordsRouter = await load('./routes/records.js', async () =>
+  (await import('./routes/records.js')).default,
+)
+
+writeLog('[load] 全部模块加载完成')
 
 const app = express()
 
@@ -49,7 +93,7 @@ try {
       `        DATA_DIR：${process.env.DATA_DIR ?? '（未设置，使用 server 目录）'}`,
   )
 }
-console.log(`数据库初始化成功：${dbPath}`)
+writeLog(`数据库初始化成功：${dbPath}`)
 
 app.use(express.json())
 
@@ -89,9 +133,9 @@ app.use((req, res, next) => {
 })
 
 const server = app.listen(PORT, HOST, () => {
-  console.log(`[server] 已启动，监听 ${HOST}:${PORT}`)
-  console.log(`[server] 数据库：${dbPath}`)
-  console.log(`[server] 前端静态目录：${clientDist}`)
+  writeLog(`[server] 已启动，监听 ${HOST}:${PORT}`)
+  writeLog(`[server] 数据库：${dbPath}`)
+  writeLog(`[server] 前端静态目录：${clientDist}`)
 })
 
 // 监听失败（端口被占用等）不会走进 console，必须显式兜住，否则只能看到容器退出
