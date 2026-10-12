@@ -19,12 +19,6 @@
   --red: #ff3b30;
   --green: #34c759;
 
-  /* 木质点缀色（克制使用：品牌标记、当前项指示、金额卡） */
-  --wood: #b07a45;
-  --wood-deep: #8a5a2b;
-  --wood-soft: #f7f1e9;
-  --wood-line: rgba(176, 122, 69, 0.28);
-
   /* 圆角 */
   --r-card: 16px;
   --r-btn: 10px;
@@ -170,22 +164,6 @@ input[inputmode='decimal'] {
   position: relative;
 }
 
-.nav-item-active::after {
-  content: '';
-  position: absolute;
-  left: 7px;
-  top: 50%;
-  width: 2px;
-  height: 16px;
-  margin-top: -8px;
-  border-radius: 2px;
-  background-color: var(--wood);
-}
-
-.nav-item-active {
-  padding-left: 16px;
-}
-
 .nav-item-active .nav-icon {
   color: var(--text);
 }
@@ -227,22 +205,11 @@ input[inputmode='decimal'] {
 }
 
 .page-head h1 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin: 0;
   font-size: 24px;
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
-}
-
-.page-head h1::before {
-  content: '';
-  width: 4px;
-  height: 20px;
-  border-radius: 2px;
-  background-image: linear-gradient(180deg, #c58f52 0%, #8a5a2b 100%);
 }
 
 .page-head p {
@@ -404,8 +371,7 @@ input[inputmode='decimal'] {
 }
 
 .stat-orange {
-  background-image: linear-gradient(180deg, var(--wood-soft) 0%, #ffffff 68%);
-  border-color: var(--wood-line);
+  background-color: #ffffff;
 }
 
 .stat-green {

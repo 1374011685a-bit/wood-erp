@@ -33,7 +33,7 @@ export default function Login() {
       <main className="login-panel">
         <form className="login-card" onSubmit={handleSubmit}>
           <h1 className="login-brand">立川木业</h1>
-          <p className="login-desc">木材进销存管理系统 · 单机版</p>
+          <p className="login-desc">木材进销存管理系统</p>
 
           <div className="login-fields">
             <label className="field">

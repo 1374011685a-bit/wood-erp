@@ -122,14 +122,30 @@ if (!fs.existsSync(path.join(clientDist, 'index.html'))) {
   )
 }
 
-app.use(express.static(clientDist))
+app.use(
+  express.static(clientDist, {
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('index.html')) {
+        // index.html 不缓存：否则前端更新后，浏览器还在用旧页面引用已删除的旧资源
+        res.setHeader('Cache-Control', 'no-cache')
+      } else if (/\.(js|css|woff2?|png|jpe?g|svg|webp)$/.test(filePath)) {
+        // 带内容哈希的静态资源，可以长期缓存
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+      }
+    },
+  }),
+)
 
 // 前端路由兜底：非 /api 的 GET 请求一律返回 index.html，刷新子路由不会 404
 app.use((req, res, next) => {
   if (req.method !== 'GET' || req.path.startsWith('/api')) return next()
-  res.sendFile(path.join(clientDist, 'index.html'), (err) => {
-    if (err) next()
-  })
+  res.sendFile(
+    path.join(clientDist, 'index.html'),
+    { headers: { 'Cache-Control': 'no-cache' } },
+    (err) => {
+      if (err) next()
+    },
+  )
 })
 
 const server = app.listen(PORT, HOST, () => {
