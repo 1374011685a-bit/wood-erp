@@ -13,3 +13,6 @@ server/.env
 # pnpm 会自动生成，内容是待确认的占位符，不需要提交
 server/pnpm-workspace.yaml
 .env
+# 本地调试产物（截图、临时日志）
+work/
+server/data/

@@ -4,12 +4,17 @@
    ============================================================ */
 
 :root {
-  /* 颜色 */
-  --bg: #fafafa;
+  /* 颜色：苹果的 systemGray / systemBlue 体系 */
+  --bg: #f0f0f2;
   --panel: #ffffff;
   --panel-soft: #f5f5f7;
-  --line: #f0f0f0;
-  --line-strong: #e5e5e7;
+  --sidebar: #f7f7f9;
+
+  /* 描边三档：卡片内分隔线 / 面板与表头 / 控件（#d2d2d7 是苹果的标准描边色） */
+  --line: #e8e8ed;
+  --line-strong: #dcdce1;
+  --border-panel: #d6d6db;
+  --border-control: #c9c9cf;
 
   --text: #1d1d1f;
   --text-2: #6e6e73;
@@ -18,6 +23,7 @@
   --blue: #0071e3;
   --red: #ff3b30;
   --green: #34c759;
+  --orange: #ff9500;
 
   /* 圆角 */
   --r-card: 16px;
@@ -32,6 +38,12 @@
   --fs-ui: 14px; /* 表格、按钮 */
   --fs-label: 13px; /* 辅助文字 */
   --fs-tag: 12px; /* 标签 */
+
+  /* 字距：苹果按字号收紧，大标题紧、小字回正 */
+  --track-hero: -0.032em;
+  --track-title: -0.024em;
+  --track-small: -0.006em;
+  --track-caps: 0.012em;
 
   /* 阴影：多层、极淡 */
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.03), 0 4px 14px rgba(0, 0, 0, 0.04);
@@ -48,8 +60,9 @@
 
   --ease: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'PingFang SC',
-    'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
+    'PingFang SC', 'Helvetica Neue', 'Segoe UI', 'Microsoft YaHei', Arial,
+    sans-serif;
   color: var(--text);
   background-color: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -60,13 +73,23 @@
   box-sizing: border-box;
 }
 
+/* 表单控件跟随系统字体，避免浏览器默认字体把界面拉花 */
+input,
+select,
+textarea,
+button {
+  font-family: inherit;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
   background-color: var(--bg);
   font-size: var(--fs-body);
-  line-height: 1.47;
-  letter-spacing: -0.002em;
+  line-height: 1.5;
+  letter-spacing: var(--track-small);
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
 }
 
 /* 数字等宽，表格里数字对齐更整齐 */
@@ -111,22 +134,23 @@ input[inputmode='decimal'] {
 }
 
 .sidebar {
-  width: 236px;
-  flex: 0 0 236px;
-  background-color: #f5f5f7;
-  border-right: 1px solid rgba(0, 0, 0, 0.05);
+  width: 240px;
+  flex: 0 0 240px;
+  background-color: var(--sidebar);
+  border-right: 1px solid var(--border-panel);
   padding: 22px 14px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .sidebar-brand {
   font-size: 15px;
   font-weight: 600;
   color: var(--text);
-  letter-spacing: -0.01em;
-  padding: 0 10px;
+  letter-spacing: var(--track-title);
+  padding: 2px 10px 16px;
+  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 
@@ -142,12 +166,13 @@ input[inputmode='decimal'] {
   gap: 10px;
   height: 36px;
   padding: 0 10px;
+  border: 1px solid transparent;
   border-radius: 8px;
   color: var(--text);
   text-decoration: none;
   font-size: 14px;
   transition: background-color var(--ease), box-shadow var(--ease),
-    color var(--ease);
+    border-color var(--ease), color var(--ease);
 }
 
 .nav-icon {
@@ -169,7 +194,8 @@ input[inputmode='decimal'] {
 .nav-item-active,
 .nav-item-active:hover {
   background-color: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.04);
+  border-color: var(--border-panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 0, 0, 0.05);
   font-weight: 500;
   position: relative;
 }
@@ -193,8 +219,8 @@ input[inputmode='decimal'] {
   justify-content: flex-end;
   gap: 8px;
   padding-bottom: 14px;
-  margin-bottom: 20px;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--line);
 }
 
 .topbar-user {
@@ -207,10 +233,12 @@ input[inputmode='decimal'] {
 
 .page-head {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 24px;
+  padding-bottom: 18px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--line-strong);
   animation: rise-in 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -218,14 +246,16 @@ input[inputmode='decimal'] {
   margin: 0;
   font-size: var(--fs-title);
   font-weight: 600;
-  letter-spacing: -0.025em;
+  line-height: 1.15;
+  letter-spacing: var(--track-hero);
   color: var(--text);
 }
 
 .page-head p {
-  margin: 6px 0 0;
+  margin: 7px 0 0;
   font-size: var(--fs-label);
   color: var(--text-2);
+  letter-spacing: 0;
 }
 
 .page-title {
@@ -241,6 +271,7 @@ input[inputmode='decimal'] {
 
 .page-body {
   background-color: var(--panel);
+  border: 1px solid var(--border-panel);
   border-radius: var(--r-card);
   min-height: 320px;
   display: flex;
@@ -248,7 +279,7 @@ input[inputmode='decimal'] {
   justify-content: center;
   color: var(--text-3);
   font-size: 15px;
-  box-shadow: var(--shadow-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(0, 0, 0, 0.03);
 }
 
 .page-hint {
@@ -268,10 +299,10 @@ input[inputmode='decimal'] {
 
 .card {
   background-color: var(--panel);
-  border: 1px solid #e8e8ed;
+  border: 1px solid var(--border-panel);
   border-radius: var(--r-card);
   padding: 20px 22px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(0, 0, 0, 0.03);
   margin-bottom: 24px;
   /* 列多的表格在卡片内部横向滚动，不要把列裁掉 */
   overflow-x: auto;
@@ -283,27 +314,42 @@ input[inputmode='decimal'] {
 }
 
 .section-title {
-  margin: 0 0 14px;
+  margin: 0 0 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
   font-size: var(--fs-h2);
   font-weight: 600;
-  letter-spacing: -0.02em;
+  letter-spacing: var(--track-title);
 }
 
 /* ---------- 首页数字卡片 ---------- */
 
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(208px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(212px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
 
+/* 宽屏把五张卡片排满一行，中屏排成 3+2，避免出现「4+1」的孤行 */
+@media (min-width: 1100px) {
+  .stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1560px) {
+  .stat-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 .stat-card {
   background-color: var(--panel);
-  border: 1px solid #e8e8ed;
+  border: 1px solid var(--border-panel);
   border-radius: var(--r-card);
   padding: 20px 22px;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 6px 18px rgba(0, 0, 0, 0.03);
   transition: transform var(--ease), box-shadow var(--ease),
     border-color var(--ease);
   animation: rise-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
@@ -343,23 +389,54 @@ input[inputmode='decimal'] {
 }
 
 .stat-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(0, 0, 0, 0.06);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04), 0 14px 34px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+  border-color: var(--border-control);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05), 0 16px 36px rgba(0, 0, 0, 0.09);
 }
 
 .stat-label {
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-label);
   color: var(--text-2);
   margin-bottom: 10px;
+  letter-spacing: 0;
+}
+
+/* 类别色点：纯 CSS 生成，让五张卡片一眼可分 */
+.stat-label::before {
+  content: '';
+  flex: 0 0 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--text-3);
+}
+
+.stat-blue .stat-label::before {
+  background-color: var(--blue);
+}
+
+.stat-orange .stat-label::before {
+  background-color: var(--orange);
+}
+
+.stat-green .stat-label::before {
+  background-color: var(--green);
+}
+
+.stat-red .stat-label::before {
+  background-color: var(--red);
 }
 
 .stat-value {
   font-size: 34px;
   font-weight: 600;
   line-height: 1.1;
-  letter-spacing: -0.04em;
+  letter-spacing: -0.035em;
   color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-unit {
@@ -374,22 +451,27 @@ input[inputmode='decimal'] {
   margin-top: 8px;
   font-size: 13px;
   color: var(--text-2);
+  letter-spacing: 0;
 }
 
 .stat-blue {
-  background-image: linear-gradient(180deg, #f5f8ff 0%, #ffffff 68%);
+  background-image: linear-gradient(180deg, #f2f7ff 0%, #ffffff 62%);
+  border-color: #dbe6f7;
 }
 
 .stat-orange {
-  background-color: #ffffff;
+  background-image: linear-gradient(180deg, #fff8ef 0%, #ffffff 62%);
+  border-color: #f2e2cd;
 }
 
 .stat-green {
-  background-image: linear-gradient(180deg, #f4fdf6 0%, #ffffff 68%);
+  background-image: linear-gradient(180deg, #f1fcf4 0%, #ffffff 62%);
+  border-color: #d7ecdc;
 }
 
 .stat-red {
-  background-image: linear-gradient(180deg, #fff6f5 0%, #ffffff 68%);
+  background-image: linear-gradient(180deg, #fff4f3 0%, #ffffff 62%);
+  border-color: #f5dcd9;
 }
 
 /* ---------- 工具条 / 表单 ---------- */
@@ -404,6 +486,16 @@ input[inputmode='decimal'] {
 
 .toolbar .spacer {
   flex: 1;
+}
+
+/* 列表页顶部的筛选条直接坐在页面背景上，给它一个面板边界才不会「飘」 */
+section > .toolbar {
+  background-color: var(--panel);
+  border: 1px solid var(--border-panel);
+  border-radius: 14px;
+  padding: 14px 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
 
 .field-row {
@@ -433,12 +525,13 @@ input[inputmode='decimal'] {
 .input {
   height: 40px;
   padding: 0 14px;
-  border: 1px solid #d2d2d7;
+  border: 1px solid var(--border-control);
   border-radius: var(--r-input);
   background-color: #ffffff;
   color: var(--text);
   font-size: var(--fs-ui);
   font-family: inherit;
+  letter-spacing: 0;
   outline: none;
   box-shadow: none;
   transition: background-color var(--ease), border-color var(--ease),
@@ -449,8 +542,27 @@ input[inputmode='decimal'] {
   color: var(--text-3);
 }
 
+/* Chrome 自动填充会强行铺一层浅蓝底，覆盖回白底，保持界面干净 */
+.input:-webkit-autofill,
+.input:-webkit-autofill:hover,
+.input:-webkit-autofill:focus {
+  -webkit-text-fill-color: var(--text);
+  background-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0 100px #ffffff inset !important;
+  box-shadow: 0 0 0 100px #ffffff inset !important;
+  border: 1px solid var(--border-control);
+}
+
+.login-card .input:-webkit-autofill:focus {
+  border-color: var(--blue);
+  -webkit-box-shadow: 0 0 0 100px #ffffff inset,
+    0 0 0 4px rgba(0, 113, 227, 0.18) !important;
+  box-shadow: 0 0 0 100px #ffffff inset,
+    0 0 0 4px rgba(0, 113, 227, 0.18) !important;
+}
+
 .input:hover {
-  border-color: #b8b8bf;
+  border-color: #aeaeB6;
 }
 
 .input:focus {
@@ -506,28 +618,33 @@ input[inputmode='decimal'] {
 .btn {
   height: 38px;
   padding: 0 18px;
-  border: 1px solid #d2d2d7;
+  border: 1px solid var(--border-control);
   border-radius: var(--r-btn);
   background-color: #ffffff;
   background-image: none;
   color: var(--text);
   font-size: var(--fs-ui);
   font-family: inherit;
+  font-weight: 500;
   line-height: 1;
+  letter-spacing: 0;
   cursor: pointer;
   white-space: nowrap;
-  box-shadow: none;
+  /* 苹果的按钮没有高光，但需要一条紧贴的底边才「立」得住 */
+  box-shadow: 0 1px 1.5px rgba(0, 0, 0, 0.06);
   transition: background-color var(--ease), border-color var(--ease),
-    color var(--ease), opacity var(--ease);
+    color var(--ease), box-shadow var(--ease), opacity var(--ease);
 }
 
 .btn:hover {
   background-color: #f5f5f7;
-  border-color: #c8c8cf;
+  border-color: #aaaaB2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.09);
 }
 
 .btn:active {
-  background-color: #ebebed;
+  background-color: #ebebef;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.09);
 }
 
 .btn:disabled {
@@ -547,32 +664,33 @@ input[inputmode='decimal'] {
 .btn-primary {
   background-color: #0071e3;
   background-image: none;
-  border-color: #0071e3;
+  border-color: #006ad6;
   color: #ffffff;
-  font-weight: 400;
-  box-shadow: none;
+  font-weight: 500;
+  box-shadow: 0 1px 1.5px rgba(0, 80, 170, 0.3);
 }
 
 .btn-primary:hover {
   background-color: #0077ed;
-  border-color: #0077ed;
+  border-color: #0071e3;
+  box-shadow: 0 2px 6px rgba(0, 90, 190, 0.32);
 }
 
 .btn-primary:active {
   background-color: #006edb;
-  border-color: #006edb;
+  border-color: #0066cc;
 }
 
 .btn-danger {
   background-color: #ffffff;
   background-image: none;
-  border-color: #d2d2d7;
+  border-color: #e7b4b1;
   color: var(--red);
 }
 
 .btn-danger:hover {
   background-color: rgba(255, 59, 48, 0.06);
-  border-color: rgba(255, 59, 48, 0.4);
+  border-color: rgba(255, 59, 48, 0.55);
   color: var(--red);
 }
 
@@ -582,28 +700,34 @@ input[inputmode='decimal'] {
   width: 100%;
   border-collapse: collapse;
   font-size: var(--fs-ui);
-}
-
-.table th {
-  height: 44px;
-  padding: 0 14px;
-  background-color: #fafafa;
-  border-bottom: 1px solid var(--line);
-  font-size: var(--fs-label);
-  font-weight: 500;
-  color: var(--text-2);
-  text-align: left;
-  white-space: nowrap;
   letter-spacing: 0;
 }
 
+.table th {
+  height: 42px;
+  padding: 0 14px;
+  background-color: #f3f3f6;
+  border-bottom: 1px solid var(--line-strong);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-align: left;
+  white-space: nowrap;
+  letter-spacing: var(--track-caps);
+}
+
 .table td {
-  height: 56px;
+  height: 54px;
   padding: 0 14px;
   border-bottom: 1px solid var(--line);
   color: var(--text);
   vertical-align: middle;
   white-space: nowrap;
+}
+
+/* 斑马纹只给纯展示表格，录入用的明细表不铺底色 */
+.table:not(.table-detail) tbody tr:nth-child(even) td {
+  background-color: #fcfcfd;
 }
 
 .table tbody tr:last-child td {
@@ -615,12 +739,12 @@ input[inputmode='decimal'] {
 }
 
 .table tbody tr:hover td {
-  background-color: #f7f7f9;
+  background-color: #f5f5f7;
 }
 
 /* 行内操作按钮平时淡出，鼠标移到该行时浮出 */
 .row-actions {
-  opacity: 0.55;
+  opacity: 0.8;
   transition: opacity var(--ease);
 }
 
@@ -668,8 +792,11 @@ input[inputmode='decimal'] {
   gap: 32px;
   justify-content: flex-end;
   padding: 18px 14px 2px;
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0;
 }
 
 /* ---------- 标签 ---------- */
@@ -721,9 +848,9 @@ input[inputmode='decimal'] {
   background-color: #ffffff;
   border-radius: 20px;
   padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.6);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08), 0 30px 70px rgba(0, 0, 0, 0.24),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border-panel);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 6px 16px rgba(0, 0, 0, 0.1),
+    0 30px 70px rgba(0, 0, 0, 0.22);
   animation: modal-in 0.2s ease-out;
   overflow-x: auto;
 }
@@ -761,7 +888,7 @@ input[inputmode='decimal'] {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.01em;
+  letter-spacing: var(--track-title);
 }
 
 .modal-actions {
@@ -894,14 +1021,12 @@ input[inputmode='decimal'] {
   background-color: rgba(255, 255, 255, 0.86);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  box-shadow: var(--shadow-2);
+  border: 1px solid var(--border-panel);
   font-size: 13.5px;
   line-height: 1.5;
   white-space: pre-line;
   animation: toast-in 0.2s ease-out;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 14px 34px rgba(0, 0, 0, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 14px 34px rgba(0, 0, 0, 0.14);
 }
 
 /* 图标用伪元素，不需要改组件 */
@@ -965,17 +1090,17 @@ input[inputmode='decimal'] {
   justify-content: center;
   min-height: 100vh;
   padding: 64px 24px 104px;
-  background-color: #ffffff;
+  background-color: #f5f5f7;
 }
 
-/* 极淡的暖白晕染，只为了让纯白不至于「死白」 */
+/* 顶部一层极淡的白光，让浅灰底不至于「死板」 */
 .login-page::before {
   content: '';
   position: absolute;
   inset: 0;
   background-image: radial-gradient(
     110% 55% at 50% -18%,
-    #faf7f3 0%,
+    #ffffff 0%,
     rgba(255, 255, 255, 0) 62%
   );
 }
@@ -998,9 +1123,9 @@ input[inputmode='decimal'] {
   padding: 36px 36px 32px;
   border-radius: 18px;
   background-color: #ffffff;
-  /* 苹果登录页就是一条发丝边，没有投影 */
-  border: 1px solid #d2d2d7;
-  box-shadow: none;
+  /* 苹果登录页是一条发丝边，只留一丝极淡的投影把卡片托起来 */
+  border: 1px solid var(--border-control);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 10px 28px rgba(0, 0, 0, 0.04);
   animation: rise-in 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -1033,13 +1158,13 @@ input[inputmode='decimal'] {
   height: 44px;
   background-color: #ffffff;
   background-image: none;
-  border-color: #d2d2d7;
+  border-color: var(--border-control);
   box-shadow: none;
 }
 
 .login-card .input:hover {
   background-color: #ffffff;
-  border-color: #b8b8bf;
+  border-color: #aeaeB6;
 }
 
 .login-card .input:focus {
@@ -1114,7 +1239,7 @@ input[inputmode='decimal'] {
   margin: 0;
   padding: 11px 13px;
   border-radius: 10px;
-  border: 1px solid #e8e8ed;
+  border: 1px solid var(--border-panel);
   background-color: #fafafa;
   color: #1d1d1f;
   font-size: 12.5px;
@@ -1131,8 +1256,8 @@ input[inputmode='decimal'] {
   bottom: 0;
   margin: 0;
   padding: 18px 16px 20px;
-  border-top: 1px solid #f0f0f2;
-  background-color: rgba(255, 255, 255, 0.9);
+  border-top: 1px solid var(--line-strong);
+  background-color: rgba(245, 245, 247, 0.92);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   text-align: center;
