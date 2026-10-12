@@ -1,5 +1,5 @@
 // ⚠️ 这一行必须保持在所有 import 的最前面：boot-log 会先同步打一行 [boot] 日志并挂兜底处理器
-import { writeStderr } from './boot-log.js'
+import { writeLog } from './boot-log.js'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -19,7 +19,7 @@ import recordsRouter from './routes/records.js'
 const app = express()
 
 function fatal(message) {
-  writeStderr(`[启动失败] ${message}`)
+  writeLog(`[启动失败] ${message}`)
   process.exit(1)
 }
 
@@ -30,7 +30,7 @@ dotenv.config({ path: path.join(serverDir, '.env'), quiet: true })
 // JWT_SECRET：没配置时给一个随机的临时密钥，保证容器能起来（重启后登录态失效）
 if (!process.env.JWT_SECRET) {
   process.env.JWT_SECRET = crypto.randomBytes(32).toString('hex')
-  writeStderr(
+  writeLog(
     '[警告] 未配置 JWT_SECRET，本次启动使用随机临时密钥：重启后所有登录态失效。\n' +
       '        请在平台的环境变量里配置一个固定的 32 位以上随机串（本地写在 server/.env）。',
   )
@@ -73,7 +73,7 @@ app.use('/api/records', requireAuth, recordsRouter)
 const clientDist = path.join(serverDir, '..', 'client', 'dist')
 
 if (!fs.existsSync(path.join(clientDist, 'index.html'))) {
-  writeStderr(
+  writeLog(
     `[警告] 没有找到前端构建产物：${clientDist}/index.html，页面会 404（生产镜像请先执行 cd client && pnpm build）`,
   )
 }

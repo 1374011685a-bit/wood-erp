@@ -8,27 +8,33 @@ import fs from 'node:fs'
  * 所以这里在做任何其它事情之前，先同步写一行日志并挂上兜底处理器。
  */
 
-/** 同步写 stderr（绕过异步缓冲，保证退出前一定落盘） */
-export function writeStderr(message) {
-  try {
-    fs.writeSync(2, `${message}\n`)
-  } catch {
-    // 连 stderr 都写不出去时只能放弃
+/**
+ * 同步往 stdout + stderr 各写一行：
+ * - 同步写：绕过异步缓冲，process.exit() 之前也一定落盘
+ * - 两个流都写：有的平台日志页只抓 stdout、有的只抓 stderr，都写就不会整页空白
+ */
+export function writeLog(message) {
+  for (const fd of [1, 2]) {
+    try {
+      fs.writeSync(fd, `${message}\n`)
+    } catch {
+      // 这个流写不出去就跳过
+    }
   }
 }
 
-writeStderr(
+writeLog(
   `[boot] node=${process.version} pid=${process.pid} cwd=${process.cwd()} ` +
     `cwd存在=${fs.existsSync(process.cwd())}`,
 )
 
 // 尽早挂兜底：连「模块加载失败」这种早期异常也能留下中文日志
 process.on('uncaughtException', (err) => {
-  writeStderr(`[启动失败] 未捕获异常：${err?.stack ?? err}`)
+  writeLog(`[启动失败] 未捕获异常：${err?.stack ?? err}`)
   process.exit(1)
 })
 
 process.on('unhandledRejection', (reason) => {
-  writeStderr(`[启动失败] 未处理的 Promise 异常：${reason?.stack ?? reason}`)
+  writeLog(`[启动失败] 未处理的 Promise 异常：${reason?.stack ?? reason}`)
   process.exit(1)
 })

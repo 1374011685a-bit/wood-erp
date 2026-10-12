@@ -2,11 +2,14 @@
 # 立川木业木材管理系统 —— 生产镜像（多阶段构建）
 #   阶段 1 build   ：装依赖 + 构建前端，产出 client/dist
 #   阶段 2 runtime ：只留生产依赖，Node 同时提供 API 和前端静态文件
-# 数据库文件放在 DATA_DIR（容器里默认 /data），记得挂卷
+#
+# 基础镜像用 Debian 系（slim）而不是 alpine：better-sqlite3 自带 glibc 预编译产物，
+# Debian 上直接命中，行为更可预期。
+# 数据库文件放在 DATA_DIR（容器里默认 /data），记得挂卷。
 # ============================================================
 
 # ---------- 阶段 1：构建 ----------
-FROM node:20-alpine AS build
+FROM node:20-slim AS build
 WORKDIR /app
 
 # 仓库里的 lockfileVersion 是 9.0，用 pnpm 10 匹配
@@ -25,17 +28,25 @@ COPY client ./client
 COPY server ./server
 RUN cd client && pnpm build
 
+# 构建产物自检：文件不在就让构建失败，而不是拖到运行时崩
+RUN ls -la /app/server/index.js /app/client/dist/index.html
+
 # ---------- 阶段 2：运行 ----------
-FROM node:20-alpine AS runtime
+FROM node:20-slim AS runtime
+
 WORKDIR /app
 
 ENV NODE_ENV=production \
     PORT=3001 \
     DATA_DIR=/data
 
+# 不用 USER，默认 root 跑，避免挂载卷的权限问题
 RUN npm install -g pnpm@10 && mkdir -p /data
 
-# 只装 server 的生产依赖（better-sqlite3 自带 musl 预编译产物，不需要编译器）
+# 基础镜像自检：node 能不能跑
+RUN node -e "console.log('node works, version:', process.version)"
+
+# 只装 server 的生产依赖（better-sqlite3 自带预编译产物，不需要编译器）
 COPY package.json ./
 COPY server/package.json server/pnpm-lock.yaml ./server/
 RUN cd server && pnpm install --prod --frozen-lockfile
@@ -44,9 +55,16 @@ RUN cd server && pnpm install --prod --frozen-lockfile
 COPY server ./server
 COPY --from=build /app/client/dist ./client/dist
 
+# 镜像自检：这几个文件缺任何一个都让构建直接失败，并在日志里打印出来
+RUN ls -la /app/server/index.js /app/server/boot-log.js /app/server/db.js \
+ && ls -la /app/client/dist/index.html \
+ && ls -la /app/server/node_modules/express/package.json \
+ && ls -la /app/server/node_modules/better-sqlite3/package.json
+
 EXPOSE 3001
 
-# 容器级兜底日志 + stderr 合并到 stdout + 保留真实退出码。
-# 这行 echo 在任何 JS 之前执行：即使 Node 因为模块解析失败之类的原因一行都打不出来，
-# Sealos 日志页也一定会看到「容器启动了」和「崩溃时的退出码」。
-CMD echo "[boot] 容器启动，node=$(node -v)，工作目录=$(pwd)"; node server/index.js 2>&1; code=$?; if [ $code -ne 0 ]; then echo "=== 容器崩溃，退出码 $code ==="; fi; exit $code
+# 健康检查：不依赖 curl，用 node 自带的 fetch 打首页
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||3001)+'/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "server/index.js"]

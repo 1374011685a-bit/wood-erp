@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import dotenv from 'dotenv'
 import bcrypt from 'bcryptjs'
 import Database from 'better-sqlite3'
+import { writeLog } from './boot-log.js'
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url))
 
@@ -30,9 +31,8 @@ function resolveDataDir() {
     try {
       fs.mkdirSync(dir, { recursive: true })
       if (dir !== configured) {
-        fs.writeSync(
-          2,
-          `[警告] DATA_DIR 不可用（${configured}），已回退到 ${dir}，数据不会持久化，请检查挂载卷\n`,
+        writeLog(
+          `[警告] DATA_DIR 不可用（${configured}），已回退到 ${dir}，数据不会持久化，请检查挂载卷`,
         )
       }
       return dir
@@ -57,7 +57,7 @@ export const db = new Database(dbPath)
 try {
   db.pragma('journal_mode = WAL')
 } catch (err) {
-  fs.writeSync(2, `[警告] 开启 WAL 失败（${err.message}），继续使用默认日志模式\n`)
+  writeLog(`[警告] 开启 WAL 失败（${err.message}），继续使用默认日志模式`)
 }
 db.pragma('foreign_keys = ON')
 
