@@ -1,0 +1,17 @@
+{
+  "name": "wood-erp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "立川木业木材管理系统（骨架）",
+  "scripts": {
+    "dev": "concurrently -k -n SERVER,CLIENT -c blue,green \"node --watch server/index.js\" \"cd client && node node_modules/vite/bin/vite.js\"",
+    "dev:client": "cd client && node node_modules/vite/bin/vite.js",
+    "dev:server": "node --watch server/index.js",
+    "start": "node server/index.js",
+    "build": "cd client && pnpm install && pnpm build",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.6"
+  }
+}

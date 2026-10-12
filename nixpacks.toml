@@ -1,0 +1,16 @@
+# Railway（Nixpacks）构建配置：显式告诉它这是个带 client / server 子包的项目
+[phases.setup]
+nixPkgs = ["nodejs_22"]
+
+[phases.install]
+cmds = [
+  "pnpm install",
+  "cd client && pnpm install",
+  "cd server && pnpm install",
+]
+
+[phases.build]
+cmds = ["cd client && pnpm build"]
+
+[start]
+cmd = "pnpm start"

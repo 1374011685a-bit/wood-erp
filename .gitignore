@@ -1,0 +1,15 @@
+node_modules/
+dist/
+client/dist/
+*.tsbuildinfo
+*.log
+.DS_Store
+*.sqlite
+*.sqlite3
+server/data.db
+server/data.db-wal
+server/data.db-shm
+server/.env
+# pnpm 会自动生成，内容是待确认的占位符，不需要提交
+server/pnpm-workspace.yaml
+.env
