@@ -741,6 +741,335 @@ input[inputmode='decimal'] {
 
 /* ---------- 首页数字卡片 ---------- */
 
+/* ---------- 首页看板 ---------- */
+
+.dash {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 980px) {
+  .dash {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 主视觉卡片：库存盘子 + 进出走势 */
+.dash-hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 22px 24px 18px;
+  border: 1px solid var(--border-panel);
+  border-radius: 18px;
+  background-color: #ffffff;
+  background-image: linear-gradient(180deg, #f7faff 0%, #ffffff 58%);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 22px rgba(0, 0, 0, 0.04);
+  animation: rise-in 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.hero-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hero-label {
+  font-size: var(--fs-label);
+  color: var(--text-2);
+  letter-spacing: 0;
+}
+
+.hero-delta {
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hero-delta.is-up {
+  background-color: rgba(48, 209, 88, 0.14);
+  color: #1c7c3a;
+}
+
+.hero-delta.is-down {
+  background-color: rgba(255, 149, 0, 0.16);
+  color: #a15c00;
+}
+
+/* 大号数字：苹果那种「大而轻」的观感，靠字距收紧压住体量 */
+.hero-value {
+  margin-top: 10px;
+  font-size: 46px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-unit {
+  margin-left: 8px;
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-3);
+}
+
+.hero-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--text-2);
+  letter-spacing: 0;
+}
+
+.hero-meta b {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.hero-sep {
+  width: 1px;
+  height: 12px;
+  background-color: var(--line-strong);
+}
+
+/* 走势柱：每格两根细柱（入库绿 / 出库橙） */
+.trend {
+  display: flex;
+  /* 必须 stretch：每天那一格要撑满 84px，柱子里的百分比高度才有参照 */
+  align-items: stretch;
+  gap: 4px;
+  height: 84px;
+  margin-top: 18px;
+  padding-bottom: 1px;
+  border-bottom: 1px solid var(--line);
+}
+
+.trend-day {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 100%;
+  width: 100%;
+  justify-content: center;
+}
+
+.trend-bar {
+  width: 7px;
+  border-radius: 3px 3px 0 0;
+  transform-origin: bottom;
+  animation: bar-rise 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+  transition: opacity var(--ease);
+}
+
+.trend-bar.is-in {
+  background-color: #30d158;
+}
+
+.trend-bar.is-out {
+  background-color: #ff9f0a;
+}
+
+.trend-day:hover .trend-bar {
+  opacity: 0.75;
+}
+
+@keyframes bar-rise {
+  from {
+    transform: scaleY(0.05);
+    opacity: 0.4;
+  }
+  to {
+    transform: scaleY(1);
+    opacity: 1;
+  }
+}
+
+.trend-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.trend-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.trend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.trend-dot.is-in {
+  background-color: #30d158;
+}
+
+.trend-dot.is-out {
+  background-color: #ff9f0a;
+}
+
+.trend-range {
+  margin-left: auto;
+}
+
+/* 侧栏小卡片 */
+.dash-side {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 980px) {
+  .dash-side {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .dash-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.mini-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 15px 16px;
+  border: 1px solid var(--border-panel);
+  border-radius: 16px;
+  background-color: #ffffff;
+  font-family: inherit;
+  text-align: left;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  animation: rise-in 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+button.mini-card {
+  cursor: pointer;
+  transition: transform var(--ease), box-shadow var(--ease), border-color var(--ease);
+}
+
+button.mini-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-control);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05), 0 12px 28px rgba(0, 0, 0, 0.08);
+}
+
+.mini-label {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.mini-value {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.mini-value small {
+  margin-left: 4px;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text-3);
+}
+
+.mini-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 库存构成 */
+.stack-bar {
+  display: flex;
+  height: 14px;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background-color: var(--panel-soft);
+}
+
+.stack-seg {
+  height: 100%;
+  transition: opacity var(--ease);
+}
+
+.stack-seg:hover {
+  opacity: 0.8;
+}
+
+.stack-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px 24px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stack-legend li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.stack-dot {
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 3px;
+}
+
+.stack-name {
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-cubic {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.stack-share {
+  min-width: 48px;
+  text-align: right;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 旧版首页数字卡片（保留给其他页面复用） ---------- */
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(212px, 1fr));

@@ -605,10 +605,28 @@ export type HomeRecord = {
   created_at: string
 }
 
+export type HomeTrendDay = {
+  date: string
+  in_cubic: number
+  out_cubic: number
+}
+
+export type HomeComposition = {
+  label: string
+  cubic: number
+  share: number
+}
+
 export type HomeSummary = {
   total_stock_cubic: number
   total_stock_bundles: number
   total_stock_amount: number
+  stock_delta_cubic: number
+  stock_delta_percent: number
+  receivable_total: number
+  payable_total: number
+  trend: HomeTrendDay[]
+  composition: HomeComposition[]
   today_in_cubic: number
   today_in_amount: number
   today_out_cubic: number
@@ -616,7 +634,7 @@ export type HomeSummary = {
   recent_records: HomeRecord[]
 }
 
-// 首页汇总（库存总量、今日出入库、最近 10 条流水）
+// 首页汇总（库存、应收应付、近 14 天走势、库存构成、最近 10 条流水）
 export function fetchHomeSummary() {
   return request<HomeSummary>('/api/home/summary')
 }
