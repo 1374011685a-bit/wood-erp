@@ -28,7 +28,8 @@ const DIMENSIONS: Array<{ key: HomeCompositionDimension; label: string }> = [
 
 /**
  * 数字跑动：从上一个值滚到新值，缓出收尾（苹果那种「不弹、不急停」的手感）。
- * 系统开了「减少动态效果」就直接给终值，不做动画。
+ * 这里故意不判 prefers-reduced-motion：跑动只是一次数字滚动、位移很小，
+ * 而且首页的观感就靠它，所以始终执行（大位移动画才需要尊重那个设置）。
  */
 function useCountUp(target: number, duration = 720) {
   const [display, setDisplay] = useState(target)
@@ -36,9 +37,8 @@ function useCountUp(target: number, duration = 720) {
   const frameRef = useRef(0)
 
   useEffect(() => {
-    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     const from = currentRef.current
-    if (reduce || from === target) {
+    if (from === target) {
       currentRef.current = target
       setDisplay(target)
       return
@@ -247,7 +247,7 @@ export default function Home() {
             <span className="mini-value">
               {summary ? formatMoney(receivable) : '—'}
             </span>
-            <span className="mini-hint">客户欠款 · 去对账 ›</span>
+            <span className="mini-hint">去对账 ›</span>
           </button>
 
           <button
@@ -257,7 +257,7 @@ export default function Home() {
           >
             <span className="mini-label">应付合计</span>
             <span className="mini-value">{summary ? formatMoney(payable) : '—'}</span>
-            <span className="mini-hint">欠供应商 · 去对账 ›</span>
+            <span className="mini-hint">去对账 ›</span>
           </button>
 
           <div className="mini-card is-static">
@@ -267,7 +267,7 @@ export default function Home() {
               <small>立方</small>
             </span>
             <span className="mini-hint">
-              金额 {summary ? formatMoney(summary.today_out_amount) : '—'} 元
+              {summary ? formatMoney(summary.today_out_amount) : '—'} 元
             </span>
           </div>
 
