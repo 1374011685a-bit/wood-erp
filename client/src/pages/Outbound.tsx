@@ -21,6 +21,7 @@ import {
   EmptyState,
   Loading,
   PageHead,
+  Pager,
   ToastHost,
 } from '../components/Ui'
 
@@ -149,11 +150,18 @@ const specKeyOf = (row: FormRow) => {
   return [species, row.grade.trim(), thickness, width, length].join('|')
 }
 
-const emptyFilters: OutboundListFilters = {
+const emptyFilters: OutboundListFilters = {}
+
+const emptyInput = {
+  order_no: '',
   customer: '',
+  warehouse: '',
+  operator: '',
   date_from: '',
   date_to: '',
 }
+
+const PAGE_SIZE = 20
 
 /* ---------- 样式 ---------- */
 
@@ -186,10 +194,11 @@ export default function Outbound() {
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
 
-  const [customerInput, setCustomerInput] = useState('')
-  const [dateFromInput, setDateFromInput] = useState('')
-  const [dateToInput, setDateToInput] = useState('')
+  const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<OutboundListFilters>(emptyFilters)
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [reloadToken, setReloadToken] = useState(0)
 
   const [detail, setDetail] = useState<OutboundDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -254,23 +263,29 @@ export default function Outbound() {
   )
 
   const loadList = useCallback(
-    async (override?: OutboundListFilters) => {
+    async (nextFilters: OutboundListFilters, nextOffset: number) => {
       setListLoading(true)
       setListError('')
       try {
-        setList(await fetchOutboundList(override ?? filters))
+        const result = await fetchOutboundList({
+          ...nextFilters,
+          limit: PAGE_SIZE,
+          offset: nextOffset,
+        })
+        setList(result.rows)
+        setTotal(result.total)
       } catch (err) {
         setListError(err instanceof Error ? err.message : '加载失败')
       } finally {
         setListLoading(false)
       }
     },
-    [filters],
+    [],
   )
 
   useEffect(() => {
-    void loadList()
-  }, [loadList])
+    void loadList(filters, offset)
+  }, [loadList, filters, offset, reloadToken])
 
   // 首次点保存后转为实时校验：改一个字段就刷新标红结果
   useEffect(() => {
@@ -433,17 +448,20 @@ export default function Outbound() {
 
   const handleSearch = () => {
     setNotice('')
+    setOffset(0)
     setFilters({
-      customer: customerInput.trim(),
-      date_from: dateFromInput,
-      date_to: dateToInput,
+      order_no: input.order_no.trim(),
+      customer: input.customer.trim(),
+      warehouse: input.warehouse.trim(),
+      operator: input.operator.trim(),
+      date_from: input.date_from,
+      date_to: input.date_to,
     })
   }
 
   const handleResetFilters = () => {
-    setCustomerInput('')
-    setDateFromInput('')
-    setDateToInput('')
+    setInput(emptyInput)
+    setOffset(0)
     setFilters(emptyFilters)
   }
 
@@ -552,7 +570,7 @@ export default function Outbound() {
       // 出库单删掉后库存回涨，「当前库存」提示要重新取
       requestedSpecs.current.clear()
       setStockMap({})
-      await loadList()
+      setReloadToken((n) => n + 1)
     } catch (err) {
       setDeleteTarget(null)
       setActionError(err instanceof Error ? err.message : '删除失败')
@@ -628,11 +646,11 @@ export default function Outbound() {
       // 出库后库存变了，清掉缓存重新取
       requestedSpecs.current.clear()
       setStockMap({})
-      setCustomerInput('')
-      setDateFromInput('')
-      setDateToInput('')
+      // 清掉筛选并回到第一页，保证刚保存的单一定看得见
+      setInput(emptyInput)
       setFilters(emptyFilters)
-      await loadList(emptyFilters)
+      setOffset(0)
+      setReloadToken((n) => n + 1)
       setNotice(
         editing
           ? `已保存出库单 ${result.order_no} 的修改`
@@ -724,9 +742,44 @@ export default function Outbound() {
           <div className="toolbar">
             <input
               className="input"
+              placeholder="单号关键字"
+              value={input.order_no}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, order_no: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSearch()
+              }}
+            />
+            <input
+              className="input"
               placeholder="客户关键字"
-              value={customerInput}
-              onChange={(event) => setCustomerInput(event.target.value)}
+              value={input.customer}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, customer: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSearch()
+              }}
+            />
+            <input
+              className="input"
+              placeholder="仓库关键字"
+              value={input.warehouse}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, warehouse: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSearch()
+              }}
+            />
+            <input
+              className="input"
+              placeholder="操作员"
+              value={input.operator}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, operator: event.target.value }))
+              }
               onKeyDown={(event) => {
                 if (event.key === 'Enter') handleSearch()
               }}
@@ -734,15 +787,19 @@ export default function Outbound() {
             <input
               className="input"
               type="date"
-              value={dateFromInput}
-              onChange={(event) => setDateFromInput(event.target.value)}
+              value={input.date_from}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, date_from: event.target.value }))
+              }
             />
             <span className="muted">至</span>
             <input
               className="input"
               type="date"
-              value={dateToInput}
-              onChange={(event) => setDateToInput(event.target.value)}
+              value={input.date_to}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, date_to: event.target.value }))
+              }
             />
             <button className="btn" onClick={handleSearch}>
               查询
@@ -756,12 +813,14 @@ export default function Outbound() {
             </button>
           </div>
 
+          <div className="card">
           <table className="table">
             <thead>
               <tr>
                 <th>单号</th>
                 <th>客户</th>
                 <th>日期</th>
+                <th>仓库</th>
                 <th className="num">总立方</th>
                 <th className="num">总金额</th>
                 <th className="num">明细数</th>
@@ -774,6 +833,7 @@ export default function Outbound() {
                   <td>{order.order_no}</td>
                   <td>{order.customer}</td>
                   <td>{order.order_date}</td>
+                  <td>{order.warehouse || '—'}</td>
                   <td className="num">{formatCubic(order.total_cubic)}</td>
                   <td className="num amount">
                     {formatAmount(order.total_amount)}
@@ -816,6 +876,14 @@ export default function Outbound() {
             <EmptyState text="暂无出库单，点右上角「新增出库」录入" />
           )}
           {listLoading && <Loading />}
+          <Pager
+            total={total}
+            limit={PAGE_SIZE}
+            offset={offset}
+            onChange={setOffset}
+            unit="张出库单"
+          />
+        </div>
         </>
       ) : (
         <div className="card">

@@ -1,3 +1,11 @@
+/** 分页列表的统一返回结构 */
+export type Paged<T> = {
+  total: number
+  limit: number
+  offset: number
+  rows: T[]
+}
+
 export type InboundItemPayload = {
   species: string
   grade: string
@@ -60,9 +68,14 @@ export type InboundDetail = {
 }
 
 export type InboundListFilters = {
+  order_no?: string
   supplier?: string
+  warehouse?: string
+  operator?: string
   date_from?: string
   date_to?: string
+  limit?: number
+  offset?: number
 }
 
 /* ---------- 登录态 ---------- */
@@ -213,15 +226,20 @@ export function createInbound(payload: CreateInboundPayload) {
   })
 }
 
-// 入库单列表（可选筛选）
+// 入库单列表（筛选：单号/供应商/仓库/操作员/日期范围；支持分页）
 export function fetchInboundList(filters: InboundListFilters = {}) {
   const query = new URLSearchParams()
+  if (filters.order_no) query.set('order_no', filters.order_no)
   if (filters.supplier) query.set('supplier', filters.supplier)
+  if (filters.warehouse) query.set('warehouse', filters.warehouse)
+  if (filters.operator) query.set('operator', filters.operator)
   if (filters.date_from) query.set('date_from', filters.date_from)
   if (filters.date_to) query.set('date_to', filters.date_to)
+  if (filters.limit) query.set('limit', String(filters.limit))
+  if (filters.offset) query.set('offset', String(filters.offset))
 
   const search = query.toString()
-  return request<InboundListItem[]>(`/api/inbound${search ? `?${search}` : ''}`)
+  return request<Paged<InboundListItem>>(`/api/inbound${search ? `?${search}` : ''}`)
 }
 
 // 入库单详情
@@ -287,9 +305,14 @@ export type OutboundDetail = {
 }
 
 export type OutboundListFilters = {
+  order_no?: string
   customer?: string
+  warehouse?: string
+  operator?: string
   date_from?: string
   date_to?: string
+  limit?: number
+  offset?: number
 }
 
 export type StockSnapshot = {
@@ -319,12 +342,17 @@ export function createOutbound(payload: CreateOutboundPayload) {
 // 出库单列表（可选筛选）
 export function fetchOutboundList(filters: OutboundListFilters = {}) {
   const query = new URLSearchParams()
+  if (filters.order_no) query.set('order_no', filters.order_no)
   if (filters.customer) query.set('customer', filters.customer)
+  if (filters.warehouse) query.set('warehouse', filters.warehouse)
+  if (filters.operator) query.set('operator', filters.operator)
   if (filters.date_from) query.set('date_from', filters.date_from)
   if (filters.date_to) query.set('date_to', filters.date_to)
+  if (filters.limit) query.set('limit', String(filters.limit))
+  if (filters.offset) query.set('offset', String(filters.offset))
 
   const search = query.toString()
-  return request<OutboundListItem[]>(`/api/outbound${search ? `?${search}` : ''}`)
+  return request<Paged<OutboundListItem>>(`/api/outbound${search ? `?${search}` : ''}`)
 }
 
 // 出库单详情
@@ -453,9 +481,30 @@ export function fetchStatement(query: StatementQuery) {
   return request<Statement>(`/api/settlement/statement?${search.toString()}`)
 }
 
-// 收付款记录
-export function fetchPayments(side: SettlementSide) {
-  return request<PaymentRow[]>(`/api/settlement/payments?side=${side}`)
+export type PaymentQuery = {
+  side: SettlementSide
+  payment_no?: string
+  partner?: string
+  method?: string
+  date_from?: string
+  date_to?: string
+  limit?: number
+  offset?: number
+}
+
+export type PaymentPage = Paged<PaymentRow> & { total_amount: number }
+
+// 收付款记录（支持筛选与分页）
+export function fetchPayments(query: PaymentQuery) {
+  const search = new URLSearchParams({ side: query.side })
+  if (query.payment_no) search.set('payment_no', query.payment_no)
+  if (query.partner) search.set('partner', query.partner)
+  if (query.method) search.set('method', query.method)
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  return request<PaymentPage>(`/api/settlement/payments?${search.toString()}`)
 }
 
 export function createPayment(payload: {

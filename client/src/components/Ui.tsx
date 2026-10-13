@@ -81,6 +81,55 @@ export function StatCard({
 }
 
 /* 顶部浮层提示 */
+/* 列表分页条：左侧显示总数，右侧上一页 / 页码 / 下一页 */
+export function Pager({
+  total,
+  limit,
+  offset,
+  onChange,
+  unit = '条',
+}: {
+  total: number
+  limit: number
+  offset: number
+  onChange: (offset: number) => void
+  unit?: string
+}) {
+  const pages = Math.max(1, Math.ceil(total / limit))
+  const page = Math.min(pages, Math.floor(offset / limit) + 1)
+
+  return (
+    <div className="pager">
+      <span className="pager-total">
+        共 {total} {unit}
+      </span>
+      <div className="pager-nav">
+        <button
+          type="button"
+          className="pager-btn"
+          onClick={() => onChange(Math.max(0, offset - limit))}
+          disabled={page <= 1}
+          aria-label="上一页"
+        >
+          ‹
+        </button>
+        <span className="pager-page">
+          {page} / {pages}
+        </span>
+        <button
+          type="button"
+          className="pager-btn"
+          onClick={() => onChange(Math.min((pages - 1) * limit, offset + limit))}
+          disabled={page >= pages}
+          aria-label="下一页"
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export type ToastItem = {
   id: string
   kind?: 'success' | 'error' | 'info'

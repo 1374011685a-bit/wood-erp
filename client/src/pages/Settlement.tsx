@@ -7,12 +7,15 @@ import {
   fetchSettlementSummary,
   fetchStatement,
   statementExportUrl,
+  type PaymentQuery,
   type PaymentRow,
   type SettlementSide,
   type SettlementSummary,
   type Statement,
 } from '../api'
-import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
+import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+
+const PAGE_SIZE = 20
 
 const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
 const formatAmount = (value: number) => value.toFixed(2)
@@ -67,27 +70,73 @@ export default function Settlement() {
   const [deleteTarget, setDeleteTarget] = useState<PaymentRow | null>(null)
   const [deleting, setDeleting] = useState(false)
 
+  // 收付款记录的筛选与分页
+  const [paymentInput, setPaymentInput] = useState({
+    payment_no: '',
+    partner: '',
+    method: '',
+    date_from: '',
+    date_to: '',
+  })
+  const [paymentFilters, setPaymentFilters] = useState<PaymentQuery>({ side: 'customer' })
+  const [paymentOffset, setPaymentOffset] = useState(0)
+  const [paymentTotal, setPaymentTotal] = useState(0)
+  const [paymentSum, setPaymentSum] = useState(0)
+
   const text = SIDE_TEXT[side]
 
-  const load = useCallback(async (nextSide: SettlementSide) => {
-    setLoading(true)
-    try {
-      const [summaryData, paymentData] = await Promise.all([
-        fetchSettlementSummary(nextSide),
-        fetchPayments(nextSide),
-      ])
-      setSummary(summaryData)
-      setPayments(paymentData)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败')
-    } finally {
-      setLoading(false)
-    }
-  }, [])
+  const load = useCallback(
+    async (nextFilters: PaymentQuery, nextOffset: number) => {
+      setLoading(true)
+      try {
+        const [summaryData, paymentData] = await Promise.all([
+          fetchSettlementSummary(nextFilters.side),
+          fetchPayments({
+            ...nextFilters,
+            limit: PAGE_SIZE,
+            offset: nextOffset,
+          }),
+        ])
+        setSummary(summaryData)
+        setPayments(paymentData.rows)
+        setPaymentTotal(paymentData.total)
+        setPaymentSum(paymentData.total_amount)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '加载失败')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
-    void load(side)
-  }, [load, side])
+    // 切换应收/应付时保留其它筛选条件，只换方向，并回到第一页
+    setPaymentFilters((prev) => (prev.side === side ? prev : { ...prev, side }))
+    setPaymentOffset(0)
+  }, [side])
+
+  useEffect(() => {
+    void load(paymentFilters, paymentOffset)
+  }, [load, paymentFilters, paymentOffset])
+
+  const handlePaymentSearch = () => {
+    setPaymentOffset(0)
+    setPaymentFilters({
+      side,
+      payment_no: paymentInput.payment_no.trim(),
+      partner: paymentInput.partner.trim(),
+      method: paymentInput.method.trim(),
+      date_from: paymentInput.date_from,
+      date_to: paymentInput.date_to,
+    })
+  }
+
+  const handlePaymentReset = () => {
+    setPaymentInput({ payment_no: '', partner: '', method: '', date_from: '', date_to: '' })
+    setPaymentOffset(0)
+    setPaymentFilters({ side })
+  }
 
   const rows = summary?.rows ?? []
   const totals = summary?.totals
@@ -179,7 +228,9 @@ export default function Settlement() {
       })
       setPaymentOpen(false)
       setNotice(`已记${text.money} ${result.payment_no}：${partner} ${formatAmount(amount)} 元`)
-      await load(side)
+      // 刚记的这条要看得见：回到第一页并保持当前筛选
+      setPaymentOffset(0)
+      await load(paymentFilters, 0)
       // 对账单开着就顺手刷新
       if (statement && statement.partner === partner) {
         await openStatement(partner)
@@ -198,7 +249,7 @@ export default function Settlement() {
       await deletePayment(deleteTarget.id)
       setNotice(`已删除${text.money}记录 ${deleteTarget.payment_no}`)
       setDeleteTarget(null)
-      await load(side)
+      await load(paymentFilters, paymentOffset)
       if (statement && statement.partner === deleteTarget.partner) {
         await openStatement(deleteTarget.partner)
       }
@@ -321,15 +372,67 @@ export default function Settlement() {
       <div className="card">
         <h2 className="section-title">{text.money}记录</h2>
 
-        <div className="row-tools" style={{ marginTop: 0, marginBottom: 14 }}>
+        <div className="toolbar" style={{ marginTop: 0, marginBottom: 16 }}>
+          <input
+            className="input"
+            placeholder="单号关键字"
+            value={paymentInput.payment_no}
+            onChange={(event) =>
+              setPaymentInput((prev) => ({ ...prev, payment_no: event.target.value }))
+            }
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') handlePaymentSearch()
+            }}
+          />
+          <input
+            className="input"
+            placeholder={`${text.label}关键字`}
+            value={paymentInput.partner}
+            onChange={(event) =>
+              setPaymentInput((prev) => ({ ...prev, partner: event.target.value }))
+            }
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') handlePaymentSearch()
+            }}
+          />
+          <input
+            className="input"
+            placeholder="方式"
+            value={paymentInput.method}
+            onChange={(event) =>
+              setPaymentInput((prev) => ({ ...prev, method: event.target.value }))
+            }
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') handlePaymentSearch()
+            }}
+          />
+          <input
+            className="input"
+            type="date"
+            value={paymentInput.date_from}
+            onChange={(event) =>
+              setPaymentInput((prev) => ({ ...prev, date_from: event.target.value }))
+            }
+          />
+          <span className="muted">至</span>
+          <input
+            className="input"
+            type="date"
+            value={paymentInput.date_to}
+            onChange={(event) =>
+              setPaymentInput((prev) => ({ ...prev, date_to: event.target.value }))
+            }
+          />
+          <button className="btn" onClick={handlePaymentSearch}>
+            查询
+          </button>
+          <button className="btn" onClick={handlePaymentReset}>
+            重置
+          </button>
+          <span className="spacer" />
           <button className="btn btn-primary" onClick={() => openPayment()}>
             新增{text.money}
           </button>
-          <span className="muted">
-            {side === 'customer'
-              ? '客户付给我们的钱记在这里，会冲减应收'
-              : '我们付给供应商的钱记在这里，会冲减应付'}
-          </span>
         </div>
 
         <table className="table">
@@ -369,6 +472,14 @@ export default function Settlement() {
         </table>
 
         {!loading && payments.length === 0 && <EmptyState text={`暂无${text.money}记录`} />}
+
+        <Pager
+          total={paymentTotal}
+          limit={PAGE_SIZE}
+          offset={paymentOffset}
+          onChange={setPaymentOffset}
+          unit={`条，合计 ${formatAmount(paymentSum)} 元`}
+        />
       </div>
 
       {(statement || statementLoading) && (

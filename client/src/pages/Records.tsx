@@ -4,6 +4,7 @@ import {
   EmptyState,
   Loading,
   PageHead,
+  Pager,
   ToastHost,
 } from '../components/Ui'
 
@@ -14,6 +15,8 @@ const formatCubic = (value: number) => String(roundTo(value, 4))
 const formatAmount = (value: number) => value.toFixed(2)
 
 const typeLabel = (type: 'in' | 'out') => (type === 'in' ? '入库' : '出库')
+
+const PAGE_SIZE = 50
 
 export default function Records() {
   const [rows, setRows] = useState<RecordRow[]>([])
@@ -29,7 +32,7 @@ export default function Records() {
   const [dateToInput, setDateToInput] = useState('')
 
   // 已生效的筛选条件
-  const [query, setQuery] = useState<RecordQuery>({})
+  const [query, setQuery] = useState<RecordQuery>({ limit: PAGE_SIZE, offset: 0 })
 
   const load = useCallback(async (next: RecordQuery) => {
     setLoading(true)
@@ -56,6 +59,8 @@ export default function Records() {
       partner: partnerInput.trim(),
       date_from: dateFromInput,
       date_to: dateToInput,
+      limit: PAGE_SIZE,
+      offset: 0,
     })
 
   const handleReset = () => {
@@ -64,8 +69,11 @@ export default function Records() {
     setPartnerInput('')
     setDateFromInput('')
     setDateToInput('')
-    setQuery({})
+    setQuery({ limit: PAGE_SIZE, offset: 0 })
   }
+
+  const goPage = (nextOffset: number) =>
+    setQuery((prev) => ({ ...prev, offset: nextOffset }))
 
   return (
     <section>
@@ -188,6 +196,14 @@ export default function Records() {
 
         {!loading && rows.length === 0 && <EmptyState text="暂无记录" />}
         {loading && <Loading />}
+
+        <Pager
+          total={total}
+          limit={PAGE_SIZE}
+          offset={query.offset ?? 0}
+          onChange={goPage}
+          unit="条明细"
+        />
       </div>
     </section>
   )

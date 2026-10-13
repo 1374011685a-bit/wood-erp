@@ -2,6 +2,7 @@ import express from 'express'
 import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
+import { pageParams } from '../utils/paging.js'
 
 const router = express.Router()
 
@@ -288,17 +289,54 @@ router.put('/:id', (req, res) => {
   }
 })
 
-// 入库单列表（可选筛选：供应商关键字、日期范围）
+/**
+ * 入库单列表
+ * 筛选：单号 / 供应商 / 仓库 / 操作员 / 日期范围（都是可选，模糊匹配用 LIKE）
+ * 分页：limit + offset，同时返回 total 供前端显示「共 N 条」和翻页
+ */
 router.get('/', (req, res) => {
-  const { supplier, date_from: dateFrom, date_to: dateTo } = req.query
+  const {
+    order_no: orderNo,
+    supplier,
+    warehouse,
+    operator,
+    date_from: dateFrom,
+    date_to: dateTo,
+  } = req.query
+
   // 软删除的单据不参与列表
   const conditions = [`o.deleted_at IS NULL`]
   const params = []
 
-  if (supplier && String(supplier).trim()) {
-    conditions.push(`o.supplier LIKE ?`)
-    params.push(`%${String(supplier).trim()}%`)
+  const like = (value) => {
+    const text = String(value ?? '').trim()
+    return text ? `%${text}%` : ''
   }
+
+  const orderNoLike = like(orderNo)
+  if (orderNoLike) {
+    conditions.push(`o.order_no LIKE ?`)
+    params.push(orderNoLike)
+  }
+
+  const supplierLike = like(supplier)
+  if (supplierLike) {
+    conditions.push(`o.supplier LIKE ?`)
+    params.push(supplierLike)
+  }
+
+  const warehouseLike = like(warehouse)
+  if (warehouseLike) {
+    conditions.push(`o.warehouse LIKE ?`)
+    params.push(warehouseLike)
+  }
+
+  const operatorLike = like(operator)
+  if (operatorLike) {
+    conditions.push(`o.operator LIKE ?`)
+    params.push(operatorLike)
+  }
+
   if (dateFrom) {
     conditions.push(`o.order_date >= ?`)
     params.push(String(dateFrom))
@@ -307,6 +345,13 @@ router.get('/', (req, res) => {
     conditions.push(`o.order_date <= ?`)
     params.push(String(dateTo))
   }
+
+  const where = `WHERE ${conditions.join(' AND ')}`
+  const total = Number(
+    db.prepare(`SELECT COUNT(*) AS total FROM inbound_orders o ${where}`).get(...params)
+      ?.total ?? 0,
+  )
+  const { limit, offset } = pageParams(req.query)
 
   const rows = db
     .prepare(
@@ -323,13 +368,14 @@ router.get('/', (req, res) => {
          FROM inbound_orders o
          LEFT JOIN order_items i
                 ON i.order_id = o.id AND i.order_type = 'in'
-        ${conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''}
+        ${where}
         GROUP BY o.id
-        ORDER BY o.id DESC`,
+        ORDER BY o.id DESC
+        LIMIT ? OFFSET ?`,
     )
-    .all(...params)
+    .all(...params, limit, offset)
 
-  res.json(rows)
+  res.json({ total, limit, offset, rows })
 })
 
 // 入库单详情：单头 + 全部明细

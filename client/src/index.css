@@ -1665,40 +1665,50 @@ section > .toolbar .btn-primary {
 
 .table th {
   height: 42px;
-  padding: 0 14px;
-  background-color: #f3f3f6;
+  padding: 0 16px;
+  background-color: #fafafc;
   border-bottom: 1px solid var(--line-strong);
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-2);
+  color: #6e6e73;
   text-align: left;
   white-space: nowrap;
   letter-spacing: var(--track-caps);
 }
 
-/* 列之间的细分隔线：表格密的时候一眼能分清哪格是哪列 */
+/* 列分隔线：不顶天立地的短竖线，只在中段出现，密度够但不像老式表格那么硬 */
 .table th + th,
 .table td + td {
-  border-left: 1px solid rgba(0, 0, 0, 0.05);
+  position: relative;
 }
 
-.table th + th {
-  border-left-color: rgba(0, 0, 0, 0.07);
+.table td + td::before,
+.table th + th::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 1px;
+  height: 62%;
+  transform: translateY(-50%);
+  background-color: rgba(0, 0, 0, 0.055);
+}
+
+.table th + th::before {
+  height: 48%;
+  background-color: rgba(0, 0, 0, 0.075);
 }
 
 .table td {
-  height: 54px;
-  padding: 0 14px;
+  height: 56px;
+  padding: 0 16px;
   border-bottom: 1px solid var(--line);
   color: var(--text);
   vertical-align: middle;
   white-space: nowrap;
 }
 
-/* 斑马纹只给纯展示表格，录入用的明细表不铺底色 */
-.table:not(.table-detail) tbody tr:nth-child(even) td {
-  background-color: #fcfcfd;
-}
+/* 不再铺斑马纹：靠列分隔线和悬停高亮定位，整页更干净 */
 
 .table tbody tr:last-child td {
   border-bottom: none;
@@ -1709,7 +1719,65 @@ section > .toolbar .btn-primary {
 }
 
 .table tbody tr:hover td {
-  background-color: #f5f5f7;
+  background-color: #fafafb;
+}
+
+/* ---------- 分页条 ---------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.pager-total {
+  font-variant-numeric: tabular-nums;
+}
+
+.pager-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-btn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-control);
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--ease), border-color var(--ease),
+    box-shadow var(--ease);
+}
+
+.pager-btn:hover:not(:disabled) {
+  background-color: var(--panel-soft);
+  border-color: #aaaaB2;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.07);
+}
+
+.pager-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.pager-page {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
 
 /* 行内操作按钮平时淡出，鼠标移到该行时浮出 */

@@ -25,6 +25,7 @@ import {
   EmptyState,
   Loading,
   PageHead,
+  Pager,
   ToastHost,
 } from '../components/Ui'
 
@@ -153,11 +154,18 @@ function validateRows(rows: FormRow[]): Record<number, string[]> {
   return errors
 }
 
-const emptyFilters: InboundListFilters = {
+const emptyFilters: InboundListFilters = {}
+
+const emptyInput = {
+  order_no: '',
   supplier: '',
+  warehouse: '',
+  operator: '',
   date_from: '',
   date_to: '',
 }
+
+const PAGE_SIZE = 20
 
 /* ---------- 样式 ---------- */
 
@@ -183,10 +191,12 @@ export default function Inbound() {
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
 
-  const [supplierInput, setSupplierInput] = useState('')
-  const [dateFromInput, setDateFromInput] = useState('')
-  const [dateToInput, setDateToInput] = useState('')
+  const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<InboundListFilters>(emptyFilters)
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(0)
+  // 每次增删改后 +1，强制重新拉列表（避免「筛选没变就不刷新」）
+  const [reloadToken, setReloadToken] = useState(0)
 
   const [detail, setDetail] = useState<InboundDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -239,23 +249,29 @@ export default function Inbound() {
   )
 
   const loadList = useCallback(
-    async (override?: InboundListFilters) => {
+    async (nextFilters: InboundListFilters, nextOffset: number) => {
       setListLoading(true)
       setListError('')
       try {
-        setList(await fetchInboundList(override ?? filters))
+        const result = await fetchInboundList({
+          ...nextFilters,
+          limit: PAGE_SIZE,
+          offset: nextOffset,
+        })
+        setList(result.rows)
+        setTotal(result.total)
       } catch (err) {
         setListError(err instanceof Error ? err.message : '加载失败')
       } finally {
         setListLoading(false)
       }
     },
-    [filters],
+    [],
   )
 
   useEffect(() => {
-    void loadList()
-  }, [loadList])
+    void loadList(filters, offset)
+  }, [loadList, filters, offset, reloadToken])
 
   // 首次点保存后转为实时校验：改一个字段就刷新标红结果
   useEffect(() => {
@@ -355,17 +371,20 @@ export default function Inbound() {
 
   const handleSearch = () => {
     setNotice('')
+    setOffset(0)
     setFilters({
-      supplier: supplierInput.trim(),
-      date_from: dateFromInput,
-      date_to: dateToInput,
+      order_no: input.order_no.trim(),
+      supplier: input.supplier.trim(),
+      warehouse: input.warehouse.trim(),
+      operator: input.operator.trim(),
+      date_from: input.date_from,
+      date_to: input.date_to,
     })
   }
 
   const handleResetFilters = () => {
-    setSupplierInput('')
-    setDateFromInput('')
-    setDateToInput('')
+    setInput(emptyInput)
+    setOffset(0)
     setFilters(emptyFilters)
   }
 
@@ -471,7 +490,7 @@ export default function Inbound() {
       setDeleteTarget(null)
       setDetail(null)
       setNotice('已删除')
-      await loadList()
+      setReloadToken((n) => n + 1)
     } catch (err) {
       // 后端返回的原因（比如删了会超卖）原样展示
       setDeleteTarget(null)
@@ -549,11 +568,11 @@ export default function Inbound() {
       // 入库后库存变了，清掉「已有库存」提醒缓存
       lookedUpSpecies.current.clear()
       setStockLookup({})
-      setSupplierInput('')
-      setDateFromInput('')
-      setDateToInput('')
+      // 清掉筛选并回到第一页，保证刚保存的单一定看得见
+      setInput(emptyInput)
       setFilters(emptyFilters)
-      await loadList(emptyFilters)
+      setOffset(0)
+      setReloadToken((n) => n + 1)
       setNotice(
         editing
           ? `已保存入库单 ${result.order_no} 的修改`
@@ -636,9 +655,44 @@ export default function Inbound() {
           <div className="toolbar">
             <input
               className="input"
+              placeholder="单号关键字"
+              value={input.order_no}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, order_no: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSearch()
+              }}
+            />
+            <input
+              className="input"
               placeholder="供应商关键字"
-              value={supplierInput}
-              onChange={(event) => setSupplierInput(event.target.value)}
+              value={input.supplier}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, supplier: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSearch()
+              }}
+            />
+            <input
+              className="input"
+              placeholder="仓库关键字"
+              value={input.warehouse}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, warehouse: event.target.value }))
+              }
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') handleSearch()
+              }}
+            />
+            <input
+              className="input"
+              placeholder="操作员"
+              value={input.operator}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, operator: event.target.value }))
+              }
               onKeyDown={(event) => {
                 if (event.key === 'Enter') handleSearch()
               }}
@@ -646,15 +700,19 @@ export default function Inbound() {
             <input
               className="input"
               type="date"
-              value={dateFromInput}
-              onChange={(event) => setDateFromInput(event.target.value)}
+              value={input.date_from}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, date_from: event.target.value }))
+              }
             />
             <span className="muted">至</span>
             <input
               className="input"
               type="date"
-              value={dateToInput}
-              onChange={(event) => setDateToInput(event.target.value)}
+              value={input.date_to}
+              onChange={(event) =>
+                setInput((prev) => ({ ...prev, date_to: event.target.value }))
+              }
             />
             <button className="btn" onClick={handleSearch}>
               查询
@@ -668,12 +726,14 @@ export default function Inbound() {
             </button>
           </div>
 
+          <div className="card">
           <table className="table">
             <thead>
               <tr>
                 <th>单号</th>
                 <th>供应商</th>
                 <th>日期</th>
+                <th>仓库</th>
                 <th className="num">总立方</th>
                 <th className="num">总金额</th>
                 <th className="num">明细数</th>
@@ -686,6 +746,7 @@ export default function Inbound() {
                   <td>{order.order_no}</td>
                   <td>{order.supplier}</td>
                   <td>{order.order_date}</td>
+                  <td>{order.warehouse || '—'}</td>
                   <td className="num">{formatCubic(order.total_cubic)}</td>
                   <td className="num amount">
                     {formatAmount(order.total_amount)}
@@ -728,6 +789,14 @@ export default function Inbound() {
             <EmptyState text="暂无入库单，点右上角「新增入库」录入" />
           )}
           {listLoading && <Loading />}
+          <Pager
+            total={total}
+            limit={PAGE_SIZE}
+            offset={offset}
+            onChange={setOffset}
+            unit="张入库单"
+          />
+        </div>
         </>
       ) : (
         <div className="card">

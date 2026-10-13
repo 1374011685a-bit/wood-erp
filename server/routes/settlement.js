@@ -2,6 +2,7 @@ import express from 'express'
 import { db } from '../db.js'
 import { toCents, fromCents } from '../utils/cubic.js'
 import { buildWorkbook } from '../utils/excel.js'
+import { pageParams } from '../utils/paging.js'
 
 const router = express.Router()
 
@@ -262,8 +263,60 @@ function nextPaymentNo(key, payDate) {
 
 router.get('/payments', (req, res) => {
   const key = sideKey(req.query.side)
-  res.json(
-    paymentsBySideStmt.all(key).map((row) => ({
+  const cfg = SIDES[key]
+
+  // 筛选：单号 / 往来单位 / 方式 / 日期范围，都用 LIKE 或区间比较，全部可选
+  const conditions = [`side = ?`]
+  const params = [key]
+
+  const like = (value) => {
+    const text = String(value ?? '').trim()
+    return text ? `%${text}%` : ''
+  }
+
+  const noLike = like(req.query.payment_no)
+  if (noLike) {
+    conditions.push(`payment_no LIKE ?`)
+    params.push(noLike)
+  }
+
+  const partnerLike = like(req.query.partner)
+  if (partnerLike) {
+    conditions.push(`partner LIKE ?`)
+    params.push(partnerLike)
+  }
+
+  const methodLike = like(req.query.method)
+  if (methodLike) {
+    conditions.push(`method LIKE ?`)
+    params.push(methodLike)
+  }
+
+  if (req.query.date_from) {
+    conditions.push(`pay_date >= ?`)
+    params.push(String(req.query.date_from))
+  }
+  if (req.query.date_to) {
+    conditions.push(`pay_date <= ?`)
+    params.push(String(req.query.date_to))
+  }
+
+  const where = `WHERE ${conditions.join(' AND ')}`
+  const total = Number(
+    db.prepare(`SELECT COUNT(*) AS total FROM payments ${where}`).get(...params)?.total ?? 0,
+  )
+  const { limit, offset } = pageParams(req.query)
+
+  const rows = db
+    .prepare(
+      `SELECT id, payment_no, side, partner, amount_cents, pay_date, method, remark, created_at
+         FROM payments
+        ${where}
+        ORDER BY pay_date DESC, id DESC
+        LIMIT ? OFFSET ?`,
+    )
+    .all(...params, limit, offset)
+    .map((row) => ({
       id: row.id,
       payment_no: row.payment_no,
       side: row.side,
@@ -273,8 +326,25 @@ router.get('/payments', (req, res) => {
       method: row.method ?? '',
       remark: row.remark ?? '',
       created_at: row.created_at,
-    })),
+    }))
+
+  // total_amount 是这一页之外的合计（当前筛选下的总金额），前端拿来显示「合计」
+  const amountCents = Number(
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(amount_cents), 0) AS cents FROM payments ${where}`,
+      )
+      .get(...params)?.cents ?? 0,
   )
+
+  res.json({
+    total,
+    limit,
+    offset,
+    total_amount: fromCents(amountCents),
+    money_label: cfg.moneyLabel,
+    rows,
+  })
 })
 
 const insertPayment = db.prepare(
