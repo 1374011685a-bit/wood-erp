@@ -1,4 +1,5 @@
 import { Suspense, lazy } from 'react'
+import type { ComponentType } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import RequireAuth from './components/RequireAuth'
@@ -6,20 +7,37 @@ import RequireAuth from './components/RequireAuth'
 /**
  * 页面按需加载：首屏只下载登录页和外壳，
  * 点到哪个功能才拉那个页面的代码（表单页最大，省下来的就是首屏时间）。
+ *
+ * 加了「分包找不到就自动刷一次」的兜底：程序更新后，浏览器里如果还挂着旧页面，
+ * 它引用的旧分包已经不存在了，会一直卡在加载中——这时自动刷新一次就能拿到新版本。
  */
-const Login = lazy(() => import('./pages/Login'))
-const Home = lazy(() => import('./pages/Home'))
-const Inbound = lazy(() => import('./pages/Inbound'))
-const Outbound = lazy(() => import('./pages/Outbound'))
-const Stock = lazy(() => import('./pages/Stock'))
-const Count = lazy(() => import('./pages/Count'))
-const Repack = lazy(() => import('./pages/Repack'))
-const Contracts = lazy(() => import('./pages/Contracts'))
-const Bales = lazy(() => import('./pages/Bales'))
-const Records = lazy(() => import('./pages/Records'))
-const Recycle = lazy(() => import('./pages/Recycle'))
-const Settlement = lazy(() => import('./pages/Settlement'))
-const Dict = lazy(() => import('./pages/Dict'))
+function lazyPage<P extends object>(loader: () => Promise<{ default: ComponentType<P> }>) {
+  return lazy(() =>
+    loader().catch((err) => {
+      const key = 'chunk-reloaded-at'
+      const last = Number(sessionStorage.getItem(key) ?? 0)
+      if (Date.now() - last > 10000) {
+        sessionStorage.setItem(key, String(Date.now()))
+        window.location.reload()
+      }
+      throw err
+    }),
+  )
+}
+
+const Login = lazyPage(() => import('./pages/Login'))
+const Home = lazyPage(() => import('./pages/Home'))
+const Inbound = lazyPage(() => import('./pages/Inbound'))
+const Outbound = lazyPage(() => import('./pages/Outbound'))
+const Stock = lazyPage(() => import('./pages/Stock'))
+const Count = lazyPage(() => import('./pages/Count'))
+const Repack = lazyPage(() => import('./pages/Repack'))
+const Contracts = lazyPage(() => import('./pages/Contracts'))
+const Bales = lazyPage(() => import('./pages/Bales'))
+const Records = lazyPage(() => import('./pages/Records'))
+const Recycle = lazyPage(() => import('./pages/Recycle'))
+const Settlement = lazyPage(() => import('./pages/Settlement'))
+const Dict = lazyPage(() => import('./pages/Dict'))
 
 export default function App() {
   return (
