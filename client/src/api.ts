@@ -50,6 +50,9 @@ export type InboundListItem = {
   contract_no: string | null
   /** 这个合同号在合同库里有对应记录时给出 id，前端据此渲染成可点的链接 */
   contract_id: number | null
+  /** 这张单下面的码单数与在库数 */
+  bale_total: number
+  bale_in_stock: number
   total_cubic: number
   total_amount: number
   item_count: number
@@ -82,6 +85,20 @@ export type InboundDetail = {
   total_cubic: number
   total_amount: number
   items: InboundDetailItem[]
+  /** 这张单下面的码单（每包状态：在库 / 已出库） */
+  bales: Array<{
+    bale_no: string
+    species: string
+    grade: string
+    thickness: number
+    width: number
+    length: number
+    pieces: number
+    cubic: number
+    status: 'in_stock' | 'shipped'
+    shipped_at: string | null
+    outbound_order_no: string
+  }>
 }
 
 export type InboundListFilters = {
@@ -747,7 +764,12 @@ export function updateContainer(id: number, payload: ContainerPayload) {
 }
 
 export function deleteContainer(id: number) {
-  return request<{ ok: boolean }>(`/api/containers/${id}`, { method: 'DELETE' })
+  return request<{
+    ok: boolean
+    container_no: string
+    bale_count: number
+    order_nos: string[]
+  }>(`/api/containers/${id}`, { method: 'DELETE' })
 }
 
 export type BaleItemLine = {

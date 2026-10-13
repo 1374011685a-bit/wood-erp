@@ -838,6 +838,7 @@ export default function Inbound() {
                 <th className="num">总立方</th>
                 <th className="num">总金额</th>
                 <th className="num">明细数</th>
+                <th className="num">码单</th>
                 <th>操作</th>
               </tr>
             </thead>
@@ -873,6 +874,19 @@ export default function Inbound() {
                     {formatAmount(order.total_amount)}
                   </td>
                   <td className="num">{order.item_count}</td>
+                  <td className="num">
+                    {order.bale_total > 0 ? (
+                      <>
+                        {order.bale_total} 包
+                        <span className="cell-sub">
+                          在库 {order.bale_in_stock} / 已出{' '}
+                          {order.bale_total - order.bale_in_stock}
+                        </span>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
                   <td>
                     <div className="row-actions">
                       <button
@@ -1245,6 +1259,53 @@ export default function Inbound() {
                   <span>合计立方：{formatCubic(detail.total_cubic)}</span>
                   <span>合计金额：{formatAmount(detail.total_amount)}</span>
                 </div>
+
+                {detail.bales && detail.bales.length > 0 && (
+                  <>
+                    <h3 className="section-title" style={{ marginTop: 22 }}>
+                      这一单的码单（{detail.bales.length} 包，在库{' '}
+                      {detail.bales.filter((bale) => bale.status === 'in_stock').length} 包）
+                    </h3>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>码单号</th>
+                          <th>品名</th>
+                          <th>等级</th>
+                          <th className="num">厚×宽×长</th>
+                          <th className="num">片数</th>
+                          <th className="num">立方</th>
+                          <th>状态</th>
+                          <th>出库单</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.bales.map((bale) => (
+                          <tr key={bale.bale_no}>
+                            <td>{bale.bale_no}</td>
+                            <td>{bale.species}</td>
+                            <td>{bale.grade || '—'}</td>
+                            <td className="num">
+                              {bale.thickness}×{bale.width}×{bale.length}
+                            </td>
+                            <td className="num">{bale.pieces}</td>
+                            <td className="num">{formatCubic(bale.cubic)}</td>
+                            <td>
+                              <span
+                                className={
+                                  bale.status === 'in_stock' ? 'tag tag-in' : 'tag tag-out'
+                                }
+                              >
+                                {bale.status === 'in_stock' ? '在库' : '已出库'}
+                              </span>
+                            </td>
+                            <td>{bale.outbound_order_no || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
               </>
             )}
           </div>

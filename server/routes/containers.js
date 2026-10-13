@@ -200,28 +200,88 @@ router.put('/:id', (req, res) => {
   }
 })
 
-// 删除柜：柜里还有码单就不让删，避免货凭空消失
+/**
+ * 删除整个柜：把这个柜的码单和它对应的入库单一起清掉（相当于撤销这一柜的到货录入）。
+ *
+ * 有包已经出库就不允许 —— 货已经发给客户了，得先撤销对应的出库单。
+ */
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id)
   if (!findByIdStmt.get(id)) {
     return res.status(404).json({ error: '柜不存在' })
   }
 
-  const count = Number(
+  const shipped = Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM bales
+          WHERE container_id = ? AND status = 'shipped'`,
+      )
+      .get(id)?.total ?? 0,
+  )
+  if (shipped > 0) {
+    return res.status(400).json({
+      error: `这个柜里有 ${shipped} 包货已经出库了，不能删柜。请先撤销对应的出库单。`,
+    })
+  }
+
+  try {
+    const result = removeContainer(id)
+    res.json({ ok: true, ...result })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * 事务：删柜 = 删这一柜的入库单（软删，进回收站可恢复）+ 删码单 + 删柜。
+ * 入库单软删之后，它的明细自动退出库存汇总，所以库存也跟着减掉。
+ */
+const removeContainer = db.transaction((id) => {
+  const container = findByIdStmt.get(id)
+  const bales = Number(
     db.prepare(`SELECT COUNT(*) AS total FROM bales WHERE container_id = ?`).get(id)
       ?.total ?? 0,
   )
-  if (count > 0) {
-    return res.status(400).json({
-      error: `这个柜下面还有 ${count} 个码单，先处理完这些货再删柜`,
-    })
+
+  const orders = db
+    .prepare(
+      `SELECT id, order_no FROM inbound_orders
+        WHERE container_id = ? AND deleted_at IS NULL`,
+    )
+    .all(id)
+
+  const softDeleteItems = db.prepare(
+    `UPDATE order_items SET deleted_at = datetime('now', 'localtime')
+      WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
+  )
+  const softDeleteOrder = db.prepare(
+    `UPDATE inbound_orders SET deleted_at = datetime('now', 'localtime')
+      WHERE id = ? AND deleted_at IS NULL`,
+  )
+
+  for (const order of orders) {
+    softDeleteItems.run(order.id)
+    softDeleteOrder.run(order.id)
   }
+
+  // 码单是跟踪记录，货都撤了就直接删掉
+  db.prepare(
+    `DELETE FROM bale_items WHERE bale_id IN
+       (SELECT id FROM bales WHERE container_id = ?)`,
+  ).run(id)
+  db.prepare(`DELETE FROM bales WHERE container_id = ?`).run(id)
 
   db.prepare(
     `UPDATE containers SET deleted_at = datetime('now', 'localtime')
       WHERE id = ? AND deleted_at IS NULL`,
   ).run(id)
-  res.json({ ok: true })
+
+  return {
+    container_no: container.container_no,
+    bale_count: bales,
+    order_nos: orders.map((order) => order.order_no),
+  }
 })
 
 export default router

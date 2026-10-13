@@ -507,6 +507,32 @@ router.get('/:id', (req, res) => {
     )
     .all(id)
 
+  // 这一单单下每包的状态（在库 / 已出库），入库后随时能看到哪包还没发
+  const bales = db
+    .prepare(
+      `SELECT b.bale_no, b.species, b.grade, b.thickness, b.width, b.length,
+              b.pieces, b.cubic, b.status, b.shipped_at,
+              o.order_no AS outbound_order_no
+         FROM bales b
+         LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
+        WHERE b.inbound_order_id = ?
+        ORDER BY b.bale_no`,
+    )
+    .all(id)
+    .map((row) => ({
+      bale_no: row.bale_no,
+      species: row.species ?? '',
+      grade: row.grade ?? '',
+      thickness: row.thickness,
+      width: row.width,
+      length: row.length,
+      pieces: row.pieces ?? 0,
+      cubic: Number((row.cubic ?? 0).toFixed(4)),
+      status: row.status,
+      shipped_at: row.shipped_at,
+      outbound_order_no: row.outbound_order_no ?? '',
+    }))
+
   // 金额按整数分累加，最后一次性换算成元
   const totals = items.reduce(
     (acc, item) => ({
@@ -524,6 +550,7 @@ router.get('/:id', (req, res) => {
     total_cubic: totals.total_cubic,
     total_amount: fromCents(totals.amountCents),
     items,
+    bales,
   })
 })
 

@@ -3,6 +3,8 @@ import {
   createContainer,
   createShipment,
   deleteBale,
+  deleteContainer,
+  deleteShipment,
   fetchBaleDetail,
   fetchBales,
   fetchContainers,
@@ -73,6 +75,43 @@ export default function Bales() {
   const [editError, setEditError] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [baleDeleteTarget, setBaleDeleteTarget] = useState<BaleRow | null>(null)
+  // 删整柜 / 删提单
+  const [boxDeleteTarget, setBoxDeleteTarget] = useState<ContainerRow | null>(null)
+  const [shipDeleteTarget, setShipDeleteTarget] = useState<ShipmentRow | null>(null)
+
+  const confirmBoxDelete = async () => {
+    if (!boxDeleteTarget) return
+    try {
+      const result = await deleteContainer(boxDeleteTarget.id)
+      setNotice(
+        `已删除柜 ${result.container_no}：连带 ${result.bale_count} 个码单` +
+          (result.order_nos.length > 0
+            ? ` 和入库单 ${result.order_nos.join('、')}`
+            : '') +
+          '，库存已同步减少',
+      )
+      setBoxDeleteTarget(null)
+      setActiveContainer(0)
+      setReloadToken((n) => n + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败')
+      setBoxDeleteTarget(null)
+    }
+  }
+
+  const confirmShipDelete = async () => {
+    if (!shipDeleteTarget) return
+    try {
+      await deleteShipment(shipDeleteTarget.id)
+      setNotice(`已删除提单 ${shipDeleteTarget.bl_no}`)
+      setShipDeleteTarget(null)
+      setActiveShipment(0)
+      setReloadToken((n) => n + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败')
+      setShipDeleteTarget(null)
+    }
+  }
 
   const openBaleEdit = async (row: BaleRow) => {
     setError('')
@@ -328,31 +367,43 @@ export default function Bales() {
         ) : (
           <div className="box-grid">
             {shipments.map((ship) => (
-              <button
+              <div
                 key={ship.id}
-                type="button"
                 className={
                   activeShipment === ship.id ? 'box-card is-active' : 'box-card'
                 }
-                onClick={() => {
-                  setActiveShipment((prev) => (prev === ship.id ? 0 : ship.id))
-                  setActiveContainer(0)
-                  setOffset(0)
-                }}
               >
-                <span className="box-no">提单 {ship.bl_no}</span>
-                <span className="box-line">合同 {ship.contract_no || '—'}</span>
-                <span className="box-line">
-                  到港 {ship.arrival_date} · {ship.supplier || '—'}
-                </span>
-                <span className="box-stats">
-                  {ship.container_count} 个柜 · 共 {ship.bale_total} 包 · 在库{' '}
-                  {ship.bale_in_stock}
-                </span>
-                <span className="box-line">
-                  已录立方 {formatCubic(ship.bale_cubic)}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="box-main"
+                  onClick={() => {
+                    setActiveShipment((prev) => (prev === ship.id ? 0 : ship.id))
+                    setActiveContainer(0)
+                    setOffset(0)
+                  }}
+                >
+                  <span className="box-no">提单 {ship.bl_no}</span>
+                  <span className="box-line">合同 {ship.contract_no || '—'}</span>
+                  <span className="box-line">
+                    到港 {ship.arrival_date} · {ship.supplier || '—'}
+                  </span>
+                  <span className="box-stats">
+                    {ship.container_count} 个柜 · 共 {ship.bale_total} 包 · 在库{' '}
+                    {ship.bale_in_stock}
+                  </span>
+                  <span className="box-line">
+                    已录立方 {formatCubic(ship.bale_cubic)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="box-del"
+                  title="删除这张提单（下面有柜时要先删柜）"
+                  onClick={() => setShipDeleteTarget(ship)}
+                >
+                  删除
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -368,21 +419,36 @@ export default function Bales() {
           ) : (
             <div className="box-grid">
               {shipmentBoxes.map((box) => (
-                <button
+                <div
                   key={box.id}
-                  type="button"
                   className={
                     activeContainer === box.id ? 'box-card is-active' : 'box-card'
                   }
-                  onClick={() =>
-                    setActiveContainer((prev) => (prev === box.id ? 0 : box.id))
-                  }
                 >
-                  <span className="box-no">{box.container_no}</span>
-                  <span className="box-stats">
-                    共 {box.bale_total} 包 · 在库 {box.bale_in_stock}
-                  </span>
-                </button>
+                  <button
+                    type="button"
+                    className="box-main"
+                    onClick={() =>
+                      setActiveContainer((prev) => (prev === box.id ? 0 : box.id))
+                    }
+                  >
+                    <span className="box-no">{box.container_no}</span>
+                    <span className="box-stats">
+                      共 {box.bale_total} 包 · 在库 {box.bale_in_stock}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="box-del"
+                    title="删除整个柜"
+                    onClick={() => {
+                      const full = containers.find((item) => item.id === box.id)
+                      if (full) setBoxDeleteTarget(full)
+                    }}
+                  >
+                    删除
+                  </button>
+                </div>
               ))}
             </div>
           )
@@ -391,31 +457,41 @@ export default function Bales() {
         ) : (
           <div className="box-grid">
             {containers.map((box) => (
-              <button
+              <div
                 key={box.id}
-                type="button"
                 className={
                   activeContainer === box.id ? 'box-card is-active' : 'box-card'
                 }
-                onClick={() =>
-                  setActiveContainer((prev) => (prev === box.id ? 0 : box.id))
-                }
               >
-                <span className="box-no">{box.container_no}</span>
-                <span className="box-line">
-                  合同 {box.contract_no || '—'}
-                </span>
-                <span className="box-line">
-                  到货 {box.arrive_date} · {box.supplier || '—'}
-                </span>
-                <span className="box-stats">
-                  共 {box.bale_total} 包 · 在库 {box.bale_in_stock} · 已出{' '}
-                  {box.bale_shipped}
-                </span>
-                <span className="box-line">
-                  在库立方 {formatCubic(box.cubic_in_stock)}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="box-main"
+                  onClick={() =>
+                    setActiveContainer((prev) => (prev === box.id ? 0 : box.id))
+                  }
+                >
+                  <span className="box-no">{box.container_no}</span>
+                  <span className="box-line">合同 {box.contract_no || '—'}</span>
+                  <span className="box-line">
+                    到货 {box.arrive_date} · {box.supplier || '—'}
+                  </span>
+                  <span className="box-stats">
+                    共 {box.bale_total} 包 · 在库 {box.bale_in_stock} · 已出{' '}
+                    {box.bale_shipped}
+                  </span>
+                  <span className="box-line">
+                    在库立方 {formatCubic(box.cubic_in_stock)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className="box-del"
+                  title="删除整个柜"
+                  onClick={() => setBoxDeleteTarget(box)}
+                >
+                  删除
+                </button>
+              </div>
             ))}
           </div>
         )}
@@ -558,6 +634,54 @@ export default function Bales() {
           unit="个码单"
         />
       </div>
+
+      {boxDeleteTarget && (
+        <div className="overlay" onClick={() => setBoxDeleteTarget(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="modal-title">删除整个柜</h2>
+            <p className="confirm-text">
+              确认删除柜 {boxDeleteTarget.container_no}？
+              它下面的 {boxDeleteTarget.bale_total} 个码单
+              {boxDeleteTarget.bale_total > 0 ? '和对应的入库单' : ''}
+              会一起删掉，库存相应减少。此操作不可恢复。
+            </p>
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setBoxDeleteTarget(null)}>
+                取消
+              </button>
+              <button className="btn btn-danger-solid" onClick={() => void confirmBoxDelete()}>
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {shipDeleteTarget && (
+        <div className="overlay" onClick={() => setShipDeleteTarget(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="modal-title">删除提单</h2>
+            <p className="confirm-text">
+              确认删除提单 {shipDeleteTarget.bl_no}？这张提单下面还有{' '}
+              {shipDeleteTarget.container_count} 个柜时要先把柜删掉。
+            </p>
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setShipDeleteTarget(null)}>
+                取消
+              </button>
+              <button className="btn btn-danger-solid" onClick={() => void confirmShipDelete()}>
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editOpen && (
         <div className="overlay" onClick={() => setEditOpen(false)}>
