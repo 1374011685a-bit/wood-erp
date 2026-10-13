@@ -2,6 +2,7 @@ import express from 'express'
 import { db } from '../db.js'
 import { calcCubic } from '../utils/cubic.js'
 import { pageParams } from '../utils/paging.js'
+import { calcAmountCents, fromCents } from '../utils/cubic.js'
 
 const router = express.Router()
 
@@ -269,5 +270,355 @@ export function createBalesForItem({
   return created
 }
 
+/* ---------- 码单编辑 / 删除：库存口径在入库单明细上，必须同步 ---------- */
+
+const getBaleStmt = db.prepare(`SELECT * FROM bales WHERE id = ?`)
+const baleItemsStmt = db.prepare(
+  `SELECT * FROM bale_items WHERE bale_id = ? ORDER BY id`,
+)
+
+/** 规格完全一致才认为是同一行 */
+const specMatchSql = `
+  COALESCE(species, '') = COALESCE(?, '')
+  AND COALESCE(grade, '') = COALESCE(?, '')
+  AND thickness = ? AND width = ? AND length = ?`
+
+function findOrderItem(orderId, item, pieces) {
+  return db
+    .prepare(
+      `SELECT * FROM order_items
+        WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL
+          AND ${specMatchSql}
+          ${pieces === undefined ? '' : 'AND pieces = ?'}
+        ORDER BY id
+        LIMIT 1`,
+    )
+    .get(
+      orderId,
+      item.species,
+      item.grade,
+      item.thickness,
+      item.width,
+      item.length,
+      ...(pieces === undefined ? [] : [pieces]),
+    )
+}
+
+/**
+ * 从入库单里减掉一包：找到同规格那一行，件数 -1、立方按「厚×宽×长×片数×剩余件数」重算。
+ * 减到 0 就把这一行删掉。
+ */
+function removeOneBundleFromOrder(orderId, item) {
+  const row = findOrderItem(orderId, item)
+  if (!row) return false
+
+  const bundles = Number(row.bundles ?? 0) - 1
+  if (bundles <= 0) {
+    db.prepare(`DELETE FROM order_items WHERE id = ?`).run(row.id)
+    return true
+  }
+
+  const cubic = roundTo(
+    calcCubic(row.thickness, row.width, row.length, row.pieces, bundles),
+    4,
+  )
+  const priceCents = Number(
+    row.unit_price_cents ?? Math.round((row.unit_price ?? 0) * 100),
+  )
+  const amountCents = calcAmountCents(cubic, priceCents)
+  db.prepare(
+    `UPDATE order_items
+        SET bundles = ?, cubic = ?, amount = ?, amount_cents = ?
+      WHERE id = ?`,
+  ).run(bundles, cubic, fromCents(amountCents), amountCents, row.id)
+  return true
+}
+
+/** 往入库单里加一包：规格和片数都对得上就累加，否则新开一行（单价取该规格最近入库价） */
+function addOneBundleToOrder(orderId, item) {
+  const row = findOrderItem(orderId, item, item.pieces)
+  if (row) {
+    const bundles = Number(row.bundles ?? 0) + 1
+    const cubic = roundTo(
+      calcCubic(row.thickness, row.width, row.length, row.pieces, bundles),
+      4,
+    )
+    const priceCents = Number(
+      row.unit_price_cents ?? Math.round((row.unit_price ?? 0) * 100),
+    )
+    const amountCents = calcAmountCents(cubic, priceCents)
+    db.prepare(
+      `UPDATE order_items
+          SET bundles = ?, cubic = ?, amount = ?, amount_cents = ?
+        WHERE id = ?`,
+    ).run(bundles, cubic, fromCents(amountCents), amountCents, row.id)
+    return
+  }
+
+  const lastPrice = db
+    .prepare(
+      `SELECT COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
+         FROM order_items
+        WHERE order_type = 'in' AND deleted_at IS NULL
+          AND ${specMatchSql}
+        ORDER BY id DESC
+        LIMIT 1`,
+    )
+    .get(
+      item.species,
+      item.grade,
+      item.thickness,
+      item.width,
+      item.length,
+    )
+  const priceCents = Number(lastPrice?.cents ?? 0)
+  const cubic = roundTo(
+    calcCubic(item.thickness, item.width, item.length, item.pieces, 1),
+    4,
+  )
+  const amountCents = calcAmountCents(cubic, priceCents)
+
+  db.prepare(
+    `INSERT INTO order_items
+       (order_id, order_type, species, grade, thickness, width, length,
+        pieces, bundles, cubic, unit_price, amount, unit_price_cents, amount_cents)
+     VALUES
+       (?, 'in', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+  ).run(
+    orderId,
+    item.species,
+    item.grade,
+    item.thickness,
+    item.width,
+    item.length,
+    item.pieces,
+    cubic,
+    fromCents(priceCents),
+    fromCents(amountCents),
+    priceCents,
+    amountCents,
+  )
+}
+
+/** 把码单的旧规格行从入库单里整体扣掉 */
+function detachBaleFromOrder(bale) {
+  if (!bale.inbound_order_id) return
+  for (const item of baleItemsStmt.all(bale.id)) {
+    removeOneBundleFromOrder(bale.inbound_order_id, item)
+  }
+}
+
+/** 把码单的新规格行挂回入库单 */
+function attachBaleToOrder(bale, items) {
+  if (!bale.inbound_order_id) return
+  for (const item of items) {
+    addOneBundleToOrder(bale.inbound_order_id, item)
+  }
+}
+
+/** 重算码单的汇总列（总立方、总片数、主规格） */
+function refreshBaleSummary(baleId) {
+  const totals = db
+    .prepare(
+      `SELECT ROUND(COALESCE(SUM(cubic), 0), 4) AS cubic,
+              COALESCE(SUM(pieces), 0)         AS pieces
+         FROM bale_items WHERE bale_id = ?`,
+    )
+    .get(baleId)
+  const first = baleItemsStmt.all(baleId)[0]
+
+  db.prepare(
+    `UPDATE bales
+        SET cubic = ?, pieces = ?, species = ?, grade = ?,
+            thickness = ?, width = ?, length = ?
+      WHERE id = ?`,
+  ).run(
+    roundTo(totals.cubic ?? 0, 4),
+    Number(totals.pieces ?? 0),
+    first?.species ?? null,
+    first?.grade ?? null,
+    first?.thickness ?? null,
+    first?.width ?? null,
+    first?.length ?? null,
+    baleId,
+  )
+}
+
+/** 校验前端传来的规格行 */
+function normalizeBaleItems(rawItems) {
+  const items = Array.isArray(rawItems) ? rawItems : []
+  const problems = []
+
+  const normalized = items.map((raw, index) => {
+    const species = String(raw.species ?? '').trim()
+    const grade = String(raw.grade ?? '').trim()
+    const thickness = Number(raw.thickness)
+    const width = Number(raw.width)
+    const length = Number(raw.length)
+    const pieces = Number(raw.pieces)
+
+    const reasons = []
+    if (!species) reasons.push('品名不能为空')
+    if (!(thickness > 0 && thickness <= 1000)) reasons.push('厚度需在 0~1000mm')
+    if (!(width > 0 && width <= 1000)) reasons.push('宽度需在 0~1000mm')
+    if (!(length > 0 && length <= 20)) reasons.push('长度需在 0~20m')
+    if (!(Number.isInteger(pieces) && pieces > 0)) reasons.push('片数必须是大于 0 的整数')
+    if (reasons.length > 0) problems.push(`第 ${index + 1} 行：${reasons.join('；')}`)
+
+    return {
+      species,
+      grade,
+      thickness,
+      width,
+      length,
+      pieces,
+      cubic: roundTo(calcCubic(thickness, width, length, pieces, 1), 4),
+    }
+  })
+
+  if (normalized.length === 0) problems.push('至少需要一个规格')
+  return { items: normalized, problems }
+}
+
+/** 码单详情（编辑弹窗用） */
+router.get('/:id', (req, res) => {
+  const id = Number(req.params.id)
+  const bale = getBaleStmt.get(id)
+  if (!bale) return res.status(404).json({ error: '码单不存在' })
+
+  res.json({
+    id: bale.id,
+    bale_no: bale.bale_no,
+    container_id: bale.container_id,
+    inbound_order_id: bale.inbound_order_id,
+    status: bale.status,
+    cubic: roundTo(bale.cubic ?? 0, 4),
+    pieces: bale.pieces ?? 0,
+    items: baleItemsStmt.all(id).map((item) => ({
+      id: item.id,
+      species: item.species ?? '',
+      grade: item.grade ?? '',
+      thickness: item.thickness,
+      width: item.width,
+      length: item.length,
+      pieces: item.pieces,
+      cubic: roundTo(item.cubic ?? 0, 4),
+    })),
+  })
+})
+
+/**
+ * 编辑码单：包号 + 规格行。
+ * 在库的包才能改；改完把入库单明细同步过去（旧的扣掉、新的挂上），
+ * 这样库存汇总和码单永远对得上。已经出库的包不让改，避免动到已发出的货。
+ */
+const updateBale = db.transaction((id, baleNo, items) => {
+  const bale = getBaleStmt.get(id)
+  if (!bale) {
+    const error = new Error('码单不存在')
+    error.status = 404
+    throw error
+  }
+  if (bale.status !== 'in_stock') {
+    const error = new Error(`码单 ${bale.bale_no} 已经出库了，不能修改`)
+    error.status = 400
+    throw error
+  }
+
+  const duplicate = db
+    .prepare(`SELECT id FROM bales WHERE bale_no = ? AND id <> ?`)
+    .get(baleNo, id)
+  if (duplicate) {
+    const error = new Error(`包号 ${baleNo} 已经被其他包用了`)
+    error.status = 400
+    throw error
+  }
+
+  detachBaleFromOrder(bale)
+  db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(id)
+  for (const item of items) {
+    insertBaleItem.run({
+      bale_id: id,
+      species: item.species,
+      grade: item.grade,
+      thickness: item.thickness,
+      width: item.width,
+      length: item.length,
+      pieces: item.pieces,
+      cubic: item.cubic,
+    })
+  }
+  db.prepare(`UPDATE bales SET bale_no = ? WHERE id = ?`).run(baleNo, id)
+  refreshBaleSummary(id)
+  attachBaleToOrder(bale, items)
+
+  return { id, bale_no: baleNo }
+})
+
+router.put('/:id', (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: '码单 ID 不合法' })
+  }
+
+  const body = req.body ?? {}
+  const baleNo = String(body.bale_no ?? '').trim()
+  if (!baleNo) return res.status(400).json({ error: '包号不能为空' })
+
+  const { items, problems } = normalizeBaleItems(body.items)
+  if (problems.length > 0) {
+    return res.status(400).json({ error: problems.join('\n') })
+  }
+
+  try {
+    res.json(updateBale(id, baleNo, items))
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) {
+      return res.status(err.status).json({ error: err.message })
+    }
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/**
+ * 删除码单：同样只能删在库的包，并把入库单明细同步扣掉。
+ * 已经出库的包要先撤销对应的出库单。
+ */
+const removeBale = db.transaction((id) => {
+  const bale = getBaleStmt.get(id)
+  if (!bale) {
+    const error = new Error('码单不存在')
+    error.status = 404
+    throw error
+  }
+  if (bale.status !== 'in_stock') {
+    const error = new Error(
+      `码单 ${bale.bale_no} 已经出库了，不能删除。请先撤销对应的出库单。`,
+    )
+    error.status = 400
+    throw error
+  }
+
+  detachBaleFromOrder(bale)
+  db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(id)
+  db.prepare(`DELETE FROM bales WHERE id = ?`).run(id)
+  return { bale_no: bale.bale_no }
+})
+
+router.delete('/:id', (req, res) => {
+  const id = Number(req.params.id)
+  if (!Number.isInteger(id) || id <= 0) {
+    return res.status(400).json({ error: '码单 ID 不合法' })
+  }
+
+  try {
+    res.json({ ok: true, ...removeBale(id) })
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) {
+      return res.status(err.status).json({ error: err.message })
+    }
+    res.status(500).json({ error: err.message })
+  }
+})
 
 export default router

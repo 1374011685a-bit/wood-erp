@@ -62,6 +62,9 @@ export type InboundDetailItem = InboundItemPayload & {
   cubic: number
   amount: number
   created_at: string
+  /** 该规格当前库存（出库详情里用） */
+  stock_cubic?: number
+  stock_bundles?: number
 }
 
 export type InboundDetail = {
@@ -318,6 +321,15 @@ export type OutboundDetail = {
   total_cubic: number
   total_amount: number
   items: InboundDetailItem[]
+  /** 本次发走的码单 */
+  bales: Array<{
+    bale_no: string
+    cubic: number
+    pieces: number
+    status: string
+    container_no: string
+    contract_no: string
+  }>
 }
 
 export type OutboundListFilters = {
@@ -672,6 +684,7 @@ export type BaleRow = {
 }
 
 export type BaleQuery = {
+
   keyword?: string
   status?: '' | 'in_stock' | 'shipped'
   container_id?: number
@@ -735,6 +748,62 @@ export function updateContainer(id: number, payload: ContainerPayload) {
 
 export function deleteContainer(id: number) {
   return request<{ ok: boolean }>(`/api/containers/${id}`, { method: 'DELETE' })
+}
+
+export type BaleItemLine = {
+  id?: number
+  species: string
+  grade: string
+  thickness: number
+  width: number
+  length: number
+  pieces: number
+  cubic: number
+}
+
+export type BaleDetail = {
+  id: number
+  bale_no: string
+  container_id: number | null
+  inbound_order_id: number | null
+  status: 'in_stock' | 'shipped'
+  cubic: number
+  pieces: number
+  items: BaleItemLine[]
+}
+
+// 码单详情（编辑弹窗用）
+export function fetchBaleDetail(id: number) {
+  return request<BaleDetail>(`/api/bales/${id}`)
+}
+
+// 编辑码单：包号 + 规格行（后端会把入库单明细一起同步）
+export function updateBale(
+  id: number,
+  payload: {
+    bale_no: string
+    items: Array<{
+      species: string
+      grade: string
+      thickness: number
+      width: number
+      length: number
+      pieces: number
+    }>
+  },
+) {
+  return request<{ id: number; bale_no: string }>(`/api/bales/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+// 删除码单（只能删在库的，已出库要先撤销出库单）
+export function deleteBale(id: number) {
+  return request<{ ok: boolean; bale_no: string }>(`/api/bales/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 // 码单列表（一包一条，带柜号/合同号/出库单号）

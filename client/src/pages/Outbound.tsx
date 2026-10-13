@@ -1119,6 +1119,7 @@ export default function Outbound() {
                       <th className="num">片数</th>
                       <th className="num">件数</th>
                       <th className="num">立方</th>
+                      <th className="num">当前库存</th>
                       <th className="num">单价</th>
                       <th className="num">金额</th>
                     </tr>
@@ -1134,6 +1135,10 @@ export default function Outbound() {
                         <td className="num">{item.pieces}</td>
                         <td className="num">{item.bundles}</td>
                         <td className="num">{formatCubic(item.cubic)}</td>
+                        <td className="num">
+                          {formatCubic(item.stock_cubic ?? 0)} 立方 /{' '}
+                          {item.stock_bundles ?? 0} 件
+                        </td>
                         <td className="num amount">{formatAmount(item.unit_price)}</td>
                         <td className="num amount">{formatAmount(item.amount)}</td>
                       </tr>
@@ -1145,6 +1150,36 @@ export default function Outbound() {
                   <span>合计立方：{formatCubic(detail.total_cubic)}</span>
                   <span>合计金额：{formatAmount(detail.total_amount)}</span>
                 </div>
+
+                {detail.bales && detail.bales.length > 0 && (
+                  <>
+                    <h3 className="section-title" style={{ marginTop: 22 }}>
+                      本次发出的码单（{detail.bales.length} 包）
+                    </h3>
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>码单号</th>
+                          <th>柜号</th>
+                          <th>合同号</th>
+                          <th className="num">片数</th>
+                          <th className="num">立方</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.bales.map((bale) => (
+                          <tr key={bale.bale_no}>
+                            <td>{bale.bale_no}</td>
+                            <td>{bale.container_no || '—'}</td>
+                            <td>{bale.contract_no || '—'}</td>
+                            <td className="num">{bale.pieces}</td>
+                            <td className="num">{formatCubic(bale.cubic)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                )}
               </>
             )}
           </div>

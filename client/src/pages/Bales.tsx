@@ -2,11 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   createContainer,
   createShipment,
+  deleteBale,
+  fetchBaleDetail,
   fetchBales,
   fetchContainers,
   fetchShipments,
   fetchShipmentContainers,
+  updateBale,
   type BaleRow,
+  type BaleItemLine,
   type ContainerRow,
   type ShipmentContainer,
   type ShipmentRow,
@@ -51,6 +55,86 @@ export default function Bales() {
   })
   const [boxError, setBoxError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // 码单编辑 / 删除
+  const emptyLine = (): BaleItemLine => ({
+    species: '',
+    grade: '',
+    thickness: 0,
+    width: 0,
+    length: 0,
+    pieces: 1,
+    cubic: 0,
+  })
+  const [editOpen, setEditOpen] = useState(false)
+  const [editId, setEditId] = useState(0)
+  const [editNo, setEditNo] = useState('')
+  const [editLines, setEditLines] = useState<BaleItemLine[]>([])
+  const [editError, setEditError] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [baleDeleteTarget, setBaleDeleteTarget] = useState<BaleRow | null>(null)
+
+  const openBaleEdit = async (row: BaleRow) => {
+    setError('')
+    try {
+      const detail = await fetchBaleDetail(row.id)
+      setEditId(detail.id)
+      setEditNo(detail.bale_no)
+      setEditLines(detail.items.length > 0 ? detail.items : [emptyLine()])
+      setEditError('')
+      setEditOpen(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '打开失败')
+    }
+  }
+
+  const submitBaleEdit = async () => {
+    if (!editNo.trim()) {
+      setEditError('包号不能为空')
+      return
+    }
+    const items = editLines.filter((line) => line.species.trim())
+    if (items.length === 0) {
+      setEditError('至少要有一个规格（品名必填）')
+      return
+    }
+
+    setEditSaving(true)
+    setEditError('')
+    try {
+      await updateBale(editId, {
+        bale_no: editNo.trim(),
+        items: items.map((line) => ({
+          species: line.species.trim(),
+          grade: (line.grade ?? '').trim(),
+          thickness: Number(line.thickness),
+          width: Number(line.width),
+          length: Number(line.length),
+          pieces: Number(line.pieces),
+        })),
+      })
+      setEditOpen(false)
+      setNotice(`已保存码单 ${editNo.trim()}，库存已同步`)
+      setReloadToken((n) => n + 1)
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : '保存失败')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const confirmBaleDelete = async () => {
+    if (!baleDeleteTarget) return
+    try {
+      await deleteBale(baleDeleteTarget.id)
+      setNotice(`已删除码单 ${baleDeleteTarget.bale_no}，库存已同步减少`)
+      setBaleDeleteTarget(null)
+      setReloadToken((n) => n + 1)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '删除失败')
+      setBaleDeleteTarget(null)
+    }
+  }
 
   const load = useCallback(
     async (
@@ -420,6 +504,7 @@ export default function Bales() {
               <th className="num">立方</th>
               <th>状态</th>
               <th>出库单</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -442,6 +527,19 @@ export default function Bales() {
                   </span>
                 </td>
                 <td>{row.outbound_order_no || '—'}</td>
+                <td>
+                  <div className="row-actions">
+                    <button className="btn btn-sm" onClick={() => void openBaleEdit(row)}>
+                      编辑
+                    </button>
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={() => setBaleDeleteTarget(row)}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -460,6 +558,138 @@ export default function Bales() {
           unit="个码单"
         />
       </div>
+
+      {editOpen && (
+        <div className="overlay" onClick={() => setEditOpen(false)}>
+          <div className="modal modal-wide" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h2 className="modal-title">编辑码单</h2>
+              <button className="btn btn-sm btn-quiet" onClick={() => setEditOpen(false)}>
+                关闭
+              </button>
+            </div>
+
+            <label className="field field-required">
+              <span>包号</span>
+              <input
+                className="input"
+                value={editNo}
+                onChange={(event) => setEditNo(event.target.value)}
+              />
+            </label>
+
+            <p className="hint" style={{ marginTop: 14 }}>
+              这包里的规格（可以多个）；改完入库单明细会同步调整，库存跟着变。
+            </p>
+
+            <table className="table table-detail">
+              <thead>
+                <tr>
+                  <th>品名</th>
+                  <th>等级</th>
+                  <th className="num">厚度mm</th>
+                  <th className="num">宽度mm</th>
+                  <th className="num">长度m</th>
+                  <th className="num">片数</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {editLines.map((line, index) => (
+                  <tr key={index}>
+                    {(['species', 'grade', 'thickness', 'width', 'length', 'pieces'] as const).map(
+                      (field) => (
+                        <td key={field}>
+                          <input
+                            className="input input-cell"
+                            inputMode={field === 'species' || field === 'grade' ? undefined : 'decimal'}
+                            value={String(line[field] === 0 ? '' : line[field])}
+                            onChange={(event) =>
+                              setEditLines((prev) =>
+                                prev.map((item, i) =>
+                                  i === index
+                                    ? {
+                                        ...item,
+                                        [field]:
+                                          field === 'species' || field === 'grade'
+                                            ? event.target.value
+                                            : Number(event.target.value),
+                                      }
+                                    : item,
+                                ),
+                              )
+                            }
+                          />
+                        </td>
+                      ),
+                    )}
+                    <td>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() =>
+                          setEditLines((prev) =>
+                            prev.length > 1 ? prev.filter((_, i) => i !== index) : prev,
+                          )
+                        }
+                        disabled={editLines.length === 1}
+                      >
+                        删一行
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            <div className="row-tools">
+              <button
+                className="btn"
+                onClick={() => setEditLines((prev) => [...prev, emptyLine()])}
+              >
+                + 加一个规格
+              </button>
+            </div>
+
+            {editError && <p className="login-error">{editError}</p>}
+
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setEditOpen(false)} disabled={editSaving}>
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => void submitBaleEdit()}
+                disabled={editSaving}
+              >
+                {editSaving ? '提交中…' : '确认'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {baleDeleteTarget && (
+        <div className="overlay" onClick={() => setBaleDeleteTarget(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="modal-title">删除码单</h2>
+            <p className="confirm-text">
+              确认删除码单 {baleDeleteTarget.bale_no}？这一包的库存会一起减掉，
+              此操作不可恢复。
+            </p>
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setBaleDeleteTarget(null)}>
+                取消
+              </button>
+              <button className="btn btn-danger-solid" onClick={() => void confirmBaleDelete()}>
+                确认删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {shipOpen && (
         <div className="overlay" onClick={() => setShipOpen(false)}>

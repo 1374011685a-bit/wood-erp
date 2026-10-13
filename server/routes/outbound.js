@@ -632,11 +632,51 @@ router.get('/:id', (req, res) => {
     { total_cubic: 0, amountCents: 0 },
   )
 
+  /**
+   * 每行带上「该规格当前还剩多少库存」——出库后要能一眼看出还剩多少，
+   * 方便判断还能不能再发下一车。
+   */
+  const itemsWithStock = items.map((item) => {
+    const stock = stockStmt.get(
+      item.species,
+      item.grade ?? '',
+      item.thickness,
+      item.width,
+      item.length,
+    )
+    return {
+      ...item,
+      stock_cubic: roundTo(stock?.cubic ?? 0, 4),
+      stock_bundles: stock?.bundles ?? 0,
+    }
+  })
+
+  // 这张单发走的码单（一包一条），能看出是哪几包、属于哪个柜和合同
+  const bales = db
+    .prepare(
+      `SELECT b.bale_no, b.cubic, b.pieces, b.status,
+              c.container_no, c.contract_no
+         FROM bales b
+         LEFT JOIN containers c ON c.id = b.container_id
+        WHERE b.outbound_order_id = ?
+        ORDER BY b.bale_no`,
+    )
+    .all(id)
+    .map((row) => ({
+      bale_no: row.bale_no,
+      cubic: roundTo(row.cubic ?? 0, 4),
+      pieces: row.pieces ?? 0,
+      status: row.status,
+      container_no: row.container_no ?? '',
+      contract_no: row.contract_no ?? '',
+    }))
+
   res.json({
     ...order,
     total_cubic: totals.total_cubic,
     total_amount: fromCents(totals.amountCents),
-    items,
+    items: itemsWithStock,
+    bales,
   })
 })
 
