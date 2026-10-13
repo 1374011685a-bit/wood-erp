@@ -1222,49 +1222,12 @@ export default function Inbound() {
                   <span>创建时间：{detail.created_at}</span>
                 </div>
 
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>品名</th>
-                  <th>等级</th>
-                  <th className="num">厚度mm</th>
-                  <th className="num">宽度mm</th>
-                  <th className="num">长度m</th>
-                  <th className="num">片数</th>
-                  <th className="num">件数</th>
-                  <th className="num">立方</th>
-                  <th className="num">单价</th>
-                  <th className="num">金额</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {detail.items.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.species}</td>
-                        <td>{item.grade}</td>
-                        <td className="num">{item.thickness}</td>
-                        <td className="num">{item.width}</td>
-                        <td className="num">{item.length}</td>
-                        <td className="num">{item.pieces}</td>
-                        <td className="num">{item.bundles}</td>
-                        <td className="num">{formatCubic(item.cubic)}</td>
-                        <td className="num amount">{formatAmount(item.unit_price)}</td>
-                        <td className="num amount">{formatAmount(item.amount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-
-                <div className="totals">
-                  <span>合计立方：{formatCubic(detail.total_cubic)}</span>
-                  <span>合计金额：{formatAmount(detail.total_amount)}</span>
-                </div>
-
-                {detail.bales && detail.bales.length > 0 && (
+                {detail.bales && detail.bales.length > 0 ? (
                   <>
-                    <h3 className="section-title" style={{ marginTop: 22 }}>
-                      这一单的码单（{detail.bales.length} 包，在库{' '}
-                      {detail.bales.filter((bale) => bale.status === 'in_stock').length} 包）
+                    <h3 className="section-title" style={{ marginTop: 4 }}>
+                      码单明细（{detail.bales.length} 包 · 在库{' '}
+                      {detail.bales.filter((bale) => bale.status === 'in_stock').length} · 已出{' '}
+                      {detail.bales.filter((bale) => bale.status === 'shipped').length}）
                     </h3>
                     <table className="table">
                       <thead>
@@ -1305,7 +1268,41 @@ export default function Inbound() {
                       </tbody>
                     </table>
                   </>
+                ) : (
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>品名</th>
+                        <th>等级</th>
+                        <th className="num">厚度mm</th>
+                        <th className="num">宽度mm</th>
+                        <th className="num">长度m</th>
+                        <th className="num">片数</th>
+                        <th className="num">件数</th>
+                        <th className="num">立方</th>
+                        <th className="num">单价</th>
+                        <th className="num">金额</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.items.map((item) => (
+                        <tr key={item.id}>
+                          <td>{item.species}</td>
+                          <td>{item.grade}</td>
+                          <td className="num">{item.thickness}</td>
+                          <td className="num">{item.width}</td>
+                          <td className="num">{item.length}</td>
+                          <td className="num">{item.pieces}</td>
+                          <td className="num">{item.bundles}</td>
+                          <td className="num">{formatCubic(item.cubic)}</td>
+                          <td className="num amount">{formatAmount(item.unit_price)}</td>
+                          <td className="num amount">{formatAmount(item.amount)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 )}
+
               </>
             )}
           </div>

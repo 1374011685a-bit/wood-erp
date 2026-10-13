@@ -2088,7 +2088,8 @@ section > .toolbar .btn-primary {
   flex-direction: column;
   gap: 4px;
   width: 100%;
-  padding: 14px 16px;
+  /* 右上角给删除按钮留位置 */
+  padding: 14px 66px 14px 16px;
   border: none;
   border-radius: 14px;
   background: transparent;
@@ -2099,35 +2100,27 @@ section > .toolbar .btn-primary {
 
 .box-del {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  padding: 2px 8px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background-color: transparent;
-  color: var(--text-3);
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  padding: 3px 10px;
+  border: 1px solid var(--border-panel);
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: var(--text-2);
   font-family: inherit;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 16px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--ease), color var(--ease), background-color var(--ease);
-}
-
-.box-card:hover .box-del {
-  opacity: 1;
+  /* 常显：之前只在 hover 时出现，用户根本找不到 */
+  transition: color var(--ease), background-color var(--ease),
+    border-color var(--ease);
 }
 
 .box-del:hover {
-  background-color: rgba(255, 59, 48, 0.1);
+  background-color: rgba(255, 59, 48, 0.08);
+  border-color: rgba(255, 59, 48, 0.4);
   color: var(--red);
-}
-
-/* 手机上点不出 hover，删除按钮常显 */
-@media (max-width: 767px) {
-  .box-del {
-    opacity: 1;
-  }
 }
 
 .box-card:hover {
