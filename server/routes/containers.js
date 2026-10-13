@@ -1,6 +1,7 @@
 import express from 'express'
 import { db } from '../db.js'
 import { pageParams } from '../utils/paging.js'
+import { contractError } from '../utils/contractGate.js'
 
 const router = express.Router()
 
@@ -147,6 +148,8 @@ router.post('/', (req, res) => {
   if (findByNoStmt.get(data.container_no)) {
     return res.status(400).json({ error: `柜号 ${data.container_no} 已存在` })
   }
+  const contractProblem = contractError(data.contract_no)
+  if (contractProblem) return res.status(400).json({ error: contractProblem })
 
   try {
     const { lastInsertRowid } = insertContainer.run({
@@ -183,6 +186,8 @@ router.put('/:id', (req, res) => {
   if (duplicate) {
     return res.status(400).json({ error: `柜号 ${data.container_no} 已存在` })
   }
+  const contractProblem = contractError(data.contract_no)
+  if (contractProblem) return res.status(400).json({ error: contractProblem })
 
   try {
     updateContainerStmt.run(

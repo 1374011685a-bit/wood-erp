@@ -7,13 +7,17 @@ import {
   deleteShipment,
   fetchBaleDetail,
   fetchBales,
+  fetchContractOptions,
   fetchContainers,
+  fetchDict,
   fetchShipments,
   fetchShipmentContainers,
   updateBale,
   type BaleRow,
   type BaleItemLine,
   type ContainerRow,
+  type ContractOption,
+  type DictAll,
   type ShipmentContainer,
   type ShipmentRow,
 } from '../api'
@@ -32,6 +36,10 @@ const STATUS_TEXT: Record<BaleRow['status'], string> = {
 export default function Bales() {
   const [containers, setContainers] = useState<ContainerRow[]>([])
   const [shipments, setShipments] = useState<ShipmentRow[]>([])
+  // 合同必须先建档：提单 / 柜的合同号从这里选，不再手打
+  const [contractOptions, setContractOptions] = useState<ContractOption[]>([])
+  // 常用品名 / 等级，编辑码单时当候选
+  const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
   const [activeShipment, setActiveShipment] = useState(0)
   const [shipmentBoxes, setShipmentBoxes] = useState<ShipmentContainer[]>([])
   const [rows, setRows] = useState<BaleRow[]>([])
@@ -219,6 +227,23 @@ export default function Bales() {
     void load(input, activeContainer, activeShipment, offset)
   }, [load, input, activeContainer, activeShipment, offset, reloadToken])
 
+  // 合同下拉 + 常用项字典：合同是「到柜」的前提，字典只做输入提示
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([fetchContractOptions(), fetchDict()])
+      .then(([contracts, dictData]) => {
+        if (cancelled) return
+        setContractOptions(contracts)
+        setDict(dictData)
+      })
+      .catch(() => {
+        // 下拉拿不到不影响主流程，手打依然可以
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [reloadToken])
+
   const handleSearch = () =>
     setInput((prev) => ({ ...prev, keyword: prev.keyword.trim() }))
 
@@ -245,6 +270,10 @@ export default function Bales() {
   const submitShipment = async () => {
     if (!shipForm.bl_no.trim()) {
       setShipError('提单号不能为空')
+      return
+    }
+    if (!shipForm.contract_no.trim()) {
+      setShipError('请先选择合同：有了合同才有到柜，也可以先去「合同」页新建合同')
       return
     }
     const containerNos = shipForm.container_nos
@@ -292,6 +321,10 @@ export default function Bales() {
       setBoxError('柜号不能为空')
       return
     }
+    if (!boxForm.contract_no.trim()) {
+      setBoxError('请先选择合同：有了合同才有到柜，也可以先去「合同」页新建合同')
+      return
+    }
     setSaving(true)
     setBoxError('')
     try {
@@ -323,6 +356,18 @@ export default function Bales() {
 
   return (
     <section>
+      {/* 常用项候选：品名 / 等级可以直接选 */}
+      <datalist id="dict-species">
+        {dict.species.map((item) => (
+          <option key={item.id} value={item.name} />
+        ))}
+      </datalist>
+      <datalist id="dict-grade">
+        {dict.grade.map((item) => (
+          <option key={item.id} value={item.name} />
+        ))}
+      </datalist>
+
       <PageHead
         title="码单"
         subtitle="一包一个码单：入库时按包数自动生成，出库时按码单发货"
@@ -727,6 +772,13 @@ export default function Bales() {
                           <input
                             className="input input-cell"
                             inputMode={field === 'species' || field === 'grade' ? undefined : 'decimal'}
+                            list={
+                              field === 'species'
+                                ? 'dict-species'
+                                : field === 'grade'
+                                  ? 'dict-grade'
+                                  : undefined
+                            }
                             value={String(line[field] === 0 ? '' : line[field])}
                             onChange={(event) =>
                               setEditLines((prev) =>
@@ -839,17 +891,37 @@ export default function Bales() {
                 }
               />
             </label>
-            <label className="field" style={{ marginTop: 14 }}>
+            <label className="field field-required" style={{ marginTop: 14 }}>
               <span>合同号</span>
-              <input
+              <select
                 className="input"
-                placeholder="这张提单属于哪个合同"
                 value={shipForm.contract_no}
-                onChange={(event) =>
-                  setShipForm((prev) => ({ ...prev, contract_no: event.target.value }))
-                }
-              />
+                onChange={(event) => {
+                  const no = event.target.value
+                  const hit = contractOptions.find((item) => item.contract_no === no)
+                  setShipForm((prev) => ({
+                    ...prev,
+                    contract_no: no,
+                    supplier: prev.supplier.trim() ? prev.supplier : hit?.partner ?? '',
+                  }))
+                }}
+              >
+                <option value="">请选择合同…</option>
+                {contractOptions.map((option) => (
+                  <option key={option.id} value={option.contract_no}>
+                    {option.contract_no}
+                    {[option.title, option.partner].filter(Boolean).length > 0
+                      ? ` · ${[option.title, option.partner].filter(Boolean).join(' · ')}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
             </label>
+            <p className="hint">
+              {contractOptions.length === 0
+                ? '系统里还没有合同：请先到「合同」页新建合同（可上传 PDF），再回来建到柜。'
+                : '先有合同才有到柜。这里只能选已建档的合同号。'}
+            </p>
             <label className="field" style={{ marginTop: 14 }}>
               <span>国外供应商</span>
               <input
@@ -936,17 +1008,37 @@ export default function Bales() {
                 }
               />
             </label>
-            <label className="field" style={{ marginTop: 14 }}>
+            <label className="field field-required" style={{ marginTop: 14 }}>
               <span>合同号</span>
-              <input
+              <select
                 className="input"
-                placeholder="整柜对应一个合同"
                 value={boxForm.contract_no}
-                onChange={(event) =>
-                  setBoxForm((prev) => ({ ...prev, contract_no: event.target.value }))
-                }
-              />
+                onChange={(event) => {
+                  const no = event.target.value
+                  const hit = contractOptions.find((item) => item.contract_no === no)
+                  setBoxForm((prev) => ({
+                    ...prev,
+                    contract_no: no,
+                    supplier: prev.supplier.trim() ? prev.supplier : hit?.partner ?? '',
+                  }))
+                }}
+              >
+                <option value="">请选择合同…</option>
+                {contractOptions.map((option) => (
+                  <option key={option.id} value={option.contract_no}>
+                    {option.contract_no}
+                    {[option.title, option.partner].filter(Boolean).length > 0
+                      ? ` · ${[option.title, option.partner].filter(Boolean).join(' · ')}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
             </label>
+            <p className="hint">
+              {contractOptions.length === 0
+                ? '系统里还没有合同：请先到「合同」页新建合同，再回来加柜。'
+                : '整柜挂在一个合同下，这里只能选已建档的合同号。'}
+            </p>
             <label className="field" style={{ marginTop: 14 }}>
               <span>提单号</span>
               <input

@@ -4,6 +4,7 @@ import RequireAuth from './components/RequireAuth'
 import Count from './pages/Count'
 import Contracts from './pages/Contracts'
 import Bales from './pages/Bales'
+import Dict from './pages/Dict'
 import Home from './pages/Home'
 import Inbound from './pages/Inbound'
 import Login from './pages/Login'
@@ -35,6 +36,7 @@ export default function App() {
           <Route path="records" element={<Records />} />
           <Route path="recycle" element={<Recycle />} />
           <Route path="settlement" element={<Settlement />} />
+          <Route path="dict" element={<Dict />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

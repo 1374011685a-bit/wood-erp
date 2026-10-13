@@ -155,8 +155,20 @@ const navGroups: NavGroup[] = [
   {
     key: 'system',
     label: '系统',
-    hint: '已删除的单据',
+    hint: '常用项与已删除的单据',
     items: [
+      {
+        to: '/dict',
+        label: '常用项',
+        icon: (
+          <>
+            <path d="M4.5 6.5h9M4.5 12h6" />
+            <path d="M17.4 4.8v6.4" />
+            <path d="M14.2 8h6.4" />
+            <path d="M4.5 17.5h15" />
+          </>
+        ),
+      },
       {
     to: '/recycle',
     label: '回收站',

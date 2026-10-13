@@ -1,6 +1,7 @@
 import express from 'express'
 import { db } from '../db.js'
 import { pageParams } from '../utils/paging.js'
+import { contractError } from '../utils/contractGate.js'
 
 const router = express.Router()
 
@@ -189,6 +190,8 @@ router.post('/', (req, res) => {
   if (findByNoStmt.get(blNo)) {
     return res.status(400).json({ error: `提单号 ${blNo} 已存在` })
   }
+  const contractProblem = contractError(contractNo)
+  if (contractProblem) return res.status(400).json({ error: contractProblem })
 
   try {
     res.json(

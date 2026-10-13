@@ -2992,3 +2992,84 @@ section > .toolbar .btn-primary {
     height: 46px;
   }
 }
+
+/* ============================================================
+   常用项（品名 / 等级）—— 两栏卡片，加一条、改名、删除
+   ============================================================ */
+
+.dict-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+.dict-grid .card + .card {
+  margin-top: 0;
+}
+
+.dict-add {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0 6px;
+}
+
+.dict-add .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.dict-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dict-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 12px 8px 16px;
+  border: 1px solid var(--border-panel);
+  border-radius: 12px;
+  background-color: #ffffff;
+  transition: border-color var(--ease), background-color var(--ease), box-shadow var(--ease);
+}
+
+.dict-item:hover {
+  border-color: var(--line-strong);
+  background-color: #fbfbfd;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.dict-item .input-cell {
+  flex: 1;
+  min-width: 0;
+}
+
+.dict-name {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+@media (max-width: 767px) {
+  .dict-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .dict-add {
+    flex-direction: column;
+  }
+
+  .dict-add .btn {
+    width: 100%;
+  }
+}

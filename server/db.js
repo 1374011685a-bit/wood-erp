@@ -598,6 +598,17 @@ const schema = `
 
   CREATE INDEX IF NOT EXISTS idx_bale_items_bale ON bale_items (bale_id);
 
+  -- 常用项字典：常用的品名（木材名称）和等级，录单时直接选，不用每次手打
+  CREATE TABLE IF NOT EXISTS dict_items (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind       TEXT    NOT NULL,
+    name       TEXT    NOT NULL,
+    sort_order INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_dict_kind_name ON dict_items (kind, name);
+
   CREATE INDEX IF NOT EXISTS idx_bales_container ON bales (container_id);
   CREATE INDEX IF NOT EXISTS idx_bales_status    ON bales (status, id);
   CREATE INDEX IF NOT EXISTS idx_bales_inbound   ON bales (inbound_order_id);
@@ -733,6 +744,33 @@ function seedDefaultAdmin() {
   )
 }
 
+// 常用项字典：库里一条都没有时塞几个常见的品名 / 等级，用户可自行增删改
+const DEFAULT_DICT = {
+  species: ['樟子松', '白松', '云杉', '落叶松'],
+  grade: ['SLDK', 'SF', 'A', 'B'],
+}
+
+function seedDict() {
+  const total = Number(
+    db.prepare(`SELECT COUNT(*) AS total FROM dict_items`).get()?.total ?? 0,
+  )
+  if (total > 0) return
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO dict_items (kind, name, sort_order) VALUES (?, ?, ?)`,
+  )
+  let order = 0
+  for (const [kind, names] of Object.entries(DEFAULT_DICT)) {
+    for (const name of names) {
+      insert.run(kind, name, order)
+      order += 1
+    }
+  }
+  writeLog(
+    `[dict] 已写入默认常用项：品名 ${DEFAULT_DICT.species.length} 个、等级 ${DEFAULT_DICT.grade.length} 个`,
+  )
+}
+
 /**
  * 空库 + 有备份 = 库多半是被覆盖掉了，必须喊出来，
  * 而不是安安静静地当成「一个全新的空系统」继续跑。
@@ -857,6 +895,7 @@ export function initDB() {
   migrateSoftDelete()
   migrateOrderFields()
   seedDefaultAdmin()
+  seedDict()
   warnIfSuspiciouslyEmpty()
   writeLog('[db] ✓ initDB 完成')
   return db

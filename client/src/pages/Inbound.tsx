@@ -15,12 +15,14 @@ import {
   fetchInboundList,
   fetchContractOptions,
   fetchContainerOptions,
+  fetchDict,
   openContractFile,
   fetchStockList,
   inboundExportUrl,
   updateInbound,
   type ContractOption,
   type ContainerOption,
+  type DictAll,
   type InboundDetail,
   type InboundItemPayload,
   type InboundListFilters,
@@ -237,6 +239,8 @@ export default function Inbound() {
   const [contractOptions, setContractOptions] = useState<ContractOption[]>([])
   // 柜（一批到货）：选了柜，合同号/提单号直接从柜上带出来
   const [containerOptions, setContainerOptions] = useState<ContainerOption[]>([])
+  // 常用品名 / 等级，录明细时当候选
+  const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
   const [containerId, setContainerId] = useState(0)
 
   const [detail, setDetail] = useState<InboundDetail | null>(null)
@@ -320,11 +324,12 @@ export default function Inbound() {
   useEffect(() => {
     if (mode !== 'create') return
     let cancelled = false
-    void Promise.all([fetchContractOptions(), fetchContainerOptions()])
-      .then(([contracts, boxes]) => {
+    void Promise.all([fetchContractOptions(), fetchContainerOptions(), fetchDict()])
+      .then(([contracts, boxes, dictData]) => {
         if (cancelled) return
         setContractOptions(contracts)
         setContainerOptions(boxes)
+        setDict(dictData)
       })
       .catch(() => {
         // 拉不到就退化成手填，不打扰用户
@@ -1035,6 +1040,16 @@ export default function Inbound() {
                 </option>
               ))}
             </datalist>
+            <datalist id="dict-species">
+              {dict.species.map((item) => (
+                <option key={item.id} value={item.name} />
+              ))}
+            </datalist>
+            <datalist id="dict-grade">
+              {dict.grade.map((item) => (
+                <option key={item.id} value={item.name} />
+              ))}
+            </datalist>
           </div>
 
           <table className="table table-detail">
@@ -1070,6 +1085,13 @@ export default function Inbound() {
                               field === 'species' || field === 'grade'
                                 ? undefined
                                 : 'decimal'
+                            }
+                            list={
+                              field === 'species'
+                                ? 'dict-species'
+                                : field === 'grade'
+                                  ? 'dict-grade'
+                                  : undefined
                             }
                             value={row[field]}
                             onChange={(event) =>

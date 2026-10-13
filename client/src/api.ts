@@ -890,6 +890,49 @@ export function fetchContractOptions() {
   return request<ContractOption[]>('/api/contracts/options')
 }
 
+/* ---------- 常用项字典（品名 / 等级） ---------- */
+
+export type DictKind = 'species' | 'grade'
+
+export type DictItem = {
+  id: number
+  kind: DictKind
+  name: string
+}
+
+export type DictAll = {
+  species: DictItem[]
+  grade: DictItem[]
+}
+
+/** 常用品名 / 等级，录单时当候选 */
+export function fetchDict() {
+  return request<DictAll>('/api/dict')
+}
+
+export function addDictItem(kind: DictKind, name: string) {
+  return request<{ ok: boolean; id: number; kind: DictKind; name: string }>(
+    '/api/dict',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, name }),
+    },
+  )
+}
+
+export function renameDictItem(id: number, name: string) {
+  return request<{ ok: boolean }>(`/api/dict/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  })
+}
+
+export function deleteDictItem(id: number) {
+  return request<{ ok: boolean }>(`/api/dict/${id}`, { method: 'DELETE' })
+}
+
 // 新增 / 修改合同（multipart，含 PDF 文件）
 export function saveContract(form: FormData, id?: number) {
   return request<{ ok: boolean; contract_no: string }>(
