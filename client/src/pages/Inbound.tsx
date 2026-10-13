@@ -15,6 +15,7 @@ import {
   fetchInboundList,
   fetchContractOptions,
   fetchContractPicker,
+  checkBaleNo,
   fetchShipmentOptions,
   fetchDict,
   openContractFile,
@@ -65,6 +66,8 @@ type FormRow = {
   boxNo: string
   /** 包号（=码单号）：留空由系统自动编号；混装包时手动填同一个号 */
   baleLabel: string
+  /** 「同包再加一行」：这一行是往上一行那个包里再加一个规格 */
+  samePackage?: boolean
   species: string
   grade: string
   thickness: string
@@ -153,9 +156,23 @@ function validateRow(row: FormRow): string[] {
 // 整行留空的行会被忽略、不提交，因此也不参与校验
 function validateRows(rows: FormRow[]): Record<number, string[]> {
   const errors: Record<number, string[]> = {}
+  // 同一批里包号重复也要当场提示（同一个包号只能出现一次，
+  // 想往一包里再加规格，用「同包再加一行」）
+  const seen = new Map<string, number>()
   for (const row of rows) {
     if (isRowEmpty(row)) continue
     const reasons = validateRow(row)
+    const label = row.baleLabel.trim()
+    if (label) {
+      for (const one of parseBaleLabels(label)) {
+        const firstKey = seen.get(one)
+        if (firstKey !== undefined && firstKey !== row.key) {
+          reasons.push(`包号 ${one} 在这一批里重复了，请换一个包号`)
+          break
+        }
+        if (firstKey === undefined) seen.set(one, row.key)
+      }
+    }
     if (reasons.length > 0) errors[row.key] = reasons
   }
   return errors
@@ -210,7 +227,19 @@ const MIN_SHEET_ROWS = 10
 /* ---------- 样式 ---------- */
 
 
-const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
+/** 表里能输入的列（samePackage 只是标记，不是输入框） */
+type RowField =
+  | 'baleLabel'
+  | 'boxNo'
+  | 'species'
+  | 'grade'
+  | 'thickness'
+  | 'width'
+  | 'length'
+  | 'pieces'
+  | 'bundles'
+
+const rowFields: { field: RowField; label: string }[] = [
   { field: 'baleLabel', label: '包号' },
   { field: 'boxNo', label: '箱号' },
   { field: 'species', label: '品名 *' },
@@ -549,6 +578,8 @@ export default function Inbound({
     let count = 0
     for (const row of computedRows) {
       if (isRowEmpty(row)) continue
+      // 「同包再加一行」不新开包，所以不占条码号
+      if (row.samePackage) continue
 
       const label = row.baleLabel.trim()
       if (label) {
@@ -585,6 +616,37 @@ export default function Inbound({
     }
     return boxes.size
   }, [computedRows])
+
+  /**
+   * 包号失焦就查一次重：范围是「这张提单内」（散货新单没有单据号，无可查）。
+   * 命中就当场标红，不用等到保存。
+   */
+  const checkRowBaleNo = async (key: number) => {
+    const row = rows.find((item) => item.key === key)
+    const label = row?.baleLabel.trim() ?? ''
+    if (!row || !label || row.samePackage || !shipmentId) return
+
+    try {
+      const result = await checkBaleNo({
+        bale_no: label,
+        shipment_id: shipmentId,
+        inbound_order_id: editing?.id,
+      })
+      if (!result.exists) return
+      setRowErrors((prev) => ({
+        ...prev,
+        [key]: [
+          ...(prev[key] ?? []).filter((item) => !item.includes('已存在')),
+          `包号 ${label} 在这张提单里已存在，请换一个包号${
+            result.barcode ? `（已用在 ${result.barcode}）` : ''
+          }`,
+        ],
+      }))
+      setHasValidated(true)
+    } catch {
+      // 查重失败不打扰用户，保存时后端还会再拦一次
+    }
+  }
 
   const updateRow = (
     key: number,
@@ -623,6 +685,28 @@ export default function Inbound({
       if (index < 0) return [...prev, createRow()]
       const next = [...prev]
       next.splice(index + 1, 0, createRow())
+      return next
+    })
+    if (formError) setFormError('')
+  }
+
+  /**
+   * 「同包再加一行」：在下面插一行，自动继承这一行的包号，
+   * 并标记为同包（后端就知道这是往同一个包里加规格，而不是新开一包）。
+   */
+  const addSamePackageRow = (key: number) => {
+    setRows((prev) => {
+      const index = prev.findIndex((row) => row.key === key)
+      if (index < 0) return prev
+      const label = prev[index].baleLabel.trim()
+      if (!label) return prev
+      const next = [...prev]
+      next.splice(index + 1, 0, {
+        ...createRow(),
+        boxNo: prev[index].boxNo,
+        baleLabel: label,
+        samePackage: true,
+      })
       return next
     })
     if (formError) setFormError('')
@@ -818,6 +902,7 @@ export default function Inbound({
       // 包号：填了范围就按范围生成码单，留空让后端自动编号
       bale_labels: parseBaleLabels(row.baleLabel),
       box_no: row.boxNo.trim(),
+      same_package: row.samePackage === true,
     }))
 
     setSaving(true)
@@ -1363,6 +1448,17 @@ export default function Inbound({
                           </button>
                           <button
                             type="button"
+                            className={
+                              row.samePackage ? 'sheet-icon is-on' : 'sheet-icon'
+                            }
+                            title="同包再加一行：这一包还有别的规格"
+                            disabled={!row.baleLabel.trim() || row.samePackage}
+                            onClick={() => addSamePackageRow(row.key)}
+                          >
+                            同
+                          </button>
+                          <button
+                            type="button"
                             className="sheet-icon sheet-icon-danger"
                             title="删掉这一行"
                             onClick={() => removeRow(row.key)}
@@ -1372,6 +1468,13 @@ export default function Inbound({
                         </td>
                         {rowFields.map(({ field }) => (
                           <td key={field}>
+                            {field === 'baleLabel' && row.samePackage ? (
+                              // 同包的行包号是继承来的，不让改（改了就不是同一包了）
+                              <div className="same-bale-cell">
+                                <input className="sheet-input" value={row.baleLabel} readOnly />
+                                <span className="same-bale-tag">同包</span>
+                              </div>
+                            ) : (
                             <input
                               className="sheet-input"
                               type="text"
@@ -1391,7 +1494,13 @@ export default function Inbound({
                               onChange={(event) =>
                                 updateRow(row.key, field, event.target.value)
                               }
+                              onBlur={
+                                field === 'baleLabel'
+                                  ? () => void checkRowBaleNo(row.key)
+                                  : undefined
+                              }
                             />
+                            )}
                           </td>
                         ))}
                         <td className="col-unit num">{filler ? '' : formatCubic(row.cubic)}</td>

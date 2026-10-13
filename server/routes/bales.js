@@ -110,6 +110,29 @@ router.get('/', (req, res) => {
 /* ---------- 给入库单生成码单 ---------- */
 
 /**
+ * 包号查重（录单时失焦就调用）。
+ * 范围：传了 shipment_id 就查这张提单，否则查这张入库单（散货）；
+ * 都没传（新开的散货单）就没什么可查的，直接返回不重复。
+ */
+router.get('/check', (req, res) => {
+  const baleNo = String(req.query.bale_no ?? '').trim()
+  if (!baleNo) return res.json({ exists: false })
+
+  const shipmentId = Number(req.query.shipment_id) || null
+  const inboundOrderId = Number(req.query.inbound_order_id) || null
+  const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
+  if (!scopeKey) return res.json({ exists: false })
+
+  const hit = findBaleInScope.get(scopeKey, baleNo)
+  res.json({
+    exists: Boolean(hit),
+    bale_no: baleNo,
+    barcode: hit?.barcode ?? '',
+    scope: shipmentId ? '提单' : '入库单',
+  })
+})
+
+/**
  * 条码号（码单）规则：<提单号>-<3 位流水>，例如 WH-001。
  * 没挂提单的散货就退化成 <入库单号>-<3 位>，保证唯一。
  * 二维码后一版再加，这里先把号生成好。
@@ -178,7 +201,20 @@ const insertBale = db.prepare(
       @thickness, @width, @length, @pieces, @cubic, 'in_stock')`,
 )
 
-const findBaleByNo = db.prepare(`SELECT * FROM bales WHERE bale_no = ?`)
+/** 包号查重：同一范围（提单 / 散货按入库单）里找同名包 */
+const findBaleInScope = db.prepare(
+  `SELECT * FROM bales WHERE scope_key = ? AND bale_no = ?`,
+)
+export const findBaleByScopeNo = (scopeKey, baleNo) =>
+  findBaleInScope.get(scopeKey, baleNo)
+
+/** 这一包在哪个范围里（提单优先，散货按入库单） */
+export const baleScopeKey = (shipmentId, inboundOrderId) =>
+  shipmentId
+    ? `bl:${shipmentId}`
+    : inboundOrderId
+      ? `order:${inboundOrderId}`
+      : ''
 const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ?`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items (bale_id, species, grade, thickness, width, length, pieces, cubic)
@@ -211,6 +247,8 @@ export function createBalesForItem({
   inboundOrderId,
   inboundOrderNo,
   baleLabels,
+  /** 这一行是「同包再加一行」：允许往已有的包里追加规格 */
+  samePackage,
 }) {
   const labels =
     Array.isArray(baleLabels) && baleLabels.length > 0
@@ -241,22 +279,36 @@ export function createBalesForItem({
   for (let i = 0; i < bundles; i += 1) {
     const label = labels ? labels[i] : ''
 
-    // 手填了包号：先看看是不是「同一包再录一个规格」
-    let bale = label ? findBaleByNo.get(label) : null
+    // 手填了包号：查重（同一提单 / 同一散货单里包号必须唯一）
+    const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
+    let bale = label ? findBaleInScope.get(scopeKey, label) : null
     if (bale) {
-      if (bale.shipment_id !== (shipmentId ?? null)) {
-        const error = new Error(`包号 ${label} 已经出现在别的提单里，请检查包号`)
+      // 只有「同包再加一行」这种明确标记过的行，才允许往已有的包里加规格
+      if (samePackage !== true) {
+        const error = new Error(
+          shipmentId
+            ? `包号 ${label} 在这张提单里已存在，请换一个包号`
+            : `包号 ${label} 在这张入库单里已存在，请换一个包号`,
+        )
         error.status = 400
         throw error
       }
     } else {
+      if (samePackage === true) {
+        const error = new Error(
+          `「同包再加一行」的那一行没找到对应的包号 ${label || '（空）'}，请把它放在同一包号那一行的下面`,
+        )
+        error.status = 400
+        throw error
+      }
       const barcode = takeBarcode()
       const { lastInsertRowid } = db
         .prepare(
           `INSERT INTO bales
-             (bale_no, barcode, box_no, shipment_id, inbound_order_id, species, grade,
+             (bale_no, barcode, box_no, shipment_id, inbound_order_id, scope_key,
+              species, grade,
               thickness, width, length, pieces, cubic, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
         )
         .run(
           label || barcode,
@@ -264,6 +316,7 @@ export function createBalesForItem({
           item.box_no ?? null,
           shipmentId ?? null,
           inboundOrderId,
+          scopeKey,
           item.species,
           item.grade,
           item.thickness,
@@ -353,7 +406,13 @@ function findOrderItem(orderId, item, pieces) {
  * 减到 0 就把这一行删掉。
  */
 function removeOneBundleFromOrder(orderId, item) {
-  const row = findOrderItem(orderId, item)
+  /**
+   * 先按「规格 + 片数」精确匹配，匹配不到再退化成只按规格。
+   * 只按规格会在「同一单里同规格但片数不同」时扣错行（加回来是按规格+片数加的，
+   * 扣的时候不认片数就会把 200 片那行扣掉、100 片那行留着），两边就对不上了。
+   */
+  const row =
+    findOrderItem(orderId, item, item.pieces) ?? findOrderItem(orderId, item)
   if (!row) return false
 
   const bundles = Number(row.bundles ?? 0) - 1
@@ -601,11 +660,14 @@ const updateBale = db.transaction((id, baleNo, boxNo, items) => {
     throw error
   }
 
-  const duplicate = db
-    .prepare(`SELECT id FROM bales WHERE bale_no = ? AND id <> ?`)
-    .get(baleNo, id)
-  if (duplicate) {
-    const error = new Error(`包号 ${baleNo} 已经被其他包用了`)
+  // 查重按同一个范围（这张提单 / 这张散货单）比
+  const duplicate = findBaleInScope.get(bale.scope_key ?? '', baleNo)
+  if (duplicate && duplicate.id !== id) {
+    const error = new Error(
+      bale.shipment_id
+        ? `包号 ${baleNo} 在这张提单里已存在，请换一个包号`
+        : `包号 ${baleNo} 在这张入库单里已存在，请换一个包号`,
+    )
     error.status = 400
     throw error
   }

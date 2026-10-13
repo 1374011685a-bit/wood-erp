@@ -3373,6 +3373,33 @@ section > .toolbar .btn-primary {
   text-align: center;
 }
 
+/* 「同包」那一行：包号是继承来的，加个标记 */
+.same-bale-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.same-bale-cell .sheet-input {
+  color: var(--text-2);
+}
+
+.same-bale-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background-color: #fff3e0;
+  color: #b26a00;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* 操作列里「同包」按钮按下的样子 */
+.sheet-icon.is-on {
+  background-color: #fff3e0;
+  color: #b26a00;
+}
+
 .sheet-input {
   width: 100%;
   height: 32px;

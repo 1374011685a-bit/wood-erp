@@ -19,6 +19,8 @@ export type InboundItemPayload = {
   bale_labels?: string[]
   /** 箱号：这包货装在哪个箱/柜里 */
   box_no?: string
+  /** 「同包再加一行」：这一行是往同一个包里再加一个规格 */
+  same_package?: boolean
 }
 
 export type CreateInboundPayload = {
@@ -766,6 +768,23 @@ export function fetchBales(query: BaleQuery = {}) {
   if (query.offset) search.set('offset', String(query.offset))
   const qs = search.toString()
   return request<Paged<BaleRow>>(`/api/bales${qs ? `?${qs}` : ''}`)
+}
+
+/** 包号查重：范围是「这张提单内」或「这张散货入库单内」 */
+export function checkBaleNo(query: {
+  bale_no: string
+  shipment_id?: number
+  inbound_order_id?: number
+}) {
+  const search = new URLSearchParams()
+  search.set('bale_no', query.bale_no)
+  if (query.shipment_id) search.set('shipment_id', String(query.shipment_id))
+  if (query.inbound_order_id) {
+    search.set('inbound_order_id', String(query.inbound_order_id))
+  }
+  return request<{ exists: boolean; barcode: string; scope: string }>(
+    `/api/bales/check?${search.toString()}`,
+  )
 }
 
 export type ContractRow = {

@@ -807,6 +807,122 @@ function migrateBoxNo() {
 }
 
 /**
+ * 包号的唯一范围改一下：
+ *
+ * - 以前建表时写的是 UNIQUE(bale_no) —— 全局唯一，两票货不能有同名包号；
+ * - 现在改成「提单内唯一」；没提单的散货按「入库单内唯一」，不同票可以重号。
+ *
+ * SQLite 删不掉已有的 UNIQUE 约束，只能重建表：建新表 → 搬数据 → 删旧表 → 改名。
+ * 顺手做一个兜底：万一有重复，保留最新那条，旧的删掉并打印出来。
+ */
+function migrateBaleScope() {
+  const tableSql =
+    db.prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='bales'`).get()
+      ?.sql ?? ''
+  const needRebuild =
+    !hasColumn('bales', 'scope_key') ||
+    /bale_no\s+TEXT\s+NOT NULL\s+UNIQUE/i.test(tableSql)
+
+  // 已经改好的库只需要保证索引在
+  if (!needRebuild) {
+    db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_bales_scope_no ON bales (scope_key, bale_no)`,
+    )
+    return
+  }
+
+  const rows = db.prepare(`SELECT * FROM bales`).all()
+  const scopeOf = (row) =>
+    row.shipment_id
+      ? `bl:${row.shipment_id}`
+      : row.inbound_order_id
+        ? `order:${row.inbound_order_id}`
+        : `bale:${row.id}`
+
+  db.exec(`
+    CREATE TABLE bales_new (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      bale_no           TEXT    NOT NULL,
+      container_id      INTEGER,
+      inbound_order_id  INTEGER,
+      outbound_order_id INTEGER,
+      species           TEXT,
+      grade             TEXT,
+      thickness         REAL,
+      width             REAL,
+      length            REAL,
+      pieces            INTEGER,
+      cubic             REAL,
+      status            TEXT    NOT NULL DEFAULT 'in_stock',
+      created_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+      shipped_at        TEXT,
+      barcode           TEXT,
+      shipment_id       INTEGER,
+      box_no            TEXT,
+      scope_key         TEXT
+    );
+  `)
+
+  const insert = db.prepare(
+    `INSERT INTO bales_new
+       (id, bale_no, container_id, inbound_order_id, outbound_order_id, species, grade,
+        thickness, width, length, pieces, cubic, status, created_at, shipped_at,
+        barcode, shipment_id, box_no, scope_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+
+  // 同一个范围内重名的：保留 id 最大的（最新的），其余删掉并报出来
+  const seen = new Map()
+  const dropped = []
+  const kept = [...rows].sort((a, b) => a.id - b.id)
+  for (const row of kept) {
+    const key = `${scopeOf(row)}|${row.bale_no}`
+    if (seen.has(key)) {
+      dropped.push(`${row.bale_no}(id=${row.id})`)
+      continue
+    }
+    seen.set(key, row.id)
+    insert.run(
+      row.id, row.bale_no, row.container_id ?? null, row.inbound_order_id ?? null,
+      row.outbound_order_id ?? null, row.species ?? null, row.grade ?? null,
+      row.thickness ?? null, row.width ?? null, row.length ?? null, row.pieces ?? null,
+      row.cubic ?? null, row.status, row.created_at, row.shipped_at ?? null,
+      row.barcode ?? row.bale_no, row.shipment_id ?? null, row.box_no ?? null,
+      scopeOf(row),
+    )
+  }
+
+  db.exec(`DROP TABLE bales`)
+  db.exec(`ALTER TABLE bales_new RENAME TO bales`)
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_bales_container ON bales (container_id);
+    CREATE INDEX IF NOT EXISTS idx_bales_status    ON bales (status, id);
+    CREATE INDEX IF NOT EXISTS idx_bales_inbound   ON bales (inbound_order_id);
+    CREATE INDEX IF NOT EXISTS idx_bales_outbound  ON bales (outbound_order_id);
+    CREATE INDEX IF NOT EXISTS idx_bales_barcode   ON bales (barcode);
+    CREATE INDEX IF NOT EXISTS idx_bales_shipment  ON bales (shipment_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_bales_scope_no ON bales (scope_key, bale_no);
+  `)
+
+  writeLog(
+    `[db] 迁移：包号唯一范围改为「提单内 / 散货按入库单」，重建 bales 表（搬了 ${rows.length} 行）`,
+  )
+  // 顺手清掉孤儿规格行（包被删了但规格行还在，白占地方）
+  const orphans = db
+    .prepare(
+      `DELETE FROM bale_items
+        WHERE bale_id NOT IN (SELECT id FROM bales)`,
+    )
+    .run()
+  if (orphans.changes > 0) {
+    writeLog(`[db] 清理：删掉 ${orphans.changes} 行已经没有包的孤儿规格行`)
+  }
+  if (dropped.length > 0) {
+    writeLog(`[db] 警告：同范围内包号重复，已保留最新一条、删除旧的：${dropped.join('、')}`)
+  }
+}
+
+/**
  * 数据修复：入库单上填了提单号、但包还没挂到那张提单上的，
  * 按单号补挂一次，「采购入库明细」里才对得上。
  */
@@ -1090,6 +1206,8 @@ export function initDB() {
   migrateDropContainerLayer()
   migrateBoxNo()
   relinkBalesToShipment()
+  // 注意顺序：补挂提单会改 shipment_id，范围键必须在它之后再算
+  migrateBaleScope()
   seedDefaultAdmin()
   seedDict()
   warnIfSuspiciouslyEmpty()

@@ -82,6 +82,8 @@ function normalizeItems(items) {
         : [],
       // 箱号：这一行货装在哪个箱/柜里
       box_no: String(item.box_no ?? '').trim(),
+      // 「同包再加一行」：明确标记过的行，才允许往已有的包里追加规格
+      same_package: item.same_package === true,
     }
   })
 }
@@ -154,6 +156,7 @@ const createInbound = db.transaction(
         inboundOrderId: orderId,
         inboundOrderNo: orderNo,
         baleLabels: item.bale_labels,
+        samePackage: item.same_package,
       }),
     )
   }
