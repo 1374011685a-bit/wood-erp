@@ -2056,6 +2056,15 @@ section > .toolbar .btn-primary {
 /* ---------- 文本辅助 ---------- */
 
 /* 表格里的文字型操作（比如点合同号打开 PDF） */
+/* 多行文本输入（提单里一次填多个柜号） */
+.textarea {
+  height: auto;
+  min-height: 96px;
+  padding: 10px 14px;
+  line-height: 1.6;
+  resize: vertical;
+}
+
 .box-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

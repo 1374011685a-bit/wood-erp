@@ -76,6 +76,10 @@ function normalizeItems(items) {
       amount: fromCents(amountCents),
       unit_price_cents: unitPriceCents,
       amount_cents: amountCents,
+      // 包号（可空）：填了就按这些包号生成码单，没填按包数自动编号
+      bale_labels: Array.isArray(item.bale_labels)
+        ? item.bale_labels.map((label) => String(label).trim()).filter(Boolean)
+        : [],
     }
   })
 }
@@ -138,6 +142,7 @@ const createInbound = db.transaction(
         containerNo,
         inboundOrderId: orderId,
         inboundOrderNo: orderNo,
+        baleLabels: item.bale_labels,
       }),
     )
   }

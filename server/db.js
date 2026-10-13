@@ -534,10 +534,25 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_contracts_no ON contracts (contract_no);
   CREATE INDEX IF NOT EXISTS idx_contracts_partner ON contracts (partner);
 
-  -- 柜（一个海运柜 = 一批到货；合同号、提单号挂在柜上，不挂在每一包上）
+  -- 提单：一个合同可能分几票发运，一票提单覆盖多个柜
+  CREATE TABLE IF NOT EXISTS shipments (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    bl_no         TEXT    NOT NULL UNIQUE,
+    contract_no   TEXT,
+    supplier      TEXT,
+    arrival_date  TEXT,
+    remark        TEXT,
+    deleted_at    TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_shipments_contract ON shipments (contract_no);
+
+  -- 柜（挂在提单下面；contract_no / bl_no 是从提单带下来的一份副本，方便查询）
   CREATE TABLE IF NOT EXISTS containers (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     container_no TEXT    NOT NULL UNIQUE,
+    shipment_id  INTEGER,
     contract_no  TEXT,
     bl_no        TEXT,
     supplier     TEXT,
@@ -567,6 +582,21 @@ const schema = `
     created_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
     shipped_at        TEXT
   );
+
+  -- 包里的规格行：一包可能混装多个规格，所以规格放在子表
+  CREATE TABLE IF NOT EXISTS bale_items (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    bale_id     INTEGER NOT NULL,
+    species     TEXT,
+    grade       TEXT,
+    thickness   REAL,
+    width       REAL,
+    length      REAL,
+    pieces      INTEGER,
+    cubic       REAL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_bale_items_bale ON bale_items (bale_id);
 
   CREATE INDEX IF NOT EXISTS idx_bales_container ON bales (container_id);
   CREATE INDEX IF NOT EXISTS idx_bales_status    ON bales (status, id);
@@ -669,6 +699,7 @@ function migrateOrderFields() {
     ['inbound_orders', 'bl_no', 'TEXT'],
     ['inbound_orders', 'contract_no', 'TEXT'],
     ['inbound_orders', 'container_id', 'INTEGER'],
+    ['containers', 'shipment_id', 'INTEGER'],
     ['outbound_orders', 'warehouse', 'TEXT'],
     ['outbound_orders', 'operator', 'TEXT'],
   ]
@@ -681,6 +712,11 @@ function migrateOrderFields() {
       '[db] 迁移：单据头新增 仓库 / 操作员 / 提单号(bl_no) / 合同号(contract_no)',
     )
   }
+
+  // 索引要等列加完再建（老库升级时 shipment_id 是后来加的）
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_containers_shipment ON containers (shipment_id)`,
+  )
 }
 
 // 首次初始化时建一个默认管理员（表非空则跳过）

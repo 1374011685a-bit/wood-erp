@@ -15,6 +15,8 @@ export type InboundItemPayload = {
   pieces: number
   bundles: number
   unit_price: number
+  /** 包号列表（一个包号一个码单）；留空则按柜内顺序自动编号 */
+  bale_labels?: string[]
 }
 
 export type CreateInboundPayload = {
@@ -552,6 +554,76 @@ export function statementExportUrl(query: StatementQuery) {
 
 /* ---------- 回收站 ---------- */
 
+export type ShipmentRow = {
+  id: number
+  bl_no: string
+  contract_no: string
+  supplier: string
+  arrival_date: string
+  remark: string
+  container_count: number
+  bale_total: number
+  bale_in_stock: number
+  bale_cubic: number
+  created_at: string
+}
+
+export type ShipmentContainer = {
+  id: number
+  container_no: string
+  arrive_date: string | null
+  bale_total: number
+  bale_in_stock: number
+}
+
+// 提单列表（一张提单覆盖多个柜）
+export function fetchShipments(
+  query: { keyword?: string; supplier?: string; limit?: number; offset?: number } = {},
+) {
+  const search = new URLSearchParams()
+  if (query.keyword) search.set('keyword', query.keyword)
+  if (query.supplier) search.set('supplier', query.supplier)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  const qs = search.toString()
+  return request<Paged<ShipmentRow>>(`/api/shipments${qs ? `?${qs}` : ''}`)
+}
+
+export function fetchShipmentContainers(id: number) {
+  return request<ShipmentContainer[]>(`/api/shipments/${id}/containers`)
+}
+
+// 新建提单：可以一次把这一票的柜号都填上（多行/逗号/空格分隔）
+export function createShipment(payload: {
+  bl_no: string
+  contract_no?: string
+  supplier?: string
+  arrival_date?: string
+  remark?: string
+  container_nos: string
+}) {
+  return request<{ id: number; bl_no: string; containers: string[] }>('/api/shipments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function addShipmentContainers(id: number, containerNos: string) {
+  return request<{ ok: boolean; containers: string[] }>(
+    `/api/shipments/${id}/containers`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ container_nos: containerNos }),
+    },
+  )
+}
+
+export function deleteShipment(id: number) {
+  return request<{ ok: boolean }>(`/api/shipments/${id}`, { method: 'DELETE' })
+}
+
 export type ContainerRow = {
   id: number
   container_no: string
@@ -581,6 +653,8 @@ export type BaleRow = {
   bale_no: string
   container_id: number | null
   container_no: string
+  shipment_id: number | null
+  bl_no: string
   contract_no: string
   inbound_order_id: number | null
   outbound_order_id: number | null
@@ -601,6 +675,7 @@ export type BaleQuery = {
   keyword?: string
   status?: '' | 'in_stock' | 'shipped'
   container_id?: number
+  shipment_id?: number
   species?: string
   limit?: number
   offset?: number
@@ -668,6 +743,7 @@ export function fetchBales(query: BaleQuery = {}) {
   if (query.keyword) search.set('keyword', query.keyword)
   if (query.status) search.set('status', query.status)
   if (query.container_id) search.set('container_id', String(query.container_id))
+  if (query.shipment_id) search.set('shipment_id', String(query.shipment_id))
   if (query.species) search.set('species', query.species)
   if (query.limit) search.set('limit', String(query.limit))
   if (query.offset) search.set('offset', String(query.offset))

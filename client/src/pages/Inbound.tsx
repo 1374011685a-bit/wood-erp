@@ -74,6 +74,8 @@ const todayISO = () => {
 
 type FormRow = {
   key: number
+  /** 包号：可填 7 / 7-9 / 7,9,11，留空则自动编号 */
+  baleLabel: string
   species: string
   grade: string
   thickness: string
@@ -88,6 +90,7 @@ let rowSeq = 0
 
 const createRow = (): FormRow => ({
   key: (rowSeq += 1),
+  baleLabel: '',
   species: '',
   grade: '',
   thickness: '',
@@ -99,6 +102,7 @@ const createRow = (): FormRow => ({
 })
 
 const isRowEmpty = (row: FormRow) =>
+  !row.baleLabel.trim() &&
   !row.species.trim() &&
   !row.grade.trim() &&
   !row.thickness.trim() &&
@@ -161,6 +165,32 @@ function validateRows(rows: FormRow[]): Record<number, string[]> {
 
 const emptyFilters: InboundListFilters = {}
 
+/**
+ * 解析包号输入：
+ * - 单个：`7`
+ * - 连续范围：`7-9` → 7、8、9
+ * - 多个：`7,9,11`
+ * 留空则由系统按柜内顺序自动编号。
+ */
+function parseBaleLabels(text: string): string[] {
+  const value = text.trim()
+  if (!value) return []
+
+  const result: string[] = []
+  for (const part of value.split(/[,，、;；\s]+/).filter(Boolean)) {
+    const range = part.match(/^(\d+)-(\d+)$/)
+    if (range) {
+      const [from, to] = [Number(range[1]), Number(range[2])]
+      if (to >= from && to - from <= 500) {
+        for (let i = from; i <= to; i += 1) result.push(String(i))
+        continue
+      }
+    }
+    result.push(part)
+  }
+  return result
+}
+
 const emptyInput = {
   order_no: '',
   supplier: '',
@@ -176,6 +206,7 @@ const PAGE_SIZE = 20
 
 
 const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
+  { field: 'baleLabel', label: '包号（7-9 可写范围）' },
   { field: 'species', label: '品名' },
   { field: 'grade', label: '等级' },
   { field: 'thickness', label: '厚度mm' },
@@ -504,6 +535,8 @@ export default function Inbound() {
       setRows(
         data.items.map((line) => ({
           key: (rowSeq += 1),
+          // 编辑老单据时包号留空，改完保存会按老单据原有码单处理
+          baleLabel: '',
           species: line.species ?? '',
           grade: line.grade ?? '',
           thickness: String(line.thickness ?? ''),
@@ -598,6 +631,8 @@ export default function Inbound() {
       pieces: toNumber(row.pieces),
       bundles: toNumber(row.bundles),
       unit_price: toNumber(row.unitPrice),
+      // 包号：填了范围就按范围生成码单，留空让后端自动编号
+      bale_labels: parseBaleLabels(row.baleLabel),
     }))
 
     setSaving(true)
@@ -1047,14 +1082,14 @@ export default function Inbound() {
                     </tr>
                     {hint && (
                       <tr>
-                        <td colSpan={11} className="row-hint">
+                        <td colSpan={12} className="row-hint">
                           该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
                         </td>
                       </tr>
                     )}
                     {reasons.length > 0 && (
                       <tr>
-                        <td colSpan={11} className="row-error">
+                        <td colSpan={12} className="row-error">
                           {reasons.join('；')}
                         </td>
                       </tr>
