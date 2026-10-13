@@ -64,6 +64,8 @@ type FormRow = {
   key: number
   /** 柜号：这包货装在哪个柜/柜里 */
   boxNo: string
+  /** 品牌（选填）：只记不参与匹配 */
+  brand: string
   /** 包号（=码单号）：留空由系统自动编号；混装包时手动填同一个号 */
   baleLabel: string
   /** 「同包再加一行」：这一行是往上一行那个包里再加一个规格 */
@@ -84,6 +86,7 @@ const createRow = (): FormRow => ({
   key: (rowSeq += 1),
   baleLabel: '',
   boxNo: '',
+  brand: '',
   species: '',
   grade: '',
   thickness: '',
@@ -104,6 +107,7 @@ const padRows = (list: FormRow[]) => {
 const isRowEmpty = (row: FormRow) =>
   !row.baleLabel.trim() &&
   !row.boxNo.trim() &&
+  !row.brand.trim() &&
   !row.species.trim() &&
   !row.grade.trim() &&
   !row.thickness.trim() &&
@@ -231,6 +235,7 @@ const MIN_SHEET_ROWS = 10
 type RowField =
   | 'baleLabel'
   | 'boxNo'
+  | 'brand'
   | 'species'
   | 'grade'
   | 'thickness'
@@ -242,6 +247,7 @@ type RowField =
 const rowFields: { field: RowField; label: string }[] = [
   { field: 'baleLabel', label: '包号' },
   { field: 'boxNo', label: '柜号' },
+  { field: 'brand', label: '品牌' },
   { field: 'species', label: '品名 *' },
   { field: 'grade', label: '等级' },
   { field: 'thickness', label: '厚度 (mm)' },
@@ -250,6 +256,16 @@ const rowFields: { field: RowField; label: string }[] = [
   { field: 'pieces', label: '片数 (片)' },
   { field: 'bundles', label: '件数 (件)' },
 ]
+
+/** 明细表固定列：序号 / 勾选 / 操作 */
+const SHEET_LEAD_COLS = 3
+/** 明细表固定列：数量(m³) / 单位 / 单价(元)* / 金额(元) / 条码号 */
+const SHEET_TAIL_COLS = 5
+/**
+ * 明细表总列数 = 固定列 + 可输入列（rowFields）。
+ * 合计行不再写死 colspan，一律从总列数倒推——以后往 rowFields 里加列也不会再错位。
+ */
+const SHEET_COL_COUNT = SHEET_LEAD_COLS + rowFields.length + SHEET_TAIL_COLS
 
 export default function Inbound({
   defaultMode = 'list',
@@ -391,16 +407,16 @@ export default function Inbound({
     }
   }, [mode, editing])
 
-  // 选了提单：合同号、提单号从提单上带出来，不用在这张单上重复填
-  const handlePickShipment = (id: number) => {
-    setShipmentId(id)
-    const box = shipmentOptions.find((item) => item.id === id)
-    if (!box) return
-    setForm((prev) => ({
-      ...prev,
-      contractNo: box.contract_no ?? '',
-      blNo: box.bl_no ?? '',
-    }))
+  /**
+   * 提单号只手输，但失焦时解析一次：填的号如果已经是系统里的某张提单，
+   * 就把 shipmentId 挂上——用于「同提单包号查重」和「条码号按这票顺序编号」。
+   * 匹配规则跟后端一致：去空格 + 不区分大小写。
+   */
+  const matchShipmentId = (blNo: string) => {
+    const key = blNo.trim().toLowerCase()
+    if (!key) return 0
+    const hit = shipmentOptions.find((item) => item.bl_no.trim().toLowerCase() === key)
+    return hit ? hit.id : 0
   }
 
   /* ---------- 关联采购合同：弹一个大页面按合同明细挑 ---------- */
@@ -560,6 +576,21 @@ export default function Inbound({
     [computedRows],
   )
 
+  /**
+   * 合计行末尾这几格，顺序和表头最后 7 列一一对应：
+   * 片数 / 件数 / 数量(m³) / 单位 / 单价 / 金额 / 条码号。
+   * 「合计」那个标签跨多少列，按总列数减去这里的格数倒推。
+   */
+  const totalTailCells = [
+    { key: 'pieces', className: 'num', value: totals.pieces || '' },
+    { key: 'bundles', className: 'num', value: totals.bundles || '' },
+    { key: 'cubic', className: 'num', value: formatCubic(totals.cubic) },
+    { key: 'unit', className: undefined, value: 'm³' },
+    { key: 'price', className: undefined, value: '' },
+    { key: 'amount', className: 'num', value: formatAmount(totals.amount) },
+    { key: 'barcode', className: undefined, value: '' },
+  ]
+
   // 当前选中的提单（条码号按这票提单的顺序排）
   const activeShipment = useMemo(
     () => shipmentOptions.find((item) => item.id === shipmentId) ?? null,
@@ -616,6 +647,26 @@ export default function Inbound({
     }
     return boxes.size
   }, [computedRows])
+
+  /** 填了内容的行数：只剩 1 行时不让删，否则整张单会变空 */
+  const filledRowCount = useMemo(
+    () => computedRows.filter((row) => !isRowEmpty(row)).length,
+    [computedRows],
+  )
+
+  /**
+   * 勾选的行里有多少行是「有内容」的。
+   * 如果勾选把有内容的行全占了，批量删除后这张单就一行明细都不剩 ——
+   * 按「至少要保留一行明细」处理：按钮置灰，和改包/出库的删最后一行规则一致。
+   */
+  const pickedFilledCount = useMemo(
+    () =>
+      computedRows.filter((row) => !isRowEmpty(row) && pickedRows.includes(row.key))
+        .length,
+    [computedRows, pickedRows],
+  )
+  const deleteWouldEmptySheet =
+    pickedFilledCount > 0 && pickedFilledCount >= filledRowCount
 
   /**
    * 包号失焦就查一次重：范围是「这张提单内」（散货新单没有单据号，无可查）。
@@ -704,6 +755,7 @@ export default function Inbound({
       next.splice(index + 1, 0, {
         ...createRow(),
         boxNo: prev[index].boxNo,
+        brand: prev[index].brand,
         baleLabel: label,
         samePackage: true,
       })
@@ -713,7 +765,13 @@ export default function Inbound({
   }
 
   const removeRow = (key: number) => {
-    setRows((prev) => padRows(prev.filter((row) => row.key !== key)))
+    setRows((prev) => {
+      const target = prev.find((row) => row.key === key)
+      // 只剩这一行有内容时不删：删完整张单就空了（按钮那边会置灰并给出提示）
+      const filled = prev.filter((row) => !isRowEmpty(row)).length
+      if (target && !isRowEmpty(target) && filled <= 1) return prev
+      return padRows(prev.filter((row) => row.key !== key))
+    })
     setPickedRows((prev) => prev.filter((item) => item !== key))
     if (formError) setFormError('')
   }
@@ -721,6 +779,8 @@ export default function Inbound({
   /** 删掉勾选的行 */
   const removePickedRows = () => {
     if (pickedRows.length === 0) return
+    // 删完一行明细都不剩：不删、不动（按钮那边也会置灰并给出提示）
+    if (deleteWouldEmptySheet) return
     setRows((prev) => padRows(prev.filter((row) => !pickedRows.includes(row.key))))
     setPickedRows([])
     if (formError) setFormError('')
@@ -805,6 +865,7 @@ export default function Inbound({
             ? line.bale_no
             : (line.bale_labels ?? []).join('、'),
           boxNo: line.box_no ?? '',
+          brand: line.brand ?? '',
           species: line.species ?? '',
           grade: line.grade ?? '',
           thickness: String(line.thickness ?? ''),
@@ -893,6 +954,7 @@ export default function Inbound({
     }
 
     const items: InboundItemPayload[] = filledRows.map((row) => ({
+      brand: row.brand.trim(),
       species: row.species.trim(),
       grade: row.grade.trim(),
       thickness: toNumber(row.thickness),
@@ -1359,13 +1421,24 @@ export default function Inbound({
           </div>
 
           <div className="sheet-toolbar">
-            <button
-              className="btn btn-sm btn-danger"
-              onClick={removePickedRows}
-              disabled={pickedRows.length === 0}
+            {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
+            <span
+              title={
+                deleteWouldEmptySheet
+                  ? '至少要保留一行明细'
+                  : pickedRows.length === 0
+                    ? '先勾选要删除的明细行'
+                    : '删除勾选的明细行'
+              }
             >
-              删除选中（{pickedRows.length}）
-            </button>
+              <button
+                className="btn btn-sm btn-danger"
+                onClick={removePickedRows}
+                disabled={pickedRows.length === 0 || deleteWouldEmptySheet}
+              >
+                删除选中（{pickedRows.length}）
+              </button>
+            </span>
             <button className="btn btn-sm" onClick={addRow}>
               + 加一行
             </button>
@@ -1459,14 +1532,23 @@ export default function Inbound({
                           >
                             同
                           </button>
-                          <button
-                            type="button"
-                            className="sheet-icon sheet-icon-danger"
-                            title="删掉这一行"
-                            onClick={() => removeRow(row.key)}
+                          {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
+                          <span
+                            title={
+                              !filler && filledRowCount <= 1
+                                ? '至少要保留一行'
+                                : '删掉这一行'
+                            }
                           >
-                            ✕
-                          </button>
+                            <button
+                              type="button"
+                              className="sheet-icon sheet-icon-danger"
+                              disabled={!filler && filledRowCount <= 1}
+                              onClick={() => removeRow(row.key)}
+                            >
+                              ✕
+                            </button>
+                          </span>
                         </td>
                         {rowFields.map(({ field }) => (
                           <td key={field}>
@@ -1523,14 +1605,14 @@ export default function Inbound({
                       </tr>
                       {reasons.length > 0 && (
                         <tr className="is-error">
-                          <td colSpan={16} className="row-error">
+                          <td colSpan={SHEET_COL_COUNT} className="row-error">
                             {reasons.join('；')}
                           </td>
                         </tr>
                       )}
                       {hint && reasons.length === 0 && (
                         <tr>
-                          <td colSpan={16} className="row-hint">
+                          <td colSpan={SHEET_COL_COUNT} className="row-hint">
                             该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
                           </td>
                         </tr>
@@ -1541,16 +1623,17 @@ export default function Inbound({
               </tbody>
               <tfoot>
                 <tr>
-                  <td colSpan={9} className="sheet-total-label">
+                  <td
+                    colSpan={SHEET_COL_COUNT - totalTailCells.length}
+                    className="sheet-total-label"
+                  >
                     合计
                   </td>
-                  <td className="num">{totals.pieces || ''}</td>
-                  <td className="num">{totals.bundles || ''}</td>
-                  <td className="num">{formatCubic(totals.cubic)}</td>
-                  <td>m³</td>
-                  <td />
-                  <td className="num">{formatAmount(totals.amount)}</td>
-                  <td />
+                  {totalTailCells.map((cell) => (
+                    <td key={cell.key} className={cell.className}>
+                      {cell.value}
+                    </td>
+                  ))}
                 </tr>
               </tfoot>
             </table>
@@ -1566,52 +1649,38 @@ export default function Inbound({
           {/* 表下方：提单 / 合同 / 仓库 / 操作员 / 车号 */}
           <div className="sheet-bottom">
             <label className="sheet-field">
-              <span>提单（这批到货）</span>
-              <select
-                className="input"
-                value={shipmentId}
-                onChange={(event) => handlePickShipment(Number(event.target.value))}
-              >
-                <option value={0}>不选提单（零散到货）</option>
-                {shipmentOptions.map((box) => (
-                  <option key={box.id} value={box.id}>
-                    {box.bl_no}
-                    {box.contract_no ? ` · 合同 ${box.contract_no}` : ''}{box.bale_count > 0 ? ` · ${box.bale_count} 包/${box.box_count} 个柜` : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="sheet-field">
-              <span>提单号{shipmentId ? '（来自提单）' : ''}</span>
+              <span>提单号</span>
               <input
                 className="input"
                 placeholder="例如：BL-2026-0001"
+                list="shipment-options"
                 value={form.blNo}
-                readOnly={Boolean(shipmentId)}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, blNo: event.target.value }))
-                }
+                onChange={(event) => {
+                  const value = event.target.value
+                  setForm((prev) => ({ ...prev, blNo: value }))
+                  // 手输时不打断输入；失焦（下面 onBlur）再解析是不是已有提单
+                  if (shipmentId) setShipmentId(0)
+                }}
+                onBlur={() => setShipmentId(matchShipmentId(form.blNo))}
               />
+              <datalist id="shipment-options">
+                {shipmentOptions.map((box) => (
+                  <option key={box.id} value={box.bl_no} />
+                ))}
+              </datalist>
+              <small className="muted">填过的提单号下次会自动带出；填了就归到那张提单下</small>
             </label>
             <label className="sheet-field">
               <span>
                 合同号
-                {shipmentId
-                  ? '（来自提单）'
-                  : method === 'contract' && pickedContract
-                    ? '（来自所选采购合同）'
-                    : ''}
+                {method === 'contract' && pickedContract ? '（来自所选采购合同）' : ''}
               </span>
               <input
                 className="input"
-                list={
-                  shipmentId || (method === 'contract' && pickedContract)
-                    ? undefined
-                    : 'contract-options'
-                }
+                list={method === 'contract' && pickedContract ? undefined : 'contract-options'}
                 placeholder="可从已有合同里选，也可手填"
                 value={form.contractNo}
-                readOnly={Boolean(shipmentId) || (method === 'contract' && !!pickedContract)}
+                readOnly={method === 'contract' && !!pickedContract}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, contractNo: event.target.value }))
                 }
@@ -1733,6 +1802,56 @@ export default function Inbound({
                   <span>创建时间：{detail.created_at}</span>
                 </div>
 
+                <h3 className="section-title" style={{ marginTop: 4 }}>
+                  入库明细（{detail.items.length} 行 · 合计{' '}
+                  {formatCubic(detail.total_cubic)} m³ / {formatAmount(detail.total_amount)} 元）
+                </h3>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>品牌</th>
+                      <th>品名</th>
+                      <th>等级</th>
+                      <th className="num">厚×宽×长</th>
+                      <th className="num">片数</th>
+                      <th className="num">件数</th>
+                      <th className="num">立方 (m³)</th>
+                      <th className="num">单价 (元)</th>
+                      <th className="num">金额 (元)</th>
+                      <th>包号</th>
+                      <th>柜号</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detail.items.map((item) => (
+                      <tr key={item.id}>
+                        <td>{item.brand || '—'}</td>
+                        <td>{item.species}</td>
+                        <td>{item.grade || '—'}</td>
+                        <td className="num">
+                          {item.thickness}×{item.width}×{item.length}
+                        </td>
+                        <td className="num">{item.pieces}</td>
+                        <td className="num">{item.bundles}</td>
+                        <td className="num">{formatCubic(item.cubic)}</td>
+                        <td className="num">{formatAmount(item.unit_price ?? 0)}</td>
+                        <td className="num strong">{formatAmount(item.amount ?? 0)}</td>
+                        <td>{item.bale_no || (item.bale_labels ?? []).join('、') || '—'}</td>
+                        <td>{item.box_no || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={6}>合计</td>
+                      <td className="num strong">{formatCubic(detail.total_cubic)}</td>
+                      <td />
+                      <td className="num strong">{formatAmount(detail.total_amount)}</td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+
                 {detail.bales && detail.bales.length > 0 ? (
                   <>
                     <h3 className="section-title" style={{ marginTop: 4 }}>
@@ -1745,6 +1864,7 @@ export default function Inbound({
                         <tr>
                           <th>包号</th>
                           <th>条码号</th>
+                          <th>柜号</th>
                           <th>品名</th>
                           <th>等级</th>
                           <th className="num">厚×宽×长</th>
@@ -1759,6 +1879,7 @@ export default function Inbound({
                           <tr key={bale.barcode || bale.bale_no}>
                             <td>{bale.bale_no || '—'}</td>
                             <td>{bale.barcode || '—'}</td>
+                            <td>{bale.box_no || '—'}</td>
                             <td>{bale.species}</td>
                             <td>{bale.grade || '—'}</td>
                             <td className="num">
@@ -1782,38 +1903,9 @@ export default function Inbound({
                     </table>
                   </>
                 ) : (
-                  <table className="table">
-                    <thead>
-                      <tr>
-                        <th>品名</th>
-                        <th>等级</th>
-                        <th className="num">厚度mm</th>
-                        <th className="num">宽度mm</th>
-                        <th className="num">长度m</th>
-                        <th className="num">片数</th>
-                        <th className="num">件数</th>
-                        <th className="num">立方</th>
-                        <th className="num">单价</th>
-                        <th className="num">金额</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.items.map((item) => (
-                        <tr key={item.id}>
-                          <td>{item.species}</td>
-                          <td>{item.grade}</td>
-                          <td className="num">{item.thickness}</td>
-                          <td className="num">{item.width}</td>
-                          <td className="num">{item.length}</td>
-                          <td className="num">{item.pieces}</td>
-                          <td className="num">{item.bundles}</td>
-                          <td className="num">{formatCubic(item.cubic)}</td>
-                          <td className="num amount">{formatAmount(item.unit_price)}</td>
-                          <td className="num amount">{formatAmount(item.amount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <p className="muted" style={{ marginTop: 10 }}>
+                    这张单下面还没有码单。
+                  </p>
                 )}
 
               </>
@@ -1830,7 +1922,7 @@ export default function Inbound({
           >
             <h2 className="modal-title">删除确认</h2>
             <p className="confirm-text">
-              确认删除入库单 {deleteTarget.order_no}？此操作不可恢复。
+              确认删除入库单 {deleteTarget.order_no}？删除后可在回收站恢复。
             </p>
             <div className="confirm-actions">
               <button
@@ -1922,13 +2014,19 @@ export default function Inbound({
                   <tr
                     key={row.id}
                     className={pickerPick?.id === row.id ? 'row-active' : undefined}
-                    onClick={() => setPickerPick(row)}
+                    onClick={() => {
+                      setPickerPick(row)
+                      if (pickerError) setPickerError('')
+                    }}
                   >
                     <td>
                       <input
                         type="checkbox"
                         checked={pickerPick?.id === row.id}
-                        onChange={() => setPickerPick(row)}
+                        onChange={() => {
+                          setPickerPick(row)
+                          if (pickerError) setPickerError('')
+                        }}
                       />
                     </td>
                     <td>{row.sign_date || '—'}</td>

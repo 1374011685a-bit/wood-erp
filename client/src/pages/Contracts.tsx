@@ -168,10 +168,6 @@ export default function Contracts() {
       setFormError('合同号不能为空')
       return
     }
-    if (!editing && !file) {
-      setFormError('请选择要上传的 PDF 合同文件')
-      return
-    }
     if (file && !file.name.toLowerCase().endsWith('.pdf')) {
       setFormError('合同必须是 PDF 格式')
       return
@@ -243,8 +239,8 @@ export default function Contracts() {
   return (
     <section>
       <PageHead
-        title="合同"
-        subtitle="上传并管理 PDF 合同；入库单填了合同号就能直接打开对应合同"
+        title="采购合同"
+        subtitle="登记合同与明细（PDF 选填）；入库单填了合同号就能直接打开对应合同"
         extra={
           <button className="btn btn-primary" onClick={openUpload}>
             上传合同
@@ -467,7 +463,9 @@ export default function Contracts() {
             </label>
 
             <label className="field" style={{ marginTop: 14 }}>
-              <span>{editing ? '更换合同文件（PDF，留空则不改）' : '合同文件（PDF）'}</span>
+              <span>
+                {editing ? '更换合同文件（PDF，留空则不改）' : '合同文件（PDF，选填）'}
+              </span>
               <input
                 className="input"
                 type="file"

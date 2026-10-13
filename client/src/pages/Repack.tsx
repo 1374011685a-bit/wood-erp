@@ -21,6 +21,8 @@ const PAGE_SIZE = 20
 /** 改包后的一行（一包里的一个规格） */
 type AfterRow = {
   key: number
+  /** 品牌（选填）：只记不参与匹配 */
+  brand: string
   species: string
   grade: string
   thickness: string
@@ -34,6 +36,7 @@ type AfterRow = {
 let rowSeq = 0
 const createRow = (): AfterRow => ({
   key: (rowSeq += 1),
+  brand: '',
   species: '',
   grade: '',
   thickness: '',
@@ -45,6 +48,7 @@ const createRow = (): AfterRow => ({
 
 const rowFromLine = (line: RepackLine): AfterRow => ({
   key: (rowSeq += 1),
+  brand: line.brand ?? '',
   species: line.species ?? '',
   grade: line.grade ?? '',
   thickness: String(line.thickness ?? ''),
@@ -67,6 +71,9 @@ const rowCubic = (row: AfterRow) =>
 
 const lineCubic = (line: RepackLine) => roundTo(line.cubic ?? 0, 4)
 
+/** 改前这一行匹配到多个成本价时，用户必须选一个（见 beforePrices） */
+const isPriceAmbiguous = (line: RepackLine) => Boolean(line.price_ambiguous)
+
 export default function Repack() {
   const [bales, setBales] = useState<RepackBale[]>([])
   const [baleId, setBaleId] = useState(0)
@@ -84,6 +91,11 @@ export default function Repack() {
   const [pickerOffset, setPickerOffset] = useState(0)
   const [pickerLoading, setPickerLoading] = useState(false)
   const [rows, setRows] = useState<AfterRow[]>(() => [createRow()])
+  /**
+   * 改前成本价：同一规格在入库明细里匹配到多个价时，必须让用户选一个
+   * （键是包里的规格行 id）。没选的行不允许保存，绝不静默取第一条。
+   */
+  const [beforePrices, setBeforePrices] = useState<Record<number, string>>({})
   const [form, setForm] = useState({
     repackDate: todayISO(),
     summary: '',
@@ -164,6 +176,25 @@ export default function Repack() {
     void loadList(query, offset)
   }, [loadList, query, offset, reloadToken])
 
+  /**
+   * 改前这一行的成本单价：
+   * - 匹配到多个价的行 → 用用户在「改包前」里选的那个（没选就按 0，并且不允许保存）；
+   * - 只有一种价 → 直接用；
+   * - 匹配不到 → 0。
+   */
+  const beforePriceOf = (line: RepackLine) => {
+    if (line.id !== undefined && isPriceAmbiguous(line)) {
+      const picked = beforePrices[line.id]
+      return picked === undefined || picked === '' ? 0 : toNumber(picked)
+    }
+    return line.unit_price ?? 0
+  }
+
+  /** 还有几行「匹配到多个成本价」但用户没选（没选就不让保存） */
+  const ambiguousCount = (bale?.items ?? []).filter(
+    (line) => line.id !== undefined && isPriceAmbiguous(line) && !beforePrices[line.id],
+  ).length
+
   /** 改前总成本 = 每一行 立方 × 那一行的入库单价 */
   const beforeCubic = useMemo(
     () =>
@@ -177,12 +208,13 @@ export default function Repack() {
     () =>
       roundTo(
         (bale?.items ?? []).reduce(
-          (sum, line) => sum + lineCubic(line) * (line.unit_price ?? 0),
+          (sum, line) => sum + lineCubic(line) * beforePriceOf(line),
           0,
         ),
         2,
       ),
-    [bale],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [bale, beforePrices],
   )
 
   const afterCubic = useMemo(
@@ -209,15 +241,24 @@ export default function Repack() {
   const pickFromPicker = async (row: BaleRow) => {
     try {
       const full = await fetchBaleDetail(row.id)
-      const asBale = {
-        id: full.id,
-        bale_no: full.bale_no,
-        barcode: full.barcode,
-        cubic: full.cubic,
-        pieces: full.pieces,
-        bl_no: row.bl_no,
-        contract_no: row.contract_no,
-        items: full.items.map((item) => ({
+      /**
+       * 成本价候选只有 /api/repacks/bales 会返回（它有「匹配到多个价」的判断），
+       * 这里按规格从已加载的列表里把候选并进来；找不到就当没有歧义。
+       */
+      const known = bales.find((item) => item.id === full.id)
+      const merged = full.items.map((item) => {
+        const same = known?.items.find(
+          (line) =>
+            line.species === item.species &&
+            (line.grade ?? '') === (item.grade ?? '') &&
+            line.thickness === item.thickness &&
+            line.width === item.width &&
+            line.length === item.length &&
+            line.pieces === item.pieces,
+        )
+        return {
+          id: item.id,
+          brand: item.brand ?? '',
           species: item.species,
           grade: item.grade,
           thickness: item.thickness,
@@ -226,11 +267,36 @@ export default function Repack() {
           pieces: item.pieces,
           cubic: item.cubic,
           unit_price: item.unit_price ?? 0,
-        })),
+          price_ambiguous: same?.price_ambiguous,
+          price_candidates: same?.price_candidates,
+        }
+      })
+      const asBale = {
+        id: full.id,
+        bale_no: full.bale_no,
+        barcode: full.barcode,
+        cubic: full.cubic,
+        pieces: full.pieces,
+        bl_no: row.bl_no,
+        contract_no: row.contract_no,
+        items: merged,
       }
-      setBales((prev) => (prev.some((b) => b.id === asBale.id) ? prev : [...prev, asBale]))
+      /**
+       * 注意：这里必须用「刚拉回来的详情」覆盖列表里那份，
+       * 不能因为列表里已经有这一包就保留旧对象——旧对象来自 /api/repacks/bales 的列表口径，
+       * 早期版本那里缺 inbound_order_id，单价会算成 0。
+       */
+      setBales((prev) => [...prev.filter((b) => b.id !== asBale.id), asBale])
       setBaleId(full.id)
-      setRows(full.items.length > 0 ? full.items.map(rowFromLine) : [createRow()])
+      setRows(merged.length > 0 ? merged.map(rowFromLine) : [createRow()])
+      // 匹配到多个成本价的行先留空，等用户选
+      setBeforePrices(
+        Object.fromEntries(
+          merged
+            .filter((item) => item.price_ambiguous)
+            .map((item) => [item.id as number, '']),
+        ),
+      )
       setForm((prev) => ({ ...prev, blNo: row.bl_no ?? '', contractNo: row.contract_no ?? '' }))
       setError('')
       setPickerOpen(false)
@@ -293,8 +359,9 @@ export default function Repack() {
     })
 
   const removeRow = (key: number) => {
+    // 只剩一行时不删也不清空：改包后至少要留一行规格（按钮那边也会置灰）
     setRows((prev) =>
-      prev.length > 1 ? prev.filter((row) => row.key !== key) : [createRow()],
+      prev.length > 1 ? prev.filter((row) => row.key !== key) : prev,
     )
   }
 
@@ -302,6 +369,14 @@ export default function Repack() {
     setError('')
     if (!bale) {
       setError('请先选择要改的那一包')
+      return
+    }
+    // 改前成本有歧义、用户还没选 → 不让他保存（后端也会再拦一次）
+    if (ambiguousCount > 0) {
+      setError(
+        `「改包前」里有 ${ambiguousCount} 行匹配到多个成本价，` +
+          '请先在单价列里各选一个再保存',
+      )
       return
     }
     const filled = rows.filter((row) => row.species.trim())
@@ -335,7 +410,14 @@ export default function Repack() {
         remark: form.remark.trim(),
         bl_no: form.blNo.trim(),
         contract_no: form.contractNo.trim(),
+        // 改前选定的成本价（只有匹配到多个价的行才有值）
+        before_prices: Object.fromEntries(
+          Object.entries(beforePrices)
+            .filter(([, value]) => value !== '')
+            .map(([key, value]) => [key, toNumber(value)]),
+        ),
         after_items: filled.map((row) => ({
+          brand: row.brand.trim(),
           species: row.species.trim(),
           grade: row.grade.trim(),
           thickness: toNumber(row.thickness),
@@ -348,6 +430,7 @@ export default function Repack() {
       setNotice(`已改包 ${result.repack_no}，库存已按新规格同步`)
       setBaleId(0)
       setRows([createRow()])
+      setBeforePrices({})
       setForm((prev) => ({ ...prev, summary: '', remark: '', blNo: '', contractNo: '' }))
       setFormOpen(false)
       setReloadToken((n) => n + 1)
@@ -485,19 +568,27 @@ export default function Repack() {
           </span>
         </div>
 
+        {ambiguousCount > 0 && (
+          <p className="sheet-alert">
+            有 {ambiguousCount} 行在入库明细里匹配到多个成本价（同一规格不同品牌），
+            请在下面「单价」里各选一个再保存 —— 系统不会替你猜。
+          </p>
+        )}
+
         <div className="sheet-scroll">
           <table className="sheet-table">
             <thead>
               <tr>
                 <th className="col-no">#</th>
                 <th>包号</th>
+                <th>品牌</th>
                 <th className="col-name">品名</th>
                 <th>等级</th>
                 <th>厚度</th>
                 <th>宽度</th>
                 <th>长度</th>
                 <th>片数</th>
-                <th className="col-unit">数量</th>
+                <th className="col-unit">立方 (m³)</th>
                 <th className="col-unit">单位</th>
                 <th>单价</th>
                 <th>金额</th>
@@ -510,6 +601,7 @@ export default function Repack() {
                   <tr key={`${line.species}-${index}`}>
                     <td className="col-no">{index + 1}</td>
                     <td>{bale.bale_no || '—'}</td>
+                    <td>{line.brand || '—'}</td>
                     <td>{line.species}</td>
                     <td>{line.grade || '—'}</td>
                     <td>{line.thickness}</td>
@@ -518,16 +610,45 @@ export default function Repack() {
                     <td>{line.pieces}</td>
                     <td className="col-unit num">{formatCubic(lineCubic(line))}</td>
                     <td className="col-unit">m³</td>
-                    <td className="num">{formatAmount(line.unit_price ?? 0)}</td>
                     <td className="num">
-                      {formatAmount(lineCubic(line) * (line.unit_price ?? 0))}
+                      {isPriceAmbiguous(line) && line.id !== undefined ? (
+                        <select
+                          className="sheet-input is-attention"
+                          value={beforePrices[line.id] ?? ''}
+                          onChange={(event) =>
+                            setBeforePrices((prev) => ({
+                              ...prev,
+                              [line.id as number]: event.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">请选择成本价</option>
+                          {(line.price_candidates ?? []).map((candidate) => (
+                            <option
+                              key={`${candidate.order_item_id}-${candidate.unit_price}`}
+                              value={String(candidate.unit_price)}
+                            >
+                              {formatAmount(candidate.unit_price)}
+                              {candidate.brand ? `（${candidate.brand}）` : ''}
+                              {candidate.count > 1 ? ` ×${candidate.count}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        formatAmount(beforePriceOf(line))
+                      )}
+                    </td>
+                    <td className="num">
+                      {isPriceAmbiguous(line) && line.id !== undefined && !beforePrices[line.id]
+                        ? '—'
+                        : formatAmount(lineCubic(line) * beforePriceOf(line))}
                     </td>
                     <td className="col-code">{bale.barcode || '—'}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={13} className="sheet-empty">
+                  <td colSpan={14} className="sheet-empty">
                     上面选一包，这里就会显示它改之前的规格
                   </td>
                 </tr>
@@ -535,7 +656,7 @@ export default function Repack() {
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={8} className="sheet-total-label">
+                <td colSpan={9} className="sheet-total-label">
                   合计
                 </td>
                 <td className="num">{formatCubic(beforeCubic)}</td>
@@ -571,17 +692,20 @@ export default function Repack() {
             <thead>
               <tr>
                 <th className="col-no">#</th>
-                <th className="col-op">操作</th>
+                <th>包号</th>
+                <th>品牌</th>
                 <th className="col-name">品名 *</th>
                 <th>等级</th>
                 <th>厚度</th>
                 <th>宽度</th>
                 <th>长度</th>
                 <th>片数</th>
-                <th className="col-unit">数量</th>
+                <th className="col-unit">立方 (m³)</th>
                 <th className="col-unit">单位</th>
                 <th>单价{pinned ? '' : '（自动）'}</th>
                 <th>金额</th>
+                {/* 这一列只放一个删行按钮，不写表头文字（免得被读成「操作✕」） */}
+                <th className="col-op" aria-label="操作" />
               </tr>
             </thead>
             <tbody>
@@ -590,15 +714,14 @@ export default function Repack() {
                 return (
                   <tr key={row.key}>
                     <td className="col-no">{index + 1}</td>
-                    <td className="col-op">
-                      <button
-                        type="button"
-                        className="sheet-icon sheet-icon-danger"
-                        title="删掉这一行"
-                        onClick={() => removeRow(row.key)}
-                      >
-                        ✕
-                      </button>
+                    {/* 包号：改的是这一包，包号不会变，放在最前面只读展示 */}
+                    <td>{bale?.bale_no || '—'}</td>
+                    <td>
+                      <input
+                        className="sheet-input"
+                        value={row.brand}
+                        onChange={(event) => updateRow(row.key, 'brand', event.target.value)}
+                      />
                     </td>
                     <td>
                       <input
@@ -640,22 +763,40 @@ export default function Repack() {
                       />
                     </td>
                     <td className="num">{cubic ? formatAmount(cubic * priceOf(row)) : ''}</td>
+                    <td className="col-op">
+                      {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
+                      <span
+                        title={
+                          rows.length <= 1 ? '改包后至少要保留一行规格' : '删掉这一行'
+                        }
+                      >
+                        <button
+                          type="button"
+                          className="sheet-icon sheet-icon-danger"
+                          disabled={rows.length <= 1}
+                          onClick={() => removeRow(row.key)}
+                        >
+                          ✕
+                        </button>
+                      </span>
+                    </td>
                   </tr>
                 )
               })}
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={8} className="sheet-total-label">
+                <td colSpan={9} className="sheet-total-label">
                   合计
                 </td>
                 <td className="num">{formatCubic(afterCubic)}</td>
                 <td>m³</td>
                 <td />
                 <td className="num">{formatAmount(afterAmount)}</td>
+                <td />
               </tr>
               <tr>
-                <td colSpan={8} className="sheet-total-label">
+                <td colSpan={9} className="sheet-total-label">
                   损耗（改后 − 改前）
                 </td>
                 <td className={lossCubic < 0 ? 'num is-short' : 'num'}>
@@ -668,6 +809,7 @@ export default function Repack() {
                 <td className="num">
                   {formatAmount(roundTo(afterAmount - beforeAmount, 2))}
                 </td>
+                <td />
               </tr>
             </tfoot>
           </table>
@@ -779,6 +921,8 @@ export default function Repack() {
               <th>改后</th>
               <th className="num">改前立方</th>
               <th className="num">改后立方</th>
+              <th className="num">改前金额</th>
+              <th className="num">改后金额</th>
               <th className="num">损耗</th>
               <th className="num">损耗率</th>
               <th>摘要</th>
@@ -796,16 +940,26 @@ export default function Repack() {
                 <td>{row.bl_no || '—'}</td>
                 <td>
                   {row.before_items
-                    .map((line) => `${line.species}${line.grade ? `/${line.grade}` : ''}`)
+                    .map(
+                      (line) =>
+                        `${line.brand ? `${line.brand}/` : ''}${line.species}` +
+                        `${line.grade ? `/${line.grade}` : ''}`,
+                    )
                     .join('、') || '—'}
                 </td>
                 <td>
                   {row.after_items
-                    .map((line) => `${line.species}${line.grade ? `/${line.grade}` : ''}`)
+                    .map(
+                      (line) =>
+                        `${line.brand ? `${line.brand}/` : ''}${line.species}` +
+                        `${line.grade ? `/${line.grade}` : ''}`,
+                    )
                     .join('、') || '—'}
                 </td>
                 <td className="num">{formatCubic(row.before_cubic)}</td>
                 <td className="num">{formatCubic(row.after_cubic)}</td>
+                <td className="num">{formatAmount(row.before_amount)}</td>
+                <td className="num">{formatAmount(row.after_amount)}</td>
                 <td className={row.loss_cubic < 0 ? 'num is-short' : 'num'}>
                   {formatCubic(row.loss_cubic)}
                   {row.loss_cubic > 0 ? ' ↑' : row.loss_cubic < 0 ? ' ↓' : ''}
@@ -837,8 +991,10 @@ export default function Repack() {
               </td>
               <td className="num">{formatCubic(sums?.before_cubic ?? 0)}</td>
               <td className="num">{formatCubic(sums?.after_cubic ?? 0)}</td>
+              <td className="num">{formatAmount(sums?.before_amount ?? 0)}</td>
+              <td className="num">{formatAmount(sums?.after_amount ?? 0)}</td>
               <td className="num">{formatCubic(sums?.loss_cubic ?? 0)}</td>
-              <td colSpan={3} />
+              <td colSpan={4} />
             </tr>
           </tfoot>
         </table>

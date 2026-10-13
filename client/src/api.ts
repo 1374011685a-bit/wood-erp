@@ -7,6 +7,8 @@ export type Paged<T> = {
 }
 
 export type InboundItemPayload = {
+  /** 品牌（选填）：只记不参与匹配，库存归组仍按 品名+等级+尺寸 */
+  brand?: string
   species: string
   grade: string
   thickness: number
@@ -706,6 +708,8 @@ export type BaleQuery = {
 
 export type BaleItemLine = {
   id?: number
+  /** 品牌（选填）：只记不参与匹配 */
+  brand?: string
   species: string
   grade: string
   thickness: number
@@ -965,6 +969,9 @@ export function deleteDictItem(id: number) {
 /* ---------- 改包 ---------- */
 
 export type RepackLine = {
+  /** 规格行 id（包里的行才有；改包前选成本价要按它回传） */
+  id?: number
+  brand?: string
   species: string
   grade: string
   thickness: number
@@ -974,6 +981,14 @@ export type RepackLine = {
   cubic: number
   /** 入库时的单价（改前成本算它） */
   unit_price?: number
+  /** 同一规格在入库明细里匹配到多个价 → 要让用户选，不能静默取第一条 */
+  price_ambiguous?: boolean
+  price_candidates?: Array<{
+    order_item_id: number
+    brand: string
+    unit_price: number
+    count: number
+  }>
 }
 
 export type RepackRow = {
@@ -1058,7 +1073,10 @@ export function createRepack(payload: {
   remark?: string
   bl_no?: string
   contract_no?: string
+  /** 改包前每一行选定的成本价：{ [规格行 id]: 单价 }（只有匹配到多个价时才用） */
+  before_prices?: Record<string, number>
   after_items: Array<{
+    brand?: string
     species: string
     grade: string
     thickness: number

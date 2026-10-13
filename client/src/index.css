@@ -3417,6 +3417,24 @@ section > .toolbar .btn-primary {
   box-shadow: inset 0 0 0 2px var(--blue);
 }
 
+/* 需要用户先确认的输入（同一规格匹配到多个成本价） */
+.sheet-input.is-attention {
+  background-color: #fff8e6;
+  box-shadow: inset 0 0 0 1px #f0c36d;
+  font-weight: 600;
+}
+
+/* 表格上方的橙色提醒条 */
+.sheet-alert {
+  margin: 0 0 8px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background-color: #fff8e6;
+  color: #b26a00;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .sheet-icon {
   padding: 2px 6px;
   border: none;
@@ -3437,6 +3455,17 @@ section > .toolbar .btn-primary {
 .sheet-icon-danger:hover {
   background-color: #ffe9e7;
   color: var(--red);
+}
+
+/*
+ * 行内按钮被禁用时（比如「只剩一行、不能再删」）：
+ * 明确置灰 + 鼠标变成禁止符号，让用户看得出「点不动」而不是「点了没反应」。
+ */
+.sheet-icon:disabled,
+.sheet-icon:disabled:hover {
+  background-color: transparent;
+  color: #c7c7cc;
+  cursor: not-allowed;
 }
 
 .sheet-table tfoot td {

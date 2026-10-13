@@ -347,9 +347,9 @@ export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrder
 const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items
-     (bale_id, species, grade, thickness, width, length, pieces, cubic, unit_price_cents)
+     (bale_id, brand, species, grade, thickness, width, length, pieces, cubic, unit_price_cents)
    VALUES
-     (@bale_id, @species, @grade, @thickness, @width, @length, @pieces, @cubic, @unit_price_cents)`,
+     (@bale_id, @brand, @species, @grade, @thickness, @width, @length, @pieces, @cubic, @unit_price_cents)`,
 )
 const updateBaleSummary = db.prepare(
   `UPDATE bales
@@ -459,6 +459,7 @@ export function createBalesForItem({
     // 规格行：一包可以有几个规格
     insertBaleItem.run({
       bale_id: bale.id,
+      brand: item.brand ?? null,
       species: item.species,
       grade: item.grade,
       thickness: item.thickness,
@@ -618,17 +619,21 @@ function addOneBundleToOrder(orderId, item) {
 
   db.prepare(
     `INSERT INTO order_items
-       (order_id, order_type, species, grade, thickness, width, length,
+       (order_id, order_type, brand, species, grade, thickness, width, length,
+        box_no, bale_no,
         pieces, bundles, cubic, unit_price, amount, unit_price_cents, amount_cents)
      VALUES
-       (?, 'in', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
+       (?, 'in', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`,
   ).run(
     orderId,
+    item.brand ?? null,
     item.species,
     item.grade,
     item.thickness,
     item.width,
     item.length,
+    item.box_no ?? null,
+    item.bale_no ?? null,
     item.pieces,
     cubic,
     fromCents(priceCents),
@@ -678,28 +683,48 @@ export function replaceBaleItems(bale, items) {
   detachBaleFromOrder(bale)
   db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
 
-  // 每一行最终用哪个单价
+  /** 规格完全一致才算「原来是同一行」（品牌不参与匹配） */
+  const sameSpec = (line, item) =>
+    String(line.species ?? '') === String(item.species ?? '') &&
+    String(line.grade ?? '') === String(item.grade ?? '') &&
+    Number(line.thickness) === Number(item.thickness) &&
+    Number(line.width) === Number(item.width) &&
+    Number(line.length) === Number(item.length) &&
+    Number(line.pieces) === Number(item.pieces)
+
+  // 每一行最终用哪个单价 + 该带哪些包级字段
   const priced = items.map((item) => {
     const given = Number(item.unit_price_cents)
-    if (Number.isFinite(given)) return { ...item, unit_price_cents: given }
+    const old = before.find((line) => sameSpec(line, item))
 
-    const old = before.find(
-      (line) =>
-        String(line.species ?? '') === String(item.species ?? '') &&
-        String(line.grade ?? '') === String(item.grade ?? '') &&
-        Number(line.thickness) === Number(item.thickness) &&
-        Number(line.width) === Number(item.width) &&
-        Number(line.length) === Number(item.length) &&
-        Number(line.pieces) === Number(item.pieces),
-    )
-    return old?.unit_price_cents === null || old?.unit_price_cents === undefined
-      ? item
-      : { ...item, unit_price_cents: Number(old.unit_price_cents) }
+    let unitPriceCents
+    if (Number.isFinite(given)) {
+      unitPriceCents = given
+    } else if (old?.unit_price_cents === null || old?.unit_price_cents === undefined) {
+      // 找不到原价 → 交给 addOneBundleToOrder 用「该规格最近入库价」兜底
+      unitPriceCents = undefined
+    } else {
+      unitPriceCents = Number(old.unit_price_cents)
+    }
+
+    return {
+      ...item,
+      brand: item.brand ?? old?.brand ?? null,
+      /**
+       * 柜号 / 包号是包级字段：重建时必须按这一包的现值继承下去。
+       * 以前这里没带，导致「改包 / 码单编辑」重建入库明细后，
+       * 明细里的柜号和包号被清空（编辑入库单时柜号空白、柜数变成 0）。
+       */
+      box_no: item.box_no ?? bale.box_no ?? null,
+      bale_no: item.bale_no ?? bale.bale_no ?? null,
+      unit_price_cents: unitPriceCents,
+    }
   })
 
   for (const item of priced) {
     insertBaleItem.run({
       bale_id: bale.id,
+      brand: item.brand ?? null,
       species: item.species,
       grade: item.grade,
       thickness: item.thickness,
@@ -774,6 +799,7 @@ export function normalizeBaleItems(rawItems) {
     if (reasons.length > 0) problems.push(`第 ${index + 1} 行：${reasons.join('；')}`)
 
     return {
+      brand: String(raw.brand ?? '').trim(),
       species,
       grade,
       thickness,
@@ -806,6 +832,7 @@ router.get('/:id', (req, res) => {
     pieces: bale.pieces ?? 0,
     items: baleItemsStmt.all(id).map((item) => ({
       id: item.id,
+      brand: item.brand ?? '',
       species: item.species ?? '',
       grade: item.grade ?? '',
       thickness: item.thickness,

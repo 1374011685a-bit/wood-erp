@@ -431,6 +431,7 @@ const schema = `
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     order_id   INTEGER NOT NULL,
     order_type TEXT    NOT NULL CHECK (order_type IN ('in', 'out')),
+    brand      TEXT,
     species    TEXT,
     grade      TEXT,
     thickness  REAL,
@@ -587,6 +588,7 @@ const schema = `
   CREATE TABLE IF NOT EXISTS bale_items (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     bale_id     INTEGER NOT NULL,
+    brand       TEXT,
     species     TEXT,
     grade       TEXT,
     thickness   REAL,
@@ -804,6 +806,21 @@ function migrateBoxNo() {
     addColumnIfMissing('order_items', 'box_no', 'TEXT'),
   ].filter(Boolean)
   if (added.length > 0) writeLog('[db] 迁移：包与明细新增列 box_no（柜号）')
+}
+
+/**
+ * 品牌：入库明细和包里的规格行各记一份。
+ *
+ * 只存不参与匹配——库存归组仍然是「品名 + 等级 + 尺寸」，
+ * 改包取原行价格也仍然按「品名 + 等级 + 规格 + 片数」匹配。
+ * 老数据留空，前端显示成「—」。
+ */
+function migrateBrand() {
+  const added = [
+    addColumnIfMissing('order_items', 'brand', 'TEXT'),
+    addColumnIfMissing('bale_items', 'brand', 'TEXT'),
+  ].filter(Boolean)
+  if (added.length > 0) writeLog('[db] 迁移：明细与规格行新增列 brand（品牌）')
 }
 
 /**
@@ -1344,6 +1361,7 @@ export function initDB() {
   migrateVehicleNo()
   migrateDropContainerLayer()
   migrateBoxNo()
+  migrateBrand()
   migrateBaleItemPrice()
   migrateBaleSoftDelete()
   migrateOrderItemBaleNo()

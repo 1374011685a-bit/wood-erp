@@ -36,33 +36,25 @@ function buildRepackNo(repackDate) {
 /**
  * 改前这一包的成本（分）。
  * 规格行的单价从对应的入库明细里取——同一包里几个规格各自算各自的。
+ *
+ * 匹配键是「品名 + 等级 + 规格 + 片数」，**不含品牌**（品牌只存不参与匹配）。
+ * 万一同一张单里有两行规格完全一样、价格却不同，这里不静默取第一条：
+ * 由调用方先让用户在「改包前」里选一个（overrides），否则直接拦下来。
  */
 const priceOfItemStmt = db.prepare(
-  `SELECT COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
+  `SELECT id, brand, COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
      FROM order_items
     WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL
       AND COALESCE(species, '') = COALESCE(?, '')
       AND COALESCE(grade, '') = COALESCE(?, '')
       AND thickness = ? AND width = ? AND length = ? AND pieces = ?
-    ORDER BY id LIMIT 1`,
+    ORDER BY id`,
 )
 
-function beforeCostCents(bale) {
-  if (!bale.inbound_order_id) return 0
-  let cents = 0
-  for (const item of baleItemsStmt.all(bale.id)) {
-    cents += calcAmountCents(
-      roundTo(item.cubic ?? 0, 4),
-      itemPriceCents(bale.inbound_order_id, item),
-    )
-  }
-  return cents
-}
-
-/** 规格行对应的入库单价（分），找不到就是 0 */
-function itemPriceCents(orderId, item) {
-  if (!orderId) return 0
-  const row = priceOfItemStmt.get(
+/** 这一行规格能匹配到的成本价候选（按价格去重，带品牌方便用户分辨） */
+function priceCandidates(orderId, item) {
+  if (!orderId) return []
+  const rows = priceOfItemStmt.all(
     orderId,
     item.species,
     item.grade,
@@ -71,12 +63,70 @@ function itemPriceCents(orderId, item) {
     item.length,
     item.pieces,
   )
-  return Number(row?.cents ?? 0)
+
+  const byPrice = new Map()
+  for (const row of rows) {
+    const cents = Number(row.cents ?? 0)
+    if (!byPrice.has(cents)) {
+      byPrice.set(cents, {
+        order_item_id: row.id,
+        brand: row.brand ?? '',
+        unit_price: fromCents(cents),
+        count: 0,
+      })
+    }
+    byPrice.get(cents).count += 1
+  }
+  return [...byPrice.values()]
+}
+
+/**
+ * 这一行唯一的成本价（分）：
+ * - 匹配不到 → 0
+ * - 只有一种价 → 用它
+ * - 匹配到多种价 → null（要用户确认，不静默取第一条）
+ */
+function resolvePriceCents(orderId, item) {
+  if (!orderId) return 0
+  const candidates = priceCandidates(orderId, item)
+  if (candidates.length === 0) return 0
+  if (candidates.length === 1) return toCents(candidates[0].unit_price)
+  return null
+}
+
+/** 用户在「改包前」里为某一行选的成本价（分），没选返回 undefined */
+function overrideCents(overrides, baleItemId) {
+  if (!overrides) return undefined
+  const raw = overrides[baleItemId] ?? overrides[String(baleItemId)]
+  if (raw === null || raw === undefined || raw === '') return undefined
+  const cents = toCents(raw)
+  return Number.isFinite(cents) ? cents : undefined
+}
+
+function beforeCostCents(bale, overrides = {}) {
+  if (!bale.inbound_order_id) return 0
+  let cents = 0
+  for (const item of baleItemsStmt.all(bale.id)) {
+    const picked = overrideCents(overrides, item.id)
+    const unit = picked ?? resolvePriceCents(bale.inbound_order_id, item) ?? 0
+    cents += calcAmountCents(roundTo(item.cubic ?? 0, 4), unit)
+  }
+  return cents
+}
+
+/** 改前每一行的成本价（分）：用户选过的按用户选的，否则按唯一价 */
+function beforePriceCentsList(bale, overrides = {}) {
+  if (!bale.inbound_order_id) return baleItemsStmt.all(bale.id).map(() => 0)
+  return baleItemsStmt.all(bale.id).map((item) => {
+    const picked = overrideCents(overrides, item.id)
+    return picked ?? resolvePriceCents(bale.inbound_order_id, item) ?? 0
+  })
 }
 
 const snapshot = (items, centsList = []) =>
   JSON.stringify(
     items.map((item, index) => ({
+      brand: item.brand ?? '',
       species: item.species ?? '',
       grade: item.grade ?? '',
       thickness: item.thickness,
@@ -210,6 +260,7 @@ router.get('/bales', (_req, res) => {
   const rows = db
     .prepare(
       `SELECT b.id, b.bale_no, b.barcode, b.cubic, b.pieces, b.status,
+              b.inbound_order_id,
               s.bl_no, s.contract_no
          FROM bales b
          LEFT JOIN shipments s ON s.id = b.shipment_id
@@ -226,16 +277,24 @@ router.get('/bales', (_req, res) => {
       pieces: row.pieces ?? 0,
       bl_no: row.bl_no ?? '',
       contract_no: row.contract_no ?? '',
-      items: baleItemsStmt.all(row.id).map((item) => ({
-        species: item.species ?? '',
-        grade: item.grade ?? '',
-        thickness: item.thickness,
-        width: item.width,
-        length: item.length,
-        pieces: item.pieces,
-        cubic: roundTo(item.cubic ?? 0, 4),
-        unit_price: fromCents(itemPriceCents(row.inbound_order_id, item)),
-      })),
+      items: baleItemsStmt.all(row.id).map((item) => {
+        const candidates = priceCandidates(row.inbound_order_id, item)
+        return {
+          id: item.id,
+          brand: item.brand ?? '',
+          species: item.species ?? '',
+          grade: item.grade ?? '',
+          thickness: item.thickness,
+          width: item.width,
+          length: item.length,
+          pieces: item.pieces,
+          cubic: roundTo(item.cubic ?? 0, 4),
+          // 只有一种价就是它；多种价时先给出第一种，同时用 price_ambiguous 标出来让用户选
+          unit_price: candidates.length > 0 ? candidates[0].unit_price : 0,
+          price_ambiguous: candidates.length > 1,
+          price_candidates: candidates.length > 1 ? candidates : undefined,
+        }
+      }),
     }))
 
   res.json(rows)
@@ -276,7 +335,30 @@ const createRepack = db.transaction((payload) => {
     beforeItems.reduce((sum, item) => sum + (item.cubic ?? 0), 0),
     4,
   )
-  const beforeCents = beforeCostCents(bale)
+
+  /**
+   * 改前成本：同一规格在入库明细里匹配到多个价时，不静默取第一条。
+   * 用户没在「改包前」里选 → 直接 400，把是哪一行、为什么说清楚。
+   */
+  const overrides = payload.beforePrices ?? {}
+  if (bale.inbound_order_id) {
+    const unresolved = beforeItems.findIndex(
+      (item) =>
+        resolvePriceCents(bale.inbound_order_id, item) === null &&
+        overrideCents(overrides, item.id) === undefined,
+    )
+    if (unresolved >= 0) {
+      const item = beforeItems[unresolved]
+      const error = new Error(
+        `第 ${unresolved + 1} 行（${item.species} ${item.grade} ` +
+          `${item.thickness}×${item.width}×${item.length}，${item.pieces} 片）` +
+          '在入库明细里匹配到多个成本价，请在「改包前」里选一个再保存',
+      )
+      error.status = 400
+      throw error
+    }
+  }
+  const beforeCents = beforeCostCents(bale, overrides)
 
   const afterCubic = roundTo(
     payload.items.reduce((sum, item) => sum + item.cubic, 0),
@@ -323,7 +405,7 @@ const createRepack = db.transaction((payload) => {
     price_pinned: pinned ? 1 : 0,
     before_json: snapshot(
       beforeItems,
-      beforeItems.map((item) => itemPriceCents(bale.inbound_order_id, item)),
+      beforePriceCentsList(bale, overrides),
     ),
     after_json: snapshot(payload.items, afterPriceCents),
     // 留空就跟改前一致（真正写进记录，不只是显示）
@@ -369,6 +451,8 @@ router.post('/', (req, res) => {
       contractNo: String(body.contract_no ?? '').trim(),
       items,
       prices: rawItems.map((item) => item?.unit_price),
+      // 「改包前」里为某一行手选的成本价：{ [bale_item_id]: 单价 }
+      beforePrices: body.before_prices ?? {},
       createdBy: req.user?.username ?? '',
     })
     res.json(result)

@@ -6,6 +6,7 @@ import {
   downloadFile,
   fetchOutboundDetail,
   fetchOutboundList,
+  fetchBaleDetail,
   fetchBales,
   fetchStock,
   outboundExportUrl,
@@ -236,8 +237,12 @@ export default function Outbound() {
   const [pickerRowKey, setPickerRowKey] = useState<number | null>(null)
   const [pickerBales, setPickerBales] = useState<BaleRow[]>([])
   const [pickedBaleIds, setPickedBaleIds] = useState<number[]>([])
+  // 选包弹窗的用途：multi = 多选（「选择码单」），one = 单选追加一行（「+ 新增」）
+  const [pickerIntent, setPickerIntent] = useState<'multi' | 'one'>('multi')
   const [pickerKeyword, setPickerKeyword] = useState('')
   const [pickerLoading, setPickerLoading] = useState(false)
+  // 确认选择时要先算每包的成本价（加权平均），算的时候把按钮锁住
+  const [pickerApplying, setPickerApplying] = useState(false)
   const [pickerError, setPickerError] = useState('')
   // 规格 -> 当前库存（实时提示用）
   const [stockMap, setStockMap] = useState<Record<string, StockSnapshot>>({})
@@ -381,43 +386,101 @@ export default function Outbound() {
     }
   }
 
-  const openPicker = (rowKey: number) => {
-    setPickerRowKey(rowKey)
+  const openPicker = (intent: 'multi' | 'one') => {
+    setPickerRowKey(0)
+    setPickerIntent(intent)
     setPickerKeyword('')
     setPickerBales([])
     setPickedBaleIds([])
+    setPickerError('')
     void loadPickerRows('')
   }
 
-  /** 选好码单：每包一行，规格和立方都由码单带出来 */
-  const applyBales = () => {
+  /** 表格里已经绑过的码单 id（同一包不能重复出现在明细里） */
+  const rowBaleIds = () =>
+    new Set(
+      rows
+        .map((row) => row.baleId)
+        .filter((id): id is number => typeof id === 'number'),
+    )
+
+  /**
+   * 把选中的码单【追加】到明细里：每包一行，规格和立方由码单带出，
+   * 单价默认带出这一包的成本价（加权平均），用户可以改。
+   *
+   * 注意是追加不是替换——先选 a1、再选 A5，两行都在；
+   * 已经绑过的包会被跳过，表格里那行空占位也会在第一次追加时清掉。
+   */
+  const appendBales = async (picked: BaleRow[]) => {
+    const already = rowBaleIds()
+    const fresh = picked.filter((bale) => !already.has(bale.id))
+    if (fresh.length === 0) {
+      setPickerError('选中的码单已经在明细里了')
+      return
+    }
+
+    setPickerApplying(true)
+    try {
+      const costs = await Promise.all(
+        fresh.map(async (bale) => {
+          try {
+            const detail = await fetchBaleDetail(bale.id)
+            const cubic = detail.items.reduce((sum, item) => sum + (item.cubic ?? 0), 0)
+            if (cubic <= 0) return ''
+            const amount = detail.items.reduce(
+              (sum, item) => sum + (item.cubic ?? 0) * (item.unit_price ?? 0),
+              0,
+            )
+            const price = roundTo(amount / cubic, 2)
+            return price > 0 ? String(price) : ''
+          } catch {
+            // 取不到成本价就留空，让用户手填（单价仍然是必填）
+            return ''
+          }
+        }),
+      )
+
+      setRows((prev) => {
+        // 只留已经选过货的行；初始那行空占位顺手丢掉，不留一条空行挡保存
+        const kept = prev.filter(
+          (row) => typeof row.baleId === 'number' || row.species.trim(),
+        )
+        const added = fresh.map((bale, index) => ({
+          key: (rowSeq += 1),
+          species: bale.species,
+          grade: bale.grade,
+          thickness: String(bale.thickness),
+          width: String(bale.width),
+          length: String(bale.length),
+          pieces: String(bale.pieces),
+          bundles: '1',
+          unitPrice: costs[index] ?? '',
+          baleId: bale.id,
+          baleNo: bale.bale_no,
+          baleBarcode: bale.barcode,
+        }))
+        return [...kept, ...added]
+      })
+      setPickerRowKey(null)
+      setPickedBaleIds([])
+      setPickerError('')
+      setFormError('')
+    } finally {
+      setPickerApplying(false)
+    }
+  }
+
+  /** 「选择码单」确认：把勾选的包全部追加 */
+  const applyBales = async () => {
     if (pickedBaleIds.length === 0) {
       setPickerError('请至少选择一个码单')
       return
     }
-
-    const picked = pickerBales.filter((bale) => pickedBaleIds.includes(bale.id))
-    setRows(
-      picked.map((bale) => ({
-        key: (rowSeq += 1),
-        species: bale.species,
-        grade: bale.grade,
-        thickness: String(bale.thickness),
-        width: String(bale.width),
-        length: String(bale.length),
-        pieces: String(bale.pieces),
-        bundles: '1',
-        unitPrice: '',
-        baleId: bale.id,
-        baleNo: bale.bale_no,
-        baleBarcode: bale.barcode,
-      })),
-    )
-    setPickerRowKey(null)
-    setFormError('')
+    await appendBales(pickerBales.filter((bale) => pickedBaleIds.includes(bale.id)))
   }
 
   const removeRow = (key: number) => {
+    // 只剩一行时不删：至少要留一行明细（按钮那边会置灰并给出提示）
     setRows((prev) => (prev.length > 1 ? prev.filter((row) => row.key !== key) : prev))
     setPickedRows((prev) => prev.filter((item) => item !== key))
     if (formError) setFormError('')
@@ -948,8 +1011,11 @@ export default function Outbound() {
           </datalist>
 
           <div className="sheet-toolbar">
-            <button className="btn btn-sm btn-primary" onClick={() => openPicker(0)}>
+            <button className="btn btn-sm btn-primary" onClick={() => openPicker('multi')}>
               选择码单
+            </button>
+            <button className="btn btn-sm" onClick={() => openPicker('one')}>
+              + 新增（手动选一包）
             </button>
             <button
               className="btn btn-sm btn-danger"
@@ -960,7 +1026,7 @@ export default function Outbound() {
             </button>
             <span className="spacer" />
             <span className="muted">
-              一包一单：点「选择码单」挑要发的包（可多选），规格和立方由码单带出
+              一包一单：点「选择码单」可多选、点「+ 新增」追加一行；规格和立方由码单带出
               {editing ? '；修改时会重新校验码单是否还在库' : ''}
             </span>
           </div>
@@ -1028,15 +1094,19 @@ export default function Outbound() {
                         />
                       </td>
                       <td className="col-op">
-                        <button
-                          type="button"
-                          className="sheet-icon sheet-icon-danger"
-                          title="删掉这一行"
-                          onClick={() => removeRow(row.key)}
-                          disabled={rows.length === 1}
+                        {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
+                        <span
+                          title={rows.length <= 1 ? '至少要保留一行' : '删掉这一行'}
                         >
-                          ✕
-                        </button>
+                          <button
+                            type="button"
+                            className="sheet-icon sheet-icon-danger"
+                            disabled={rows.length <= 1}
+                            onClick={() => removeRow(row.key)}
+                          >
+                            ✕
+                          </button>
+                        </span>
                       </td>
                       <td className="col-code">{row.baleBarcode || '—'}</td>
                       <td>{row.baleNo || '未选码单'}</td>
@@ -1304,7 +1374,9 @@ export default function Outbound() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
-              <h2 className="modal-title">选择码单</h2>
+              <h2 className="modal-title">
+                {pickerIntent === 'one' ? '新增一行：选一包' : '选择码单'}
+              </h2>
               <button
                 className="btn btn-sm btn-quiet"
                 onClick={() => setPickerRowKey(null)}
@@ -1332,10 +1404,20 @@ export default function Outbound() {
                 查询
               </button>
               <span className="spacer" />
-              <span className="muted">只列在库的码单，勾选后确认</span>
-              <button className="btn btn-primary" onClick={applyBales}>
-                确认选择（{pickedBaleIds.length}）
-              </button>
+              <span className="muted">
+                {pickerIntent === 'one'
+                  ? '只列在库的码单，点某一行的「选择」就追加到明细末尾'
+                  : '只列在库的码单，勾选后确认（会追加到明细，不会冲掉已有的行）'}
+              </span>
+              {pickerIntent === 'multi' && (
+                <button
+                  className="btn btn-primary"
+                  onClick={() => void applyBales()}
+                  disabled={pickerApplying}
+                >
+                  {pickerApplying ? '读取成本价…' : `确认选择（${pickedBaleIds.length}）`}
+                </button>
+              )}
             </div>
 
             <table className="table">
@@ -1357,17 +1439,28 @@ export default function Outbound() {
                 {pickerBales.map((row) => (
                   <tr key={row.id}>
                     <td>
-                      <input
-                        type="checkbox"
-                        checked={pickedBaleIds.includes(row.id)}
-                        onChange={(event) =>
-                          setPickedBaleIds((prev) =>
-                            event.target.checked
-                              ? [...prev, row.id]
-                              : prev.filter((id) => id !== row.id),
-                          )
-                        }
-                      />
+                      {pickerIntent === 'one' ? (
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={pickerApplying || rowBaleIds().has(row.id)}
+                          onClick={() => void appendBales([row])}
+                        >
+                          {rowBaleIds().has(row.id) ? '已在明细' : '选择'}
+                        </button>
+                      ) : (
+                        <input
+                          type="checkbox"
+                          checked={pickedBaleIds.includes(row.id)}
+                          onChange={(event) =>
+                            setPickedBaleIds((prev) =>
+                              event.target.checked
+                                ? [...prev, row.id]
+                                : prev.filter((id) => id !== row.id),
+                            )
+                          }
+                        />
+                      )}
                     </td>
                     <td>{row.bale_no || '—'}</td>
                     <td>{row.barcode || '—'}</td>
@@ -1401,7 +1494,7 @@ export default function Outbound() {
           >
             <h2 className="modal-title">删除确认</h2>
             <p className="confirm-text">
-              确认删除出库单 {deleteTarget.order_no}？此操作不可恢复。
+              确认删除出库单 {deleteTarget.order_no}？删除后可在回收站恢复。
             </p>
             <div className="confirm-actions">
               <button

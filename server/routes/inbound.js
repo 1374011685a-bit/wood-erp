@@ -64,6 +64,7 @@ function normalizeItems(items) {
     const amountCents = calcAmountCents(cubic, unitPriceCents)
 
     return {
+      brand: String(item.brand ?? '').trim(),
       species: String(item.species ?? '').trim(),
       grade: String(item.grade ?? '').trim(),
       thickness,
@@ -112,10 +113,10 @@ const insertShipmentStmt = db.prepare(
 
 const insertItem = db.prepare(
   `INSERT INTO order_items
-     (order_id, order_type, box_no, bale_no, species, grade, thickness, width, length,
+     (order_id, order_type, box_no, bale_no, brand, species, grade, thickness, width, length,
       pieces, bundles, cubic, unit_price, amount, unit_price_cents, amount_cents)
    VALUES
-     (@order_id, 'in', @box_no, @bale_no, @species, @grade, @thickness, @width, @length,
+     (@order_id, 'in', @box_no, @bale_no, @brand, @species, @grade, @thickness, @width, @length,
       @pieces, @bundles, @cubic, @unit_price, @amount, @unit_price_cents, @amount_cents)`,
 )
 

@@ -433,8 +433,9 @@ router.post('/', upload.single('file'), (req, res) => {
   }
 
   if (!contractNo) return res.status(400).json({ error: '合同号不能为空' })
-  if (!isPdf(req.file)) {
-    return res.status(400).json({ error: '请上传 PDF 格式的合同文件' })
+  // PDF 是选填：先建档、后补文件也行；只有真传了才校验格式
+  if (req.file && !isPdf(req.file)) {
+    return res.status(400).json({ error: '合同文件必须是 PDF 格式' })
   }
   if (amountCents < 0) return res.status(400).json({ error: '金额不能为负数' })
 
@@ -445,7 +446,7 @@ router.post('/', upload.single('file'), (req, res) => {
 
   let fileName = ''
   try {
-    fileName = writeFile(contractNo, req.file)
+    fileName = req.file ? writeFile(contractNo, req.file) : ''
     insertContract.run({
       contract_no: contractNo,
       title: title || null,
@@ -453,9 +454,9 @@ router.post('/', upload.single('file'), (req, res) => {
       sign_date: signDate,
       amount_cents: amountCents,
       remark: remark || null,
-      file_name: fileName,
-      file_original: req.file.originalname,
-      file_size: req.file.size,
+      file_name: fileName || null,
+      file_original: req.file?.originalname ?? null,
+      file_size: req.file?.size ?? 0,
     })
     if (rawItems) {
       const row = db
