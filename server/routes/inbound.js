@@ -79,8 +79,8 @@ function normalizeItems(items) {
 }
 
 const insertOrder = db.prepare(
-  `INSERT INTO inbound_orders (order_no, supplier, order_date, remark)
-   VALUES (?, ?, ?, ?)`,
+  `INSERT INTO inbound_orders (order_no, supplier, order_date, remark, warehouse, operator)
+   VALUES (?, ?, ?, ?, ?, ?)`,
 )
 
 const insertItem = db.prepare(
@@ -93,19 +93,23 @@ const insertItem = db.prepare(
 )
 
 // 事务：先插单头，再批量插明细
-const createInbound = db.transaction(({ orderNo, supplier, orderDate, remark, items }) => {
+const createInbound = db.transaction(
+  ({ orderNo, supplier, orderDate, remark, warehouse, operator, items }) => {
   const { lastInsertRowid } = insertOrder.run(
     orderNo,
     supplier,
     orderDate,
     remark || null,
+    warehouse,
+    operator || null,
   )
   const orderId = Number(lastInsertRowid)
   for (const item of items) {
     insertItem.run({ ...item, order_id: orderId })
   }
   return { id: orderId, order_no: orderNo }
-})
+  },
+)
 
 // 新增入库单
 router.post('/', (req, res) => {
@@ -113,10 +117,15 @@ router.post('/', (req, res) => {
   const supplier = String(body.supplier ?? '').trim()
   const orderDate = body.order_date ? String(body.order_date) : todayLocal()
   const remark = body.remark ? String(body.remark) : ''
+  const warehouse = String(body.warehouse ?? '').trim()
+  const operator = String(body.operator ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
     return res.status(400).json({ error: '供应商不能为空' })
+  }
+  if (!warehouse) {
+    return res.status(400).json({ error: '仓库不能为空' })
   }
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
@@ -135,6 +144,8 @@ router.post('/', (req, res) => {
       supplier,
       orderDate,
       remark,
+      warehouse,
+      operator,
       items,
     })
     res.json(result)
@@ -148,7 +159,7 @@ router.post('/', (req, res) => {
 // 修改用到的语句（删除校验里的 getOrderStmt / orderItemsStmt / stockOfSpecStmt 复用删除那套）
 const updateOrderStmt = db.prepare(
   `UPDATE inbound_orders
-      SET supplier = ?, order_date = ?, remark = ?
+      SET supplier = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?
     WHERE id = ? AND deleted_at IS NULL`,
 )
 const replaceOrderItemsStmt = db.prepare(
@@ -181,7 +192,8 @@ function bumpGroups(groups, item, sign) {
  * 任何规格改完为负就整单回滚（防止把已经出掉的货从入库单里改没了）。
  * 单号保持不变，避免和已经打印/登记的凭证对不上。
  */
-const updateInbound = db.transaction(({ id, supplier, orderDate, remark, items }) => {
+const updateInbound = db.transaction(
+  ({ id, supplier, orderDate, remark, warehouse, operator, items }) => {
   const order = getOrderStmt.get(id)
   if (!order) {
     const error = new Error('入库单不存在')
@@ -229,10 +241,11 @@ const updateInbound = db.transaction(({ id, supplier, orderDate, remark, items }
   for (const item of items) {
     insertItem.run({ ...item, order_id: id })
   }
-  updateOrderStmt.run(supplier, orderDate, remark || null, id)
+  updateOrderStmt.run(supplier, orderDate, remark || null, warehouse, operator || null, id)
 
   return { id, order_no: order.order_no }
-})
+  },
+)
 
 // 修改入库单（明细整体替换，单号不变）
 router.put('/:id', (req, res) => {
@@ -245,10 +258,15 @@ router.put('/:id', (req, res) => {
   const supplier = String(body.supplier ?? '').trim()
   const orderDate = body.order_date ? String(body.order_date) : todayLocal()
   const remark = body.remark ? String(body.remark) : ''
+  const warehouse = String(body.warehouse ?? '').trim()
+  const operator = String(body.operator ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
     return res.status(400).json({ error: '供应商不能为空' })
+  }
+  if (!warehouse) {
+    return res.status(400).json({ error: '仓库不能为空' })
   }
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
@@ -261,7 +279,7 @@ router.put('/:id', (req, res) => {
   }
 
   try {
-    res.json(updateInbound({ id, supplier, orderDate, remark, items }))
+    res.json(updateInbound({ id, supplier, orderDate, remark, warehouse, operator, items }))
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })
@@ -296,6 +314,8 @@ router.get('/', (req, res) => {
               o.order_no,
               o.supplier,
               o.order_date,
+              o.warehouse,
+              o.operator,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
               ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
                                                    AS total_amount,

@@ -13,6 +13,9 @@ export type CreateInboundPayload = {
   supplier: string
   order_date: string
   remark?: string
+  /** 仓库必填；操作员选填 */
+  warehouse: string
+  operator?: string
   items: InboundItemPayload[]
 }
 
@@ -26,6 +29,8 @@ export type InboundListItem = {
   order_no: string
   supplier: string | null
   order_date: string | null
+  warehouse: string | null
+  operator: string | null
   total_cubic: number
   total_amount: number
   item_count: number
@@ -46,6 +51,8 @@ export type InboundDetail = {
   supplier: string | null
   order_date: string | null
   remark: string | null
+  warehouse: string | null
+  operator: string | null
   created_at: string
   total_cubic: number
   total_amount: number
@@ -242,6 +249,9 @@ export type CreateOutboundPayload = {
   customer: string
   order_date: string
   remark?: string
+  /** 仓库必填；操作员选填 */
+  warehouse: string
+  operator?: string
   items: InboundItemPayload[]
 }
 
@@ -255,6 +265,8 @@ export type OutboundListItem = {
   order_no: string
   customer: string | null
   order_date: string | null
+  warehouse: string | null
+  operator: string | null
   total_cubic: number
   total_amount: number
   item_count: number
@@ -266,6 +278,8 @@ export type OutboundDetail = {
   customer: string | null
   order_date: string | null
   remark: string | null
+  warehouse: string | null
+  operator: string | null
   created_at: string
   total_cubic: number
   total_amount: number

@@ -229,8 +229,8 @@ function checkStock(items) {
 }
 
 const insertOrder = db.prepare(
-  `INSERT INTO outbound_orders (order_no, customer, order_date, remark)
-   VALUES (?, ?, ?, ?)`,
+  `INSERT INTO outbound_orders (order_no, customer, order_date, remark, warehouse, operator)
+   VALUES (?, ?, ?, ?, ?, ?)`,
 )
 
 const insertItem = db.prepare(
@@ -244,7 +244,7 @@ const insertItem = db.prepare(
 
 // 事务：库存校验与写入放在同一事务里，避免并发超卖
 const createOutbound = db.transaction(
-  ({ orderNo, customer, orderDate, remark, items }) => {
+  ({ orderNo, customer, orderDate, remark, warehouse, operator, items }) => {
     const problems = checkStock(items)
     if (problems.length > 0) {
       const error = new Error(problems.join('\n'))
@@ -257,6 +257,8 @@ const createOutbound = db.transaction(
       customer,
       orderDate,
       remark || null,
+      warehouse,
+      operator || null,
     )
     const orderId = Number(lastInsertRowid)
     for (const item of items) {
@@ -272,10 +274,15 @@ router.post('/', (req, res) => {
   const customer = String(body.customer ?? '').trim()
   const orderDate = body.order_date ? String(body.order_date) : todayLocal()
   const remark = body.remark ? String(body.remark) : ''
+  const warehouse = String(body.warehouse ?? '').trim()
+  const operator = String(body.operator ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!customer) {
     return res.status(400).json({ error: '客户不能为空' })
+  }
+  if (!warehouse) {
+    return res.status(400).json({ error: '仓库不能为空' })
   }
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
@@ -294,6 +301,8 @@ router.post('/', (req, res) => {
       customer,
       orderDate,
       remark,
+      warehouse,
+      operator,
       items,
     })
     res.json(result)
@@ -320,7 +329,7 @@ router.get('/stock', (req, res) => {
 
 const updateOrderStmt = db.prepare(
   `UPDATE outbound_orders
-      SET customer = ?, order_date = ?, remark = ?
+      SET customer = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?
     WHERE id = ? AND deleted_at IS NULL`,
 )
 const replaceOrderItemsStmt = db.prepare(
@@ -352,7 +361,8 @@ function bumpGroups(groups, item, sign) {
  * 净影响加在当前库存上，任何规格改完为负就整单回滚——等于把「出库不能超卖」
  * 这条规则套用到修改上。单号保持不变。
  */
-const updateOutbound = db.transaction(({ id, customer, orderDate, remark, items }) => {
+const updateOutbound = db.transaction(
+  ({ id, customer, orderDate, remark, warehouse, operator, items }) => {
   const order = getOrderStmt.get(id)
   if (!order) {
     const error = new Error('出库单不存在')
@@ -400,10 +410,11 @@ const updateOutbound = db.transaction(({ id, customer, orderDate, remark, items 
   for (const item of items) {
     insertItem.run({ ...item, order_id: id })
   }
-  updateOrderStmt.run(customer, orderDate, remark || null, id)
+  updateOrderStmt.run(customer, orderDate, remark || null, warehouse, operator || null, id)
 
   return { id, order_no: order.order_no }
-})
+  },
+)
 
 // 修改出库单（明细整体替换，单号不变）
 router.put('/:id', (req, res) => {
@@ -416,10 +427,15 @@ router.put('/:id', (req, res) => {
   const customer = String(body.customer ?? '').trim()
   const orderDate = body.order_date ? String(body.order_date) : todayLocal()
   const remark = body.remark ? String(body.remark) : ''
+  const warehouse = String(body.warehouse ?? '').trim()
+  const operator = String(body.operator ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!customer) {
     return res.status(400).json({ error: '客户不能为空' })
+  }
+  if (!warehouse) {
+    return res.status(400).json({ error: '仓库不能为空' })
   }
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
@@ -432,7 +448,9 @@ router.put('/:id', (req, res) => {
   }
 
   try {
-    res.json(updateOutbound({ id, customer, orderDate, remark, items }))
+    res.json(
+      updateOutbound({ id, customer, orderDate, remark, warehouse, operator, items }),
+    )
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })
@@ -467,6 +485,8 @@ router.get('/', (req, res) => {
               o.order_no,
               o.customer,
               o.order_date,
+              o.warehouse,
+              o.operator,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
               ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
                                                    AS total_amount,

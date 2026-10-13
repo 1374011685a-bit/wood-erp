@@ -210,7 +210,10 @@ export default function Outbound() {
   const [form, setForm] = useState({
     customer: '',
     orderDate: todayISO(),
+    // remark 保留在表单里但不再显示：编辑老单据时不能把已有的备注抹掉
     remark: '',
+    warehouse: '',
+    operator: '',
   })
   const [rows, setRows] = useState<FormRow[]>(() => [createRow()])
   const [saving, setSaving] = useState(false)
@@ -472,7 +475,13 @@ export default function Outbound() {
     setEditing(null)
     setRowErrors({})
     setHasValidated(false)
-    setForm({ customer: '', orderDate: todayISO(), remark: '' })
+    setForm({
+      customer: '',
+      orderDate: todayISO(),
+      remark: '',
+      warehouse: '',
+      operator: '',
+    })
     setRows([createRow()])
     setMode('create')
   }
@@ -488,6 +497,8 @@ export default function Outbound() {
         customer: data.customer ?? '',
         orderDate: data.order_date ?? todayISO(),
         remark: data.remark ?? '',
+        warehouse: data.warehouse ?? '',
+        operator: data.operator ?? '',
       })
       setRows(
         data.items.map((line) => ({
@@ -562,6 +573,10 @@ export default function Outbound() {
       setFormError('客户不能为空')
       return
     }
+    if (!form.warehouse.trim()) {
+      setFormError('仓库不能为空')
+      return
+    }
 
     const filledRows = computedRows.filter((row) => !isRowEmpty(row))
     if (filledRows.length === 0) {
@@ -593,6 +608,8 @@ export default function Outbound() {
         customer,
         order_date: form.orderDate,
         remark: form.remark.trim(),
+        warehouse: form.warehouse.trim(),
+        operator: form.operator.trim(),
         items,
       }
       const result = editing
@@ -600,7 +617,13 @@ export default function Outbound() {
         : await createOutbound(payload)
       setMode('list')
       setEditing(null)
-      setForm({ customer: '', orderDate: todayISO(), remark: '' })
+      setForm({
+        customer: '',
+        orderDate: todayISO(),
+        remark: '',
+        warehouse: '',
+        operator: '',
+      })
       setRows([createRow()])
       // 出库后库存变了，清掉缓存重新取
       requestedSpecs.current.clear()
@@ -818,13 +841,29 @@ export default function Outbound() {
                 }
               />
             </label>
-            <label className="field" style={{ flex: 1 }}>
-              <span>备注</span>
+          </div>
+
+          {/* 第二行：操作员 + 仓库（仓库必填） */}
+          <div className="field-row">
+            <label className="field">
+              <span>操作员</span>
               <input
                 className="input"
-                value={form.remark}
+                placeholder="选填"
+                value={form.operator}
                 onChange={(event) =>
-                  setForm((prev) => ({ ...prev, remark: event.target.value }))
+                  setForm((prev) => ({ ...prev, operator: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field field-required">
+              <span>仓库</span>
+              <input
+                className="input"
+                placeholder="例如：一号仓"
+                value={form.warehouse}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, warehouse: event.target.value }))
                 }
               />
             </label>
@@ -946,7 +985,7 @@ export default function Outbound() {
               onClick={() => void handleSave()}
               disabled={saving}
             >
-              {saving ? '保存中…' : editing ? '保存修改' : '保存'}
+              {saving ? '提交中…' : editing ? '确认修改' : '确认'}
             </button>
             <button
               className="btn"
@@ -1010,6 +1049,8 @@ export default function Outbound() {
                 <div className="meta">
                   <span>客户：{detail.customer}</span>
                   <span>日期：{detail.order_date}</span>
+                  <span>仓库：{detail.warehouse || '—'}</span>
+                  <span>操作员：{detail.operator || '—'}</span>
                   <span>备注：{detail.remark || '—'}</span>
                   <span>创建时间：{detail.created_at}</span>
                 </div>

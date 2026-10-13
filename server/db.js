@@ -594,6 +594,27 @@ function migrateSoftDelete() {
   )
 }
 
+/**
+ * 单据头补充「仓库 / 操作员」。
+ * 仓库必填（哪批货进哪个仓），操作员选填（谁经手）。
+ * 老单据这两列是 NULL，读的地方按空值兜底。
+ */
+function migrateOrderFields() {
+  const targets = [
+    ['inbound_orders', 'warehouse', 'TEXT'],
+    ['inbound_orders', 'operator', 'TEXT'],
+    ['outbound_orders', 'warehouse', 'TEXT'],
+    ['outbound_orders', 'operator', 'TEXT'],
+  ]
+
+  const added = targets.filter(([table, column, type]) =>
+    addColumnIfMissing(table, column, type),
+  )
+  if (added.length > 0) {
+    writeLog('[db] 迁移：单据头新增 仓库(warehouse) / 操作员(operator)')
+  }
+}
+
 // 首次初始化时建一个默认管理员（表非空则跳过）
 function seedDefaultAdmin() {
   const total = db.prepare(`SELECT COUNT(*) AS total FROM users`).get().total
@@ -730,6 +751,7 @@ export function initDB() {
   db.exec(schema)
   migrateMoneyToCents()
   migrateSoftDelete()
+  migrateOrderFields()
   seedDefaultAdmin()
   warnIfSuspiciouslyEmpty()
   writeLog('[db] ✓ initDB 完成')

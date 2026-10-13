@@ -207,7 +207,10 @@ export default function Inbound() {
   const [form, setForm] = useState({
     supplier: '',
     orderDate: todayISO(),
+    // remark 保留在表单里但不再显示：编辑老单据时不能把小票上的备注抹掉
     remark: '',
+    warehouse: '',
+    operator: '',
   })
   const [rows, setRows] = useState<FormRow[]>(() => [createRow()])
   const [saving, setSaving] = useState(false)
@@ -394,7 +397,13 @@ export default function Inbound() {
     setEditing(null)
     setRowErrors({})
     setHasValidated(false)
-    setForm({ supplier: '', orderDate: todayISO(), remark: '' })
+    setForm({
+      supplier: '',
+      orderDate: todayISO(),
+      remark: '',
+      warehouse: '',
+      operator: '',
+    })
     setRows([createRow()])
     setMode('create')
   }
@@ -410,6 +419,8 @@ export default function Inbound() {
         supplier: data.supplier ?? '',
         orderDate: data.order_date ?? todayISO(),
         remark: data.remark ?? '',
+        warehouse: data.warehouse ?? '',
+        operator: data.operator ?? '',
       })
       setRows(
         data.items.map((line) => ({
@@ -482,6 +493,10 @@ export default function Inbound() {
       setFormError('供应商不能为空')
       return
     }
+    if (!form.warehouse.trim()) {
+      setFormError('仓库不能为空')
+      return
+    }
 
     const filledRows = computedRows.filter((row) => !isRowEmpty(row))
     if (filledRows.length === 0) {
@@ -513,6 +528,8 @@ export default function Inbound() {
         supplier,
         order_date: form.orderDate,
         remark: form.remark.trim(),
+        warehouse: form.warehouse.trim(),
+        operator: form.operator.trim(),
         items,
       }
       const result = editing
@@ -521,7 +538,13 @@ export default function Inbound() {
       // 回到列表：清空筛选后重新加载，保证新单一定可见
       setMode('list')
       setEditing(null)
-      setForm({ supplier: '', orderDate: todayISO(), remark: '' })
+      setForm({
+        supplier: '',
+        orderDate: todayISO(),
+        remark: '',
+        warehouse: '',
+        operator: '',
+      })
       setRows([createRow()])
       // 入库后库存变了，清掉「已有库存」提醒缓存
       lookedUpSpecies.current.clear()
@@ -730,13 +753,29 @@ export default function Inbound() {
                 }
               />
             </label>
-            <label className="field" style={{ flex: 1 }}>
-              <span>备注</span>
+          </div>
+
+          {/* 第二行：操作员 + 仓库（仓库必填） */}
+          <div className="field-row">
+            <label className="field">
+              <span>操作员</span>
               <input
                 className="input"
-                value={form.remark}
+                placeholder="选填"
+                value={form.operator}
                 onChange={(event) =>
-                  setForm((prev) => ({ ...prev, remark: event.target.value }))
+                  setForm((prev) => ({ ...prev, operator: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field field-required">
+              <span>仓库</span>
+              <input
+                className="input"
+                placeholder="例如：一号仓"
+                value={form.warehouse}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, warehouse: event.target.value }))
                 }
               />
             </label>
@@ -832,7 +871,7 @@ export default function Inbound() {
               onClick={() => void handleSave()}
               disabled={saving}
             >
-              {saving ? '保存中…' : editing ? '保存修改' : '保存'}
+              {saving ? '提交中…' : editing ? '确认修改' : '确认'}
             </button>
             <button
               className="btn"
@@ -896,6 +935,8 @@ export default function Inbound() {
                 <div className="meta">
                   <span>供应商：{detail.supplier}</span>
                   <span>日期：{detail.order_date}</span>
+                  <span>仓库：{detail.warehouse || '—'}</span>
+                  <span>操作员：{detail.operator || '—'}</span>
                   <span>备注：{detail.remark || '—'}</span>
                   <span>创建时间：{detail.created_at}</span>
                 </div>

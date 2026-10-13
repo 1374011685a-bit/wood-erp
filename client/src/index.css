@@ -1676,6 +1676,16 @@ section > .toolbar .btn-primary {
   letter-spacing: var(--track-caps);
 }
 
+/* 列之间的细分隔线：表格密的时候一眼能分清哪格是哪列 */
+.table th + th,
+.table td + td {
+  border-left: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.table th + th {
+  border-left-color: rgba(0, 0, 0, 0.07);
+}
+
 .table td {
   height: 54px;
   padding: 0 14px;
