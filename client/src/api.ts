@@ -17,7 +17,7 @@ export type InboundItemPayload = {
   unit_price: number
   /** 包号列表（一个包号一个码单）；留空则按柜内顺序自动编号 */
   bale_labels?: string[]
-  /** 箱号：这包货装在哪个箱/柜里 */
+  /** 柜号：这包货装在哪个柜/柜里 */
   box_no?: string
   /** 「同包再加一行」：这一行是往同一个包里再加一个规格 */
   same_package?: boolean
@@ -55,7 +55,7 @@ export type InboundListItem = {
   bl_no: string | null
   contract_no: string | null
   vehicle_no: string | null
-  /** 这张单里一共几个箱号（系统自动数） */
+  /** 这张单里一共几个柜号（系统自动数） */
   box_count: number
   /** 这个合同号在合同库里有对应记录时给出 id，前端据此渲染成可点的链接 */
   contract_id: number | null
@@ -665,7 +665,7 @@ export type BaleRow = {
   bale_no: string
   /** 条码号：就是要打印贴包上的那张码 */
   barcode: string
-  /** 箱号 */
+  /** 柜号 */
   box_no: string
   shipment_id: number | null
   bl_no: string
@@ -732,7 +732,7 @@ export function updateBale(
   id: number,
   payload: {
     bale_no: string
-    /** 箱号（可空） */
+    /** 柜号（可空） */
     box_no?: string
     items: Array<{
       species: string
@@ -766,7 +766,7 @@ export function deleteBale(id: number) {
   })
 }
 
-// 包列表（一包一条，带条码号/箱号/提单号/合同号/出库单号）
+// 包列表（一包一条，带条码号/柜号/提单号/合同号/出库单号）
 export function fetchBales(query: BaleQuery = {}) {
   const search = new URLSearchParams()
   if (query.keyword) search.set('keyword', query.keyword)

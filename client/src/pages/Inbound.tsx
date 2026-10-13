@@ -62,7 +62,7 @@ const previewAmount = (cubic: number, unitPrice: string) =>
 
 type FormRow = {
   key: number
-  /** 箱号：这包货装在哪个箱/柜里 */
+  /** 柜号：这包货装在哪个柜/柜里 */
   boxNo: string
   /** 包号（=码单号）：留空由系统自动编号；混装包时手动填同一个号 */
   baleLabel: string
@@ -241,7 +241,7 @@ type RowField =
 
 const rowFields: { field: RowField; label: string }[] = [
   { field: 'baleLabel', label: '包号' },
-  { field: 'boxNo', label: '箱号' },
+  { field: 'boxNo', label: '柜号' },
   { field: 'species', label: '品名 *' },
   { field: 'grade', label: '等级' },
   { field: 'thickness', label: '厚度 (mm)' },
@@ -606,7 +606,7 @@ export default function Inbound({
     }
   }, [computedRows, activeShipment])
 
-  /** 柜数：明细里填了几个不同的箱号，系统自己数 */
+  /** 柜数：明细里填了几个不同的柜号，系统自己数 */
   const boxCount = useMemo(() => {
     const boxes = new Set<string>()
     for (const row of computedRows) {
@@ -1639,10 +1639,10 @@ export default function Inbound({
                 }
               />
             </label>
-            {/* 柜数按明细里的箱号自动统计，不用手填 */}
+            {/* 柜数按明细里的柜号自动统计，不用手填 */}
             <label className="sheet-field">
               <span>柜数（自动统计）</span>
-              <input className="input input-readonly" readOnly value={`${boxCount} 个箱`} />
+              <input className="input input-readonly" readOnly value={`${boxCount} 个柜`} />
             </label>
           </div>
 

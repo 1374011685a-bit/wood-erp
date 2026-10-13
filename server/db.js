@@ -797,13 +797,13 @@ function migrateVehicleNo() {
   if (added.length > 0) writeLog('[db] 迁移：单据新增列 vehicle_no（车号）')
 }
 
-/** 箱号：一包货装在哪个箱/柜里，工人手填，单据上自动统计箱数 */
+/** 柜号：一包货装在哪个柜/柜里，工人手填，单据上自动统计柜数 */
 function migrateBoxNo() {
   const added = [
     addColumnIfMissing('bales', 'box_no', 'TEXT'),
     addColumnIfMissing('order_items', 'box_no', 'TEXT'),
   ].filter(Boolean)
-  if (added.length > 0) writeLog('[db] 迁移：包与明细新增列 box_no（箱号）')
+  if (added.length > 0) writeLog('[db] 迁移：包与明细新增列 box_no（柜号）')
 }
 
 /**
@@ -975,6 +975,34 @@ function migrateBaleScope() {
  * 数据修复：入库单上填了提单号、但包还没挂到那张提单上的，
  * 按单号补挂一次，「采购入库明细」里才对得上。
  */
+/**
+ * 空提单清理：库里不该存在「一包货都没有」的提单。
+ * 删单时已经会自动清，这里兜住历史遗留（每次启动扫一遍，有才动手并打印）。
+ */
+function cleanEmptyShipments() {
+  const empties = db
+    .prepare(
+      `SELECT s.id, s.bl_no FROM shipments s
+        WHERE s.deleted_at IS NULL
+          AND NOT EXISTS (
+                SELECT 1 FROM bales b
+                 WHERE b.shipment_id = s.id AND b.deleted_at IS NULL
+              )`,
+    )
+    .all()
+  if (empties.length === 0) return
+
+  const softDelete = db.prepare(
+    `UPDATE shipments SET deleted_at = datetime('now', 'localtime')
+      WHERE id = ? AND deleted_at IS NULL`,
+  )
+  for (const ship of empties) softDelete.run(ship.id)
+  writeLog(
+    `[db] 清理空提单 ${empties.length} 张（一包货都没有的）：` +
+      empties.map((s) => `${s.bl_no}(id=${s.id})`).join('、'),
+  )
+}
+
 function relinkBalesToShipment() {
   // 先补：入库单填了提单号、但系统里还没有这张提单的，按单上的信息建一张
   const created = db
@@ -1257,6 +1285,8 @@ export function initDB() {
   migrateBaleItemPrice()
   migrateBaleSoftDelete()
   relinkBalesToShipment()
+  // 补挂之后再看一遍：如果某张提单还是没货，就清掉
+  cleanEmptyShipments()
   // 注意顺序：补挂提单会改 shipment_id，范围键必须在它之后再算
   migrateBaleScope()
   seedDefaultAdmin()

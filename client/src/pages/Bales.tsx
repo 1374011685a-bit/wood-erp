@@ -328,7 +328,7 @@ export default function Bales() {
       <div className="toolbar">
         <input
           className="input"
-          placeholder="包号 / 条码号 / 箱号 / 提单号 / 合同号"
+          placeholder="包号 / 条码号 / 柜号 / 提单号 / 合同号"
           value={input.keyword}
           onChange={(event) => setInput((prev) => ({ ...prev, keyword: event.target.value }))}
           onKeyDown={(event) => {
@@ -368,7 +368,7 @@ export default function Bales() {
             <tr>
               <th>包号</th>
               <th>条码号</th>
-              <th>箱号</th>
+              <th>柜号</th>
               <th>提单号</th>
               <th>合同号</th>
               <th>品名</th>
@@ -452,7 +452,7 @@ export default function Bales() {
                 />
               </label>
               <label className="field">
-                <span>箱号</span>
+                <span>柜号</span>
                 <input
                   className="input"
                   value={editBoxNo}

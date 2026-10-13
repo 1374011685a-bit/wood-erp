@@ -80,7 +80,7 @@ function normalizeItems(items) {
       bale_labels: Array.isArray(item.bale_labels)
         ? item.bale_labels.map((label) => String(label).trim()).filter(Boolean)
         : [],
-      // 箱号：这一行货装在哪个箱/柜里
+      // 柜号：这一行货装在哪个柜/柜里
       box_no: String(item.box_no ?? '').trim(),
       // 「同包再加一行」：明确标记过的行，才允许往已有的包里追加规格
       same_package: item.same_package === true,
@@ -606,7 +606,7 @@ router.get('/:id', (req, res) => {
     contract_id: contract?.id ?? null,
     total_cubic: totals.total_cubic,
     total_amount: fromCents(totals.amountCents),
-    // 柜数（箱号）：同一张单里有几个不同的箱号，系统自己数
+    // 柜数（柜号）：同一张单里有几个不同的柜号，系统自己数
     box_count: new Set(
       bales.map((bale) => bale.box_no).filter((box) => box && box.trim() !== ''),
     ).size,
