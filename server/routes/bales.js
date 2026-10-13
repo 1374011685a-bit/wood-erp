@@ -216,6 +216,55 @@ export const baleScopeKey = (shipmentId, inboundOrderId) =>
     : inboundOrderId
       ? `order:${inboundOrderId}`
       : ''
+
+/**
+ * 写库前先做一遍「预检」，全部通过才允许动数据库。
+ *
+ * 为什么要在事务之前单独做一遍：这些校验一旦漏到事务里，
+ * 触发的就是数据库约束报错（500），而且给用户看到的是一句 SQL 报错，
+ * 不是中文提示。预检通过后，事务里只剩纯粹的写入，不会中途失败。
+ */
+export function preflightBales({ shipmentId, inboundOrderId, items }) {
+  const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
+  const where = shipmentId ? '这张提单' : '这张入库单'
+  const seen = new Map() // 包号 -> 第一次出现的位置
+
+  items.forEach((item, index) => {
+    const labels = Array.isArray(item.bale_labels) ? item.bale_labels : []
+    if (labels.length === 0) return
+
+    const bundles = Math.round(Number(item.bundles ?? 0))
+    // 填了包号就必须和件数对得上（一个包号一包货）
+    if (labels.length !== bundles) {
+      const error = new Error(
+        `第 ${index + 1} 行：件数填了 ${bundles} 件，但填了 ${labels.length} 个包号。请改成一致：` +
+          `要么把件数改成 ${labels.length}，要么补齐包号，要么清空包号让系统自动编号`,
+      )
+      error.status = 400
+      throw error
+    }
+
+    if (item.same_package === true) return // 同包行是往已有的包里加规格，不参与查重
+
+    for (const label of labels) {
+      const key = String(label).trim()
+      if (!key) continue
+      if (seen.has(key)) {
+        const error = new Error(
+          `第 ${index + 1} 行：包号 ${key} 在本次录入里重复了（第 ${seen.get(key)} 行已经用过），请换一个包号`,
+        )
+        error.status = 400
+        throw error
+      }
+      seen.set(key, index + 1)
+      if (scopeKey && findBaleInScope.get(scopeKey, key)) {
+        const error = new Error(`包号 ${key} 在${where}里已存在，请换一个包号`)
+        error.status = 400
+        throw error
+      }
+    }
+  })
+}
 const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ?`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items
@@ -287,20 +336,16 @@ export function createBalesForItem({
     let bale = label ? findBaleInScope.get(scopeKey, label) : null
     if (bale) {
       // 只有「同包再加一行」这种明确标记过的行，才允许往已有的包里加规格
+      // 预检已经把关，这里只是兜底
       if (samePackage !== true) {
-        const error = new Error(
-          shipmentId
-            ? `包号 ${label} 在这张提单里已存在，请换一个包号`
-            : `包号 ${label} 在这张入库单里已存在，请换一个包号`,
-        )
+        const error = new Error(`包号 ${label} 在这张提单里已存在，请换一个包号`)
         error.status = 400
         throw error
       }
     } else {
+      // 预检已经把关，这里只是兜底
       if (samePackage === true) {
-        const error = new Error(
-          `「同包再加一行」的那一行没找到对应的包号 ${label || '（空）'}，请把它放在同一包号那一行的下面`,
-        )
+        const error = new Error(`「同包再加一行」没找到对应的包号 ${label}，请检查`)
         error.status = 400
         throw error
       }

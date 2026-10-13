@@ -3,7 +3,7 @@ import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
 import { pageParams } from '../utils/paging.js'
-import { createBalesForItem } from './bales.js'
+import { createBalesForItem, preflightBales } from './bales.js'
 
 const router = express.Router()
 
@@ -222,6 +222,16 @@ router.post('/', (req, res) => {
   const problems = validateItems(items)
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
+  }
+  // 包号 / 件数 / 查重：全部在写库之前拦下，保证要么全写成、要么一条不写
+  try {
+    preflightBales({
+      shipmentId: shipment ? shipment.id : null,
+      inboundOrderId: null,
+      items,
+    })
+  } catch (err) {
+    return res.status(err.status === 400 ? 400 : 500).json({ error: err.message })
   }
 
   try {
