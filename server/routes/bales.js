@@ -21,7 +21,7 @@ const listSql = (where) => `
     FROM bales b
     LEFT JOIN shipments s       ON s.id = b.shipment_id
     LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
-   WHERE 1 = 1 ${where}
+   WHERE b.deleted_at IS NULL ${where}
    ORDER BY b.status = 'in_stock' DESC, b.id DESC
 `
 
@@ -72,7 +72,7 @@ router.get('/', (req, res) => {
     SELECT COUNT(*) AS total
       FROM bales b
       LEFT JOIN shipments s ON s.id = b.shipment_id
-     WHERE 1 = 1 ${where}
+     WHERE b.deleted_at IS NULL ${where}
   `
   const total = Number(
     db.prepare(countSql).get(...params)?.total ?? 0,
@@ -167,7 +167,7 @@ function maxSequence(barcodes) {
 export function nextBaleSequence(shipmentId, inboundOrderNo) {
   if (shipmentId) {
     const rows = db
-      .prepare(`SELECT barcode FROM bales WHERE shipment_id = ?`)
+      .prepare(`SELECT barcode FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`)
       .all(shipmentId)
     return maxSequence(rows.map((row) => row.barcode)) + 1
   }
@@ -175,7 +175,7 @@ export function nextBaleSequence(shipmentId, inboundOrderNo) {
   const rows = db
     .prepare(
       `SELECT barcode FROM bales
-        WHERE shipment_id IS NULL AND inbound_order_id IN
+        WHERE deleted_at IS NULL AND shipment_id IS NULL AND inbound_order_id IN
               (SELECT id FROM inbound_orders WHERE order_no = ?)`,
     )
     .all(inboundOrderNo)
@@ -185,7 +185,7 @@ export function nextBaleSequence(shipmentId, inboundOrderNo) {
 /** 这张提单已经贴了几张码单（给入库表单做「下一个条码号从几开始」的提示） */
 export function shipmentBaleInfo(shipmentId) {
   const rows = db
-    .prepare(`SELECT barcode FROM bales WHERE shipment_id = ?`)
+    .prepare(`SELECT barcode FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`)
     .all(shipmentId)
   return {
     count: rows.length,
@@ -204,7 +204,7 @@ const insertBale = db.prepare(
 
 /** 包号查重：同一范围（提单 / 散货按入库单）里找同名包 */
 const findBaleInScope = db.prepare(
-  `SELECT * FROM bales WHERE scope_key = ? AND bale_no = ?`,
+  `SELECT * FROM bales WHERE scope_key = ? AND bale_no = ? AND deleted_at IS NULL`,
 )
 export const findBaleByScopeNo = (scopeKey, baleNo) =>
   findBaleInScope.get(scopeKey, baleNo)
@@ -265,7 +265,7 @@ export function preflightBales({ shipmentId, inboundOrderId, items }) {
     }
   })
 }
-const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ?`)
+const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items
      (bale_id, species, grade, thickness, width, length, pieces, cubic, unit_price_cents)
@@ -417,7 +417,7 @@ export function createBalesForItem({
 
 /* ---------- 码单编辑 / 删除：库存口径在入库单明细上，必须同步 ---------- */
 
-const getBaleStmt = db.prepare(`SELECT * FROM bales WHERE id = ?`)
+const getBaleStmt = db.prepare(`SELECT * FROM bales WHERE id = ? AND deleted_at IS NULL`)
 export const baleItemsStmt = db.prepare(
   `SELECT * FROM bale_items WHERE bale_id = ? ORDER BY id`,
 )

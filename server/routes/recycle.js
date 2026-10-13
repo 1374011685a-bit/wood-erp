@@ -67,7 +67,7 @@ router.get('/', (_req, res) => {
 
 const findDeletedStmt = {
   in: db.prepare(
-    `SELECT id, order_no FROM inbound_orders WHERE id = ? AND deleted_at IS NOT NULL`,
+    `SELECT id, order_no, shipment_id FROM inbound_orders WHERE id = ? AND deleted_at IS NOT NULL`,
   ),
   out: db.prepare(
     `SELECT id, order_no FROM outbound_orders WHERE id = ? AND deleted_at IS NOT NULL`,
@@ -175,6 +175,18 @@ const restoreOrder = db.transaction((type, id) => {
 
   restoreItemsStmt[type].run(id)
   restoreOrderStmt[type].run(id)
+
+  // 入库单恢复时：把包一起恢复，并把跟着软删的提单也带回来
+  if (type === 'in') {
+    db.prepare(
+      `UPDATE bales SET deleted_at = NULL
+        WHERE inbound_order_id = ? AND deleted_at IS NOT NULL`,
+    ).run(id)
+    if (order.shipment_id) {
+      db.prepare(`UPDATE shipments SET deleted_at = NULL WHERE id = ?`).run(order.shipment_id)
+    }
+  }
+
   return order
 })
 
@@ -212,6 +224,34 @@ const purgeItemsStmt = {
   out: db.prepare(`DELETE FROM order_items WHERE order_type = 'out' AND order_id = ?`),
 }
 
+// 彻底删入库单时，连同已经软删的包和它的提单一起清掉，不留垃圾
+function purgeInboundExtras(orderId) {
+  const order = db
+    .prepare(`SELECT shipment_id FROM inbound_orders WHERE id = ?`)
+    .get(orderId)
+  const bales = db
+    .prepare(`SELECT id FROM bales WHERE inbound_order_id = ?`)
+    .all(orderId)
+  for (const bale of bales) {
+    db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
+  }
+  db.prepare(`DELETE FROM bales WHERE inbound_order_id = ?`).run(orderId)
+
+  if (order?.shipment_id) {
+    const left = Number(
+      db
+        .prepare(
+          `SELECT COUNT(*) AS total FROM bales
+            WHERE shipment_id = ? AND deleted_at IS NULL`,
+        )
+        .get(order.shipment_id)?.total ?? 0,
+    )
+    if (left === 0) {
+      db.prepare(`DELETE FROM shipments WHERE id = ?`).run(order.shipment_id)
+    }
+  }
+}
+
 // 明细本来就是删除状态，物理删掉不影响任何库存数字
 const purgeOrder = db.transaction((type, id) => {
   const order = findDeletedStmt[type].get(id)
@@ -222,6 +262,7 @@ const purgeOrder = db.transaction((type, id) => {
   }
 
   purgeItemsStmt[type].run(id)
+  if (type === 'in') purgeInboundExtras(id)
   purgeOrderStmt[type].run(id)
   return order
 })

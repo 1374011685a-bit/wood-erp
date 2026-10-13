@@ -29,13 +29,13 @@ const findByNoStmt = db.prepare(
 const listSql = (where) => `
   SELECT s.*,
          (SELECT COUNT(*) FROM bales b
-           WHERE b.shipment_id = s.id)                               AS bale_total,
+           WHERE b.shipment_id = s.id AND b.deleted_at IS NULL)                               AS bale_total,
          (SELECT COUNT(*) FROM bales b
-           WHERE b.shipment_id = s.id AND b.status = 'in_stock')     AS bale_in_stock,
+           WHERE b.shipment_id = s.id AND b.status = 'in_stock' AND b.deleted_at IS NULL)     AS bale_in_stock,
          (SELECT ROUND(COALESCE(SUM(b.cubic), 0), 4) FROM bales b
-           WHERE b.shipment_id = s.id)                               AS bale_cubic,
+           WHERE b.shipment_id = s.id AND b.deleted_at IS NULL)                               AS bale_cubic,
          (SELECT COUNT(DISTINCT b.box_no) FROM bales b
-           WHERE b.shipment_id = s.id
+           WHERE b.shipment_id = s.id AND b.deleted_at IS NULL
              AND b.box_no IS NOT NULL AND TRIM(b.box_no) <> '')      AS box_count
     FROM shipments s
    WHERE s.deleted_at IS NULL ${where}

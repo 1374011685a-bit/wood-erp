@@ -99,7 +99,7 @@ const findShipmentStmt = db.prepare(
   `SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL`,
 )
 const findShipmentByNoStmt = db.prepare(
-  `SELECT * FROM shipments WHERE bl_no = ? AND deleted_at IS NULL`,
+  `SELECT * FROM shipments WHERE lower(bl_no) = lower(?) AND deleted_at IS NULL`,
 )
 const insertShipmentStmt = db.prepare(
   `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
@@ -507,12 +507,12 @@ router.get('/', (req, res) => {
               (SELECT s.bl_no FROM shipments s
                 WHERE s.id = o.shipment_id)        AS bl_no_of_shipment,
               (SELECT COUNT(*) FROM bales b
-                WHERE b.inbound_order_id = o.id)   AS bale_total,
+                WHERE b.inbound_order_id = o.id AND b.deleted_at IS NULL)   AS bale_total,
               (SELECT COUNT(*) FROM bales b
-                WHERE b.inbound_order_id = o.id AND b.status = 'in_stock')
+                WHERE b.inbound_order_id = o.id AND b.status = 'in_stock' AND b.deleted_at IS NULL)
                                                    AS bale_in_stock,
               (SELECT COUNT(DISTINCT b.box_no) FROM bales b
-                WHERE b.inbound_order_id = o.id
+                WHERE b.inbound_order_id = o.id AND b.deleted_at IS NULL
                   AND b.box_no IS NOT NULL AND TRIM(b.box_no) <> '')
                                                    AS box_count,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
@@ -570,7 +570,7 @@ router.get('/:id', (req, res) => {
               o.order_no AS outbound_order_no
          FROM bales b
          LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
-        WHERE b.inbound_order_id = ?
+        WHERE b.inbound_order_id = ? AND b.deleted_at IS NULL
         ORDER BY b.bale_no`,
     )
     .all(id)
@@ -618,7 +618,7 @@ router.get('/:id', (req, res) => {
 /* ---------- 删除 ---------- */
 
 const getOrderStmt = db.prepare(
-  `SELECT id, order_no FROM inbound_orders WHERE id = ? AND deleted_at IS NULL`,
+  `SELECT id, order_no, shipment_id FROM inbound_orders WHERE id = ? AND deleted_at IS NULL`,
 )
 
 const orderItemsStmt = db.prepare(
@@ -657,7 +657,23 @@ const shippedBaleCountStmt = db.prepare(
   `SELECT COUNT(*) AS total FROM bales
     WHERE inbound_order_id = ? AND status = 'shipped'`,
 )
-const deleteBalesStmt = db.prepare(`DELETE FROM bales WHERE inbound_order_id = ?`)
+// 包只打删除标记，不真删：回收站恢复单据时，包和条码号要跟着回来
+const softDeleteBalesStmt = db.prepare(
+  `UPDATE bales SET deleted_at = datetime('now', 'localtime')
+    WHERE inbound_order_id = ? AND deleted_at IS NULL`,
+)
+const packDeleteBalesStmt = db.prepare(
+  `DELETE FROM bales WHERE inbound_order_id = ?`,
+)
+// 这张提单还有几包货（没被删的）
+const liveBaleCountStmt = db.prepare(
+  `SELECT COUNT(*) AS total FROM bales
+    WHERE shipment_id = ? AND deleted_at IS NULL`,
+)
+const softDeleteShipmentStmt = db.prepare(
+  `UPDATE shipments SET deleted_at = datetime('now', 'localtime')
+    WHERE id = ? AND deleted_at IS NULL`,
+)
 
 // 事务：先校验删完库存会不会变负，通过后再删明细、删单头
 const removeInbound = db.transaction((id) => {
@@ -728,11 +744,23 @@ const removeInbound = db.transaction((id) => {
     throw error
   }
 
-  deleteBalesStmt.run(id)
+  softDeleteBalesStmt.run(id)
   softDeleteOrderItemsStmt.run(id)
   softDeleteOrderStmt.run(id)
 
-  return order
+  // 这张提单要是没货了，一并软删（回收站恢复时再跟着回来）
+  let removedShipment = null
+  if (order.shipment_id && Number(liveBaleCountStmt.get(order.shipment_id)?.total ?? 0) === 0) {
+    const ship = db
+      .prepare(`SELECT id, bl_no FROM shipments WHERE id = ? AND deleted_at IS NULL`)
+      .get(order.shipment_id)
+    if (ship) {
+      softDeleteShipmentStmt.run(ship.id)
+      removedShipment = { id: ship.id, bl_no: ship.bl_no }
+    }
+  }
+
+  return { order, removedShipment }
 })
 
 // 删除入库单
@@ -743,8 +771,8 @@ router.delete('/:id', (req, res) => {
   }
 
   try {
-    removeInbound(id)
-    res.json({ ok: true })
+    const { removedShipment } = removeInbound(id)
+    res.json({ ok: true, removed_shipment: removedShipment })
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })

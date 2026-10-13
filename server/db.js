@@ -807,6 +807,16 @@ function migrateBoxNo() {
 }
 
 /**
+ * 包支持软删：删入库单时不再真删包，只打 deleted_at 标记。
+ * 这样从回收站恢复单据时，包、码单号、规格行能一起回来（以前回来的是空单）。
+ */
+function migrateBaleSoftDelete() {
+  const added = addColumnIfMissing('bales', 'deleted_at', 'TEXT')
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_deleted ON bales (deleted_at)`)
+  if (added) writeLog('[db] 迁移：包新增列 deleted_at（删单据时随单软删，可随回收站恢复）')
+}
+
+/**
  * 规格行记住自己那一行的成本单价。
  *
  * 为什么必须存：改包 / 编辑码单时，入库明细是「扣掉再挂回」重建的。
@@ -1245,6 +1255,7 @@ export function initDB() {
   migrateDropContainerLayer()
   migrateBoxNo()
   migrateBaleItemPrice()
+  migrateBaleSoftDelete()
   relinkBalesToShipment()
   // 注意顺序：补挂提单会改 shipment_id，范围键必须在它之后再算
   migrateBaleScope()

@@ -204,7 +204,7 @@ router.get('/bales', (_req, res) => {
               s.bl_no, s.contract_no
          FROM bales b
          LEFT JOIN shipments s ON s.id = b.shipment_id
-        WHERE b.status = 'in_stock'
+        WHERE b.status = 'in_stock' AND b.deleted_at IS NULL
         ORDER BY b.id DESC
         LIMIT 500`,
     )
