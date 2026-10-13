@@ -38,9 +38,10 @@ router.get('/', (req, res) => {
   if (keyword) {
     conditions.push(
       `AND (b.bale_no LIKE ? OR b.barcode LIKE ? OR b.box_no LIKE ?
+            OR b.species LIKE ? OR b.grade LIKE ?
             OR s.bl_no LIKE ? OR s.contract_no LIKE ?)`,
     )
-    params.push(keyword, keyword, keyword, keyword, keyword)
+    params.push(keyword, keyword, keyword, keyword, keyword, keyword, keyword)
   }
 
   const status = String(req.query.status ?? '').trim()
@@ -59,6 +60,27 @@ router.get('/', (req, res) => {
   if (species) {
     conditions.push(`AND b.species LIKE ?`)
     params.push(species)
+  }
+
+  // 改包选货要按仓库 / 入库日期筛：仓库和日期在入库单上
+  const warehouse = like(req.query.warehouse)
+  if (warehouse) {
+    conditions.push(
+      `AND b.inbound_order_id IN (SELECT id FROM inbound_orders WHERE warehouse LIKE ?)`,
+    )
+    params.push(warehouse)
+  }
+  if (req.query.date_from) {
+    conditions.push(
+      `AND b.inbound_order_id IN (SELECT id FROM inbound_orders WHERE order_date >= ?)`,
+    )
+    params.push(String(req.query.date_from))
+  }
+  if (req.query.date_to) {
+    conditions.push(
+      `AND b.inbound_order_id IN (SELECT id FROM inbound_orders WHERE order_date <= ?)`,
+    )
+    params.push(String(req.query.date_to))
   }
 
   const boxNo = like(req.query.box_no)

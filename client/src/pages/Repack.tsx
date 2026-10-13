@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   createRepack,
+  fetchBaleDetail,
+  fetchBales,
   deleteRepack,
   fetchRepackBales,
   fetchRepackList,
   fetchDict,
+  type BaleRow,
   type RepackBale,
   type RepackLine,
   type RepackRow,
@@ -67,6 +70,19 @@ const lineCubic = (line: RepackLine) => roundTo(line.cubic ?? 0, 4)
 export default function Repack() {
   const [bales, setBales] = useState<RepackBale[]>([])
   const [baleId, setBaleId] = useState(0)
+  // 选货弹窗
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState({
+    keyword: '',
+    warehouse: '',
+    status: 'in_stock' as '' | 'in_stock' | 'shipped',
+    date_from: '',
+    date_to: '',
+  })
+  const [pickerRows, setPickerRows] = useState<BaleRow[]>([])
+  const [pickerTotal, setPickerTotal] = useState(0)
+  const [pickerOffset, setPickerOffset] = useState(0)
+  const [pickerLoading, setPickerLoading] = useState(false)
   const [rows, setRows] = useState<AfterRow[]>(() => [createRow()])
   const [form, setForm] = useState({
     repackDate: todayISO(),
@@ -189,20 +205,68 @@ export default function Repack() {
     [rows, derivedPrice],
   )
 
-  const pickBale = (id: number) => {
-    setBaleId(id)
-    const hit = bales.find((item) => item.id === id)
-    setRows(
-      hit && hit.items.length > 0 ? hit.items.map(rowFromLine) : [createRow()],
-    )
-    setForm((prev) => ({
-      ...prev,
-      // 提单号 / 合同号默认跟着改前（柜上的），要改就自己填
-      blNo: hit?.bl_no ?? '',
-      contractNo: hit?.contract_no ?? '',
-    }))
-    setError('')
+  /** 选货弹窗里选中一包：拉它的规格明细填进表单 */
+  const pickFromPicker = async (row: BaleRow) => {
+    try {
+      const full = await fetchBaleDetail(row.id)
+      const asBale = {
+        id: full.id,
+        bale_no: full.bale_no,
+        barcode: full.barcode,
+        cubic: full.cubic,
+        pieces: full.pieces,
+        bl_no: row.bl_no,
+        contract_no: row.contract_no,
+        items: full.items.map((item) => ({
+          species: item.species,
+          grade: item.grade,
+          thickness: item.thickness,
+          width: item.width,
+          length: item.length,
+          pieces: item.pieces,
+          cubic: item.cubic,
+          unit_price: item.unit_price ?? 0,
+        })),
+      }
+      setBales((prev) => (prev.some((b) => b.id === asBale.id) ? prev : [...prev, asBale]))
+      setBaleId(full.id)
+      setRows(full.items.length > 0 ? full.items.map(rowFromLine) : [createRow()])
+      setForm((prev) => ({ ...prev, blNo: row.bl_no ?? '', contractNo: row.contract_no ?? '' }))
+      setError('')
+      setPickerOpen(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读取这一包失败')
+    }
   }
+
+  const loadPickerRows = useCallback(
+    async (query: typeof pickerQuery, offset: number) => {
+      setPickerLoading(true)
+      try {
+        const page = await fetchBales({
+          keyword: query.keyword.trim() || undefined,
+          warehouse: query.warehouse.trim() || undefined,
+          status: query.status,
+          date_from: query.date_from || undefined,
+          date_to: query.date_to || undefined,
+          limit: 20,
+          offset,
+        })
+        setPickerRows(page.rows)
+        setPickerTotal(page.total)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '加载货物失败')
+      } finally {
+        setPickerLoading(false)
+      }
+    },
+    [],
+  )
+
+  useEffect(() => {
+    if (!pickerOpen) return
+    void loadPickerRows(pickerQuery, pickerOffset)
+  }, [pickerOpen, pickerQuery, pickerOffset, loadPickerRows])
 
   const copyBefore = () => {
     if (!bale) return
@@ -405,20 +469,14 @@ export default function Repack() {
         {/* 改包前：只读 */}
         <div className="sheet-toolbar">
           <span className="section-tag">改包前</span>
-          <select
-            className="input sheet-pick"
-            value={baleId}
-            onChange={(event) => pickBale(Number(event.target.value))}
-          >
-            <option value={0}>选择要改的那一包（条码号 / 包号）…</option>
-            {bales.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.barcode || item.bale_no} · 包号 {item.bale_no || '—'} ·{' '}
-                {item.items.map((line) => line.species).join('+') || '—'} ·{' '}
-                {formatCubic(item.cubic)} 立方
-              </option>
-            ))}
-          </select>
+          <button className="btn btn-sm btn-primary" onClick={() => setPickerOpen(true)}>
+            选择货物
+          </button>
+          <span className="muted">
+            {bale
+              ? `已选 ${bale.barcode || bale.bale_no} · 包号 ${bale.bale_no || '—'}`
+              : '还没选货'}
+          </span>
           <span className="spacer" />
           <span className="muted">
             {bale
@@ -818,6 +876,149 @@ export default function Repack() {
                 确认撤销
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 选择货物：搜索 + 筛选 + 分页，选中后自动带出这一包的规格 */}
+      {pickerOpen && (
+        <div className="overlay" onClick={() => setPickerOpen(false)}>
+          <div className="modal modal-xwide modal-sheet" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h2 className="modal-title">选择货物</h2>
+              <button className="btn btn-sm btn-quiet" onClick={() => setPickerOpen(false)}>
+                关闭
+              </button>
+            </div>
+
+            <div className="toolbar">
+              <input
+                className="input"
+                placeholder="包号 / 品名 / 等级 / 柜号 / 提单号"
+                value={pickerQuery.keyword}
+                onChange={(event) =>
+                  setPickerQuery((prev) => ({ ...prev, keyword: event.target.value }))
+                }
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') setPickerOffset(0)
+                }}
+              />
+              <input
+                className="input"
+                placeholder="仓库"
+                value={pickerQuery.warehouse}
+                onChange={(event) =>
+                  setPickerQuery((prev) => ({ ...prev, warehouse: event.target.value }))
+                }
+              />
+              <select
+                className="input"
+                value={pickerQuery.status}
+                onChange={(event) =>
+                  setPickerQuery((prev) => ({
+                    ...prev,
+                    status: event.target.value as '' | 'in_stock' | 'shipped',
+                  }))
+                }
+              >
+                <option value="">全部状态</option>
+                <option value="in_stock">在库</option>
+                <option value="shipped">已出库</option>
+              </select>
+              <input
+                className="input"
+                type="date"
+                value={pickerQuery.date_from}
+                onChange={(event) =>
+                  setPickerQuery((prev) => ({ ...prev, date_from: event.target.value }))
+                }
+              />
+              <span className="muted">至</span>
+              <input
+                className="input"
+                type="date"
+                value={pickerQuery.date_to}
+                onChange={(event) =>
+                  setPickerQuery((prev) => ({ ...prev, date_to: event.target.value }))
+                }
+              />
+              <button className="btn" onClick={() => setPickerOffset(0)}>
+                查询
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setPickerQuery({
+                    keyword: '',
+                    warehouse: '',
+                    status: 'in_stock',
+                    date_from: '',
+                    date_to: '',
+                  })
+                  setPickerOffset(0)
+                }}
+              >
+                重置
+              </button>
+              <span className="spacer" />
+              <span className="muted">共 {pickerTotal} 包</span>
+            </div>
+
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>包号</th>
+                  <th>品名</th>
+                  <th>等级</th>
+                  <th className="num">厚×宽×长</th>
+                  <th className="num">片数</th>
+                  <th className="num">立方</th>
+                  <th>柜号</th>
+                  <th>提单码</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pickerRows.map((row) => (
+                  <tr key={row.id}>
+                    <td>{row.bale_no || '—'}</td>
+                    <td>{row.species}</td>
+                    <td>{row.grade || '—'}</td>
+                    <td className="num">
+                      {row.thickness}×{row.width}×{row.length}
+                    </td>
+                    <td className="num">{row.pieces}</td>
+                    <td className="num">{formatCubic(row.cubic)}</td>
+                    <td>{row.box_no || '—'}</td>
+                    <td>{row.bl_no || '—'}</td>
+                    <td>
+                      <span className={row.status === 'in_stock' ? 'tag tag-in' : 'tag tag-out'}>
+                        {row.status === 'in_stock' ? '在库' : '已出库'}
+                      </span>
+                    </td>
+                    <td>
+                      <button className="btn btn-sm btn-primary" onClick={() => void pickFromPicker(row)}>
+                        选择
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {!pickerLoading && pickerRows.length === 0 && (
+              <EmptyState text="没有找到符合条件的包" />
+            )}
+            {pickerLoading && <Loading />}
+
+            <Pager
+              total={pickerTotal}
+              limit={20}
+              offset={pickerOffset}
+              onChange={setPickerOffset}
+              unit="个包"
+            />
           </div>
         </div>
       )}

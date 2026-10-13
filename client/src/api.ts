@@ -695,6 +695,10 @@ export type BaleQuery = {
   status?: '' | 'in_stock' | 'shipped'
   shipment_id?: number
   box_no?: string
+  /** 改包选货用：按仓库 / 入库日期筛 */
+  warehouse?: string
+  date_from?: string
+  date_to?: string
   species?: string
   limit?: number
   offset?: number
@@ -777,6 +781,9 @@ export function fetchBales(query: BaleQuery = {}) {
   if (query.status) search.set('status', query.status)
   if (query.shipment_id) search.set('shipment_id', String(query.shipment_id))
   if (query.box_no) search.set('box_no', query.box_no)
+  if (query.warehouse) search.set('warehouse', query.warehouse)
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
   if (query.species) search.set('species', query.species)
   if (query.limit) search.set('limit', String(query.limit))
   if (query.offset) search.set('offset', String(query.offset))
