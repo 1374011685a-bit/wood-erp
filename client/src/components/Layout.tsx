@@ -51,6 +51,17 @@ const navGroups: NavGroup[] = [
       </>
     ),
       },
+      {
+        to: '/contracts',
+        label: '合同',
+        icon: (
+          <>
+            <path d="M6.8 3.6h7.4l4.2 4.2v12.6H6.8z" />
+            <path d="M13.9 3.6v4.5h4.5" />
+            <path d="M9.6 13.4h5M9.6 16.4h5" />
+          </>
+        ),
+      },
     ],
   },
   {

@@ -80,8 +80,9 @@ function normalizeItems(items) {
 }
 
 const insertOrder = db.prepare(
-  `INSERT INTO inbound_orders (order_no, supplier, order_date, remark, warehouse, operator)
-   VALUES (?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO inbound_orders
+     (order_no, supplier, order_date, remark, warehouse, operator, bl_no, contract_no)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 )
 
 const insertItem = db.prepare(
@@ -95,7 +96,17 @@ const insertItem = db.prepare(
 
 // 事务：先插单头，再批量插明细
 const createInbound = db.transaction(
-  ({ orderNo, supplier, orderDate, remark, warehouse, operator, items }) => {
+  ({
+    orderNo,
+    supplier,
+    orderDate,
+    remark,
+    warehouse,
+    operator,
+    blNo,
+    contractNo,
+    items,
+  }) => {
   const { lastInsertRowid } = insertOrder.run(
     orderNo,
     supplier,
@@ -103,6 +114,8 @@ const createInbound = db.transaction(
     remark || null,
     warehouse,
     operator || null,
+    blNo || null,
+    contractNo || null,
   )
   const orderId = Number(lastInsertRowid)
   for (const item of items) {
@@ -120,6 +133,8 @@ router.post('/', (req, res) => {
   const remark = body.remark ? String(body.remark) : ''
   const warehouse = String(body.warehouse ?? '').trim()
   const operator = String(body.operator ?? '').trim()
+  const blNo = String(body.bl_no ?? '').trim()
+  const contractNo = String(body.contract_no ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
@@ -147,6 +162,8 @@ router.post('/', (req, res) => {
       remark,
       warehouse,
       operator,
+      blNo,
+      contractNo,
       items,
     })
     res.json(result)
@@ -160,7 +177,8 @@ router.post('/', (req, res) => {
 // 修改用到的语句（删除校验里的 getOrderStmt / orderItemsStmt / stockOfSpecStmt 复用删除那套）
 const updateOrderStmt = db.prepare(
   `UPDATE inbound_orders
-      SET supplier = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?
+      SET supplier = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?,
+          bl_no = ?, contract_no = ?
     WHERE id = ? AND deleted_at IS NULL`,
 )
 const replaceOrderItemsStmt = db.prepare(
@@ -194,7 +212,17 @@ function bumpGroups(groups, item, sign) {
  * 单号保持不变，避免和已经打印/登记的凭证对不上。
  */
 const updateInbound = db.transaction(
-  ({ id, supplier, orderDate, remark, warehouse, operator, items }) => {
+  ({
+    id,
+    supplier,
+    orderDate,
+    remark,
+    warehouse,
+    operator,
+    blNo,
+    contractNo,
+    items,
+  }) => {
   const order = getOrderStmt.get(id)
   if (!order) {
     const error = new Error('入库单不存在')
@@ -242,7 +270,16 @@ const updateInbound = db.transaction(
   for (const item of items) {
     insertItem.run({ ...item, order_id: id })
   }
-  updateOrderStmt.run(supplier, orderDate, remark || null, warehouse, operator || null, id)
+  updateOrderStmt.run(
+    supplier,
+    orderDate,
+    remark || null,
+    warehouse,
+    operator || null,
+    blNo || null,
+    contractNo || null,
+    id,
+  )
 
   return { id, order_no: order.order_no }
   },
@@ -261,6 +298,8 @@ router.put('/:id', (req, res) => {
   const remark = body.remark ? String(body.remark) : ''
   const warehouse = String(body.warehouse ?? '').trim()
   const operator = String(body.operator ?? '').trim()
+  const blNo = String(body.bl_no ?? '').trim()
+  const contractNo = String(body.contract_no ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
@@ -280,7 +319,19 @@ router.put('/:id', (req, res) => {
   }
 
   try {
-    res.json(updateInbound({ id, supplier, orderDate, remark, warehouse, operator, items }))
+    res.json(
+      updateInbound({
+        id,
+        supplier,
+        orderDate,
+        remark,
+        warehouse,
+        operator,
+        blNo,
+        contractNo,
+        items,
+      }),
+    )
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })
@@ -361,6 +412,9 @@ router.get('/', (req, res) => {
               o.order_date,
               o.warehouse,
               o.operator,
+              o.bl_no,
+              o.contract_no,
+              c.id                                 AS contract_id,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
               ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
                                                    AS total_amount,
@@ -368,6 +422,8 @@ router.get('/', (req, res) => {
          FROM inbound_orders o
          LEFT JOIN order_items i
                 ON i.order_id = o.id AND i.order_type = 'in'
+         LEFT JOIN contracts c
+                ON c.contract_no = o.contract_no AND c.deleted_at IS NULL
         ${where}
         GROUP BY o.id
         ORDER BY o.id DESC
@@ -388,6 +444,15 @@ router.get('/:id', (req, res) => {
   if (!order) {
     return res.status(404).json({ error: '入库单不存在' })
   }
+
+  // 这个合同号在合同库里有的话，把 id 一起给前端，用来渲染可点的链接
+  const contract = order.contract_no
+    ? db
+        .prepare(
+          `SELECT id FROM contracts WHERE contract_no = ? AND deleted_at IS NULL`,
+        )
+        .get(order.contract_no)
+    : null
 
   const items = db
     .prepare(
@@ -410,6 +475,7 @@ router.get('/:id', (req, res) => {
 
   res.json({
     ...order,
+    contract_id: contract?.id ?? null,
     total_cubic: totals.total_cubic,
     total_amount: fromCents(totals.amountCents),
     items,

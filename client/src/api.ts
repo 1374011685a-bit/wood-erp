@@ -24,6 +24,9 @@ export type CreateInboundPayload = {
   /** 仓库必填；操作员选填 */
   warehouse: string
   operator?: string
+  /** 进口报关信息，选填 */
+  bl_no?: string
+  contract_no?: string
   items: InboundItemPayload[]
 }
 
@@ -39,6 +42,10 @@ export type InboundListItem = {
   order_date: string | null
   warehouse: string | null
   operator: string | null
+  bl_no: string | null
+  contract_no: string | null
+  /** 这个合同号在合同库里有对应记录时给出 id，前端据此渲染成可点的链接 */
+  contract_id: number | null
   total_cubic: number
   total_amount: number
   item_count: number
@@ -61,6 +68,9 @@ export type InboundDetail = {
   remark: string | null
   warehouse: string | null
   operator: string | null
+  bl_no: string | null
+  contract_no: string | null
+  contract_id: number | null
   created_at: string
   total_cubic: number
   total_amount: number
@@ -537,6 +547,116 @@ export function statementExportUrl(query: StatementQuery) {
 }
 
 /* ---------- 回收站 ---------- */
+
+export type ContractRow = {
+  id: number
+  contract_no: string
+  title: string
+  partner: string
+  sign_date: string
+  amount: number
+  remark: string
+  file_original: string
+  file_size: number
+  has_file: boolean
+  created_at: string
+}
+
+export type ContractOption = {
+  id: number
+  contract_no: string
+  title: string
+  partner: string
+}
+
+export type ContractQuery = {
+  keyword?: string
+  partner?: string
+  date_from?: string
+  date_to?: string
+  limit?: number
+  offset?: number
+}
+
+// 合同列表（合同号/名称关键字、往来单位、签订日期范围，支持分页）
+export function fetchContracts(query: ContractQuery = {}) {
+  const search = new URLSearchParams()
+  if (query.keyword) search.set('keyword', query.keyword)
+  if (query.partner) search.set('partner', query.partner)
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  const qs = search.toString()
+  return request<Paged<ContractRow>>(`/api/contracts${qs ? `?${qs}` : ''}`)
+}
+
+// 入库单填合同号时的候选列表
+export function fetchContractOptions() {
+  return request<ContractOption[]>('/api/contracts/options')
+}
+
+// 新增 / 修改合同（multipart，含 PDF 文件）
+export function saveContract(form: FormData, id?: number) {
+  return request<{ ok: boolean; contract_no: string }>(
+    id ? `/api/contracts/${id}` : '/api/contracts',
+    { method: id ? 'PUT' : 'POST', body: form },
+  )
+}
+
+export function deleteContract(id: number) {
+  return request<{ ok: boolean }>(`/api/contracts/${id}`, { method: 'DELETE' })
+}
+
+/**
+ * 打开合同 PDF。
+ *
+ * 接口需要 Authorization 头，而新标签页直接打开 URL 带不上头，
+ * 所以先把 PDF 取成 blob 再打开——这样 token 不用暴露在地址栏里。
+ */
+export async function openContractFile(id: number) {
+  // 先同步开一个空白标签页：等 fetch 回来再 window.open 会被浏览器当弹窗拦掉
+  const tab = window.open('', '_blank')
+
+  try {
+    const token = getToken()
+    const response = await fetch(`/api/contracts/${id}/file`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+
+    if (!response.ok) {
+      let message = '打开合同失败'
+      try {
+        const data = await response.json()
+        if (data?.error) message = data.error
+      } catch {
+        // 忽略解析失败，用默认文案
+      }
+      throw new Error(message)
+    }
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    if (tab) {
+      tab.location.href = url
+    } else {
+      // 连空白标签都没开出来（被严格拦截）就直接在当前页打开
+      window.location.href = url
+    }
+    // 新窗口加载完再释放，太早释放会导致白屏
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  } catch (err) {
+    tab?.close()
+    throw err
+  }
+}
+
+export function formatFileSize(bytes: number) {
+  if (!bytes) return '—'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 export type RecycleRow = {
   type: 'in' | 'out'

@@ -14,6 +14,8 @@ server/data.db-wal
 server/data.db-shm
 # 每日快照（本地/容器里的数据副本，不进仓库）
 server/snapshots/
+# 附件（合同 PDF 等）
+server/uploads/
 data/
 server/.env
 # pnpm 会自动生成，内容是待确认的占位符，不需要提交

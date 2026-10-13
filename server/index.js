@@ -68,6 +68,9 @@ const recycleRouter = await load('./routes/recycle.js', async () =>
 const settlementRouter = await load('./routes/settlement.js', async () =>
   (await import('./routes/settlement.js')).default,
 )
+const contractsRouter = await load('./routes/contracts.js', async () =>
+  (await import('./routes/contracts.js')).default,
+)
 
 writeLog('[load] 全部模块加载完成')
 
@@ -129,6 +132,7 @@ app.use('/api/records', requireAuth, recordsRouter)
 app.use('/api/count', requireAuth, countRouter)
 app.use('/api/recycle', requireAuth, recycleRouter)
 app.use('/api/settlement', requireAuth, settlementRouter)
+app.use('/api/contracts', requireAuth, contractsRouter)
 
 // 生产模式：同时把前端构建产物当静态资源服务（先执行 cd client && pnpm build）
 const clientDist = path.join(serverDir, '..', 'client', 'dist')

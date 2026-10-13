@@ -13,9 +13,12 @@ import {
   downloadFile,
   fetchInboundDetail,
   fetchInboundList,
+  fetchContractOptions,
+  openContractFile,
   fetchStockList,
   inboundExportUrl,
   updateInbound,
+  type ContractOption,
   type InboundDetail,
   type InboundItemPayload,
   type InboundListFilters,
@@ -197,6 +200,8 @@ export default function Inbound() {
   const [total, setTotal] = useState(0)
   // 每次增删改后 +1，强制重新拉列表（避免「筛选没变就不刷新」）
   const [reloadToken, setReloadToken] = useState(0)
+  // 合同下拉选项（填合同号时给提示，不强制）
+  const [contractOptions, setContractOptions] = useState<ContractOption[]>([])
 
   const [detail, setDetail] = useState<InboundDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -221,6 +226,8 @@ export default function Inbound() {
     remark: '',
     warehouse: '',
     operator: '',
+    blNo: '',
+    contractNo: '',
   })
   const [rows, setRows] = useState<FormRow[]>(() => [createRow()])
   const [saving, setSaving] = useState(false)
@@ -272,6 +279,36 @@ export default function Inbound() {
   useEffect(() => {
     void loadList(filters, offset)
   }, [loadList, filters, offset, reloadToken])
+
+  // 打开表单时拉一次合同列表，供「合同号」下拉选择
+  useEffect(() => {
+    if (mode !== 'create') return
+    let cancelled = false
+    fetchContractOptions()
+      .then((options) => {
+        if (!cancelled) setContractOptions(options)
+      })
+      .catch(() => {
+        // 拉不到就退化成手填，不打扰用户
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [mode, editing])
+
+  /** 列表里点合同号 → 直接打开那份 PDF */
+  const handleOpenContract = async (contractId: number, contractNo: string) => {
+    setActionError('')
+    try {
+      await openContractFile(contractId)
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? `打开合同 ${contractNo} 失败：${err.message}`
+          : `打开合同 ${contractNo} 失败`,
+      )
+    }
+  }
 
   // 首次点保存后转为实时校验：改一个字段就刷新标红结果
   useEffect(() => {
@@ -422,6 +459,8 @@ export default function Inbound() {
       remark: '',
       warehouse: '',
       operator: '',
+      blNo: '',
+      contractNo: '',
     })
     setRows([createRow()])
     setMode('create')
@@ -440,6 +479,8 @@ export default function Inbound() {
         remark: data.remark ?? '',
         warehouse: data.warehouse ?? '',
         operator: data.operator ?? '',
+        blNo: data.bl_no ?? '',
+        contractNo: data.contract_no ?? '',
       })
       setRows(
         data.items.map((line) => ({
@@ -549,6 +590,8 @@ export default function Inbound() {
         remark: form.remark.trim(),
         warehouse: form.warehouse.trim(),
         operator: form.operator.trim(),
+        bl_no: form.blNo.trim(),
+        contract_no: form.contractNo.trim(),
         items,
       }
       const result = editing
@@ -563,6 +606,8 @@ export default function Inbound() {
         remark: '',
         warehouse: '',
         operator: '',
+        blNo: '',
+        contractNo: '',
       })
       setRows([createRow()])
       // 入库后库存变了，清掉「已有库存」提醒缓存
@@ -734,6 +779,7 @@ export default function Inbound() {
                 <th>供应商</th>
                 <th>日期</th>
                 <th>仓库</th>
+                <th>合同号 / 提单号</th>
                 <th className="num">总立方</th>
                 <th className="num">总金额</th>
                 <th className="num">明细数</th>
@@ -747,6 +793,26 @@ export default function Inbound() {
                   <td>{order.supplier}</td>
                   <td>{order.order_date}</td>
                   <td>{order.warehouse || '—'}</td>
+                  <td>
+                    {order.contract_no ? (
+                      order.contract_id ? (
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => void handleOpenContract(order.contract_id!, order.contract_no!)}
+                        >
+                          {order.contract_no}
+                        </button>
+                      ) : (
+                        order.contract_no
+                      )
+                    ) : (
+                      '—'
+                    )}
+                    {order.bl_no ? (
+                      <span className="cell-sub">提单 {order.bl_no}</span>
+                    ) : null}
+                  </td>
                   <td className="num">{formatCubic(order.total_cubic)}</td>
                   <td className="num amount">
                     {formatAmount(order.total_amount)}
@@ -848,6 +914,40 @@ export default function Inbound() {
                 }
               />
             </label>
+          </div>
+
+          {/* 第三行：提单号 + 合同号（合同号可以从已上传的合同里选） */}
+          <div className="field-row">
+            <label className="field">
+              <span>提单号</span>
+              <input
+                className="input"
+                placeholder="例如：BL-2026-0001"
+                value={form.blNo}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, blNo: event.target.value }))
+                }
+              />
+            </label>
+            <label className="field">
+              <span>合同号</span>
+              <input
+                className="input"
+                list="contract-options"
+                placeholder="可从已有合同里选，也可手填"
+                value={form.contractNo}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, contractNo: event.target.value }))
+                }
+              />
+            </label>
+            <datalist id="contract-options">
+              {contractOptions.map((option) => (
+                <option key={option.id} value={option.contract_no}>
+                  {[option.title, option.partner].filter(Boolean).join(' · ')}
+                </option>
+              ))}
+            </datalist>
           </div>
 
           <table className="table table-detail">
@@ -1010,6 +1110,27 @@ export default function Inbound() {
                   <span>日期：{detail.order_date}</span>
                   <span>仓库：{detail.warehouse || '—'}</span>
                   <span>操作员：{detail.operator || '—'}</span>
+                  <span>提单号：{detail.bl_no || '—'}</span>
+                  <span>
+                    合同号：
+                    {detail.contract_no ? (
+                      <button
+                        type="button"
+                        className="link-btn"
+                        onClick={() =>
+                          void handleOpenContract(
+                            detail.contract_id ?? 0,
+                            detail.contract_no ?? '',
+                          )
+                        }
+                        disabled={!detail.contract_id}
+                      >
+                        {detail.contract_no}
+                      </button>
+                    ) : (
+                      '—'
+                    )}
+                  </span>
                   <span>备注：{detail.remark || '—'}</span>
                   <span>创建时间：{detail.created_at}</span>
                 </div>

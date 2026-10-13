@@ -128,6 +128,8 @@ if (!probeDirectory(activeDir)) {
 }
 
 export const dbPath = path.join(activeDir, 'data.db')
+// 附件（合同 PDF 等）跟数据库放同一个目录，挂载卷一致
+export const storageDir = activeDir
 
 // ---------- 单实例锁 ----------
 //
@@ -513,6 +515,28 @@ const schema = `
     ON payments (side, partner, pay_date, id);
   CREATE INDEX IF NOT EXISTS idx_payments_date ON payments (pay_date);
 
+  -- 合同（PDF 存在数据目录的 uploads/contracts 下，库里只存元信息）
+  CREATE TABLE IF NOT EXISTS contracts (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    contract_no   TEXT    NOT NULL UNIQUE,
+    title         TEXT,
+    partner       TEXT,
+    sign_date     TEXT,
+    amount_cents  INTEGER NOT NULL DEFAULT 0,
+    remark        TEXT,
+    file_name     TEXT,
+    file_original TEXT,
+    file_size     INTEGER NOT NULL DEFAULT 0,
+    deleted_at    TEXT,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_contracts_no ON contracts (contract_no);
+  CREATE INDEX IF NOT EXISTS idx_contracts_partner ON contracts (partner);
+
+  -- 入库单上的提单号
+  -- （合同号那一列在 migrateOrderFields 里加，和操作员/仓库一起）
+
   -- 系统用户（只做登录认证，暂无角色权限）
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -603,6 +627,8 @@ function migrateOrderFields() {
   const targets = [
     ['inbound_orders', 'warehouse', 'TEXT'],
     ['inbound_orders', 'operator', 'TEXT'],
+    ['inbound_orders', 'bl_no', 'TEXT'],
+    ['inbound_orders', 'contract_no', 'TEXT'],
     ['outbound_orders', 'warehouse', 'TEXT'],
     ['outbound_orders', 'operator', 'TEXT'],
   ]
@@ -611,7 +637,9 @@ function migrateOrderFields() {
     addColumnIfMissing(table, column, type),
   )
   if (added.length > 0) {
-    writeLog('[db] 迁移：单据头新增 仓库(warehouse) / 操作员(operator)')
+    writeLog(
+      '[db] 迁移：单据头新增 仓库 / 操作员 / 提单号(bl_no) / 合同号(contract_no)',
+    )
   }
 }
 

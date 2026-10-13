@@ -2055,6 +2055,38 @@ section > .toolbar .btn-primary {
 
 /* ---------- 文本辅助 ---------- */
 
+/* 表格里的文字型操作（比如点合同号打开 PDF） */
+.link-btn {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--blue);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--ease);
+}
+
+.link-btn:hover:not(:disabled) {
+  color: #0077ed;
+  text-decoration: underline;
+}
+
+.link-btn:disabled {
+  color: var(--text-2);
+  cursor: default;
+}
+
+/* 单元格里的第二行小字（比如提单号跟在合同号下面） */
+.cell-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
 .muted {
   color: var(--text-2);
   font-size: 14px;

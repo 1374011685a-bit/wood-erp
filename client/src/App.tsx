@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import RequireAuth from './components/RequireAuth'
 import Count from './pages/Count'
+import Contracts from './pages/Contracts'
 import Home from './pages/Home'
 import Inbound from './pages/Inbound'
 import Login from './pages/Login'
@@ -28,6 +29,7 @@ export default function App() {
           <Route path="outbound" element={<Outbound />} />
           <Route path="stock" element={<Stock />} />
           <Route path="count" element={<Count />} />
+          <Route path="contracts" element={<Contracts />} />
           <Route path="records" element={<Records />} />
           <Route path="recycle" element={<Recycle />} />
           <Route path="settlement" element={<Settlement />} />
