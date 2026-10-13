@@ -614,7 +614,7 @@ export default function Bales() {
         <table className="table">
           <thead>
             <tr>
-              <th>码单号</th>
+              <th>包号 / 码单号</th>
               <th>提单号</th>
               <th>柜号</th>
               <th>合同号</th>
@@ -739,7 +739,7 @@ export default function Bales() {
             </div>
 
             <label className="field field-required">
-              <span>包号</span>
+              <span>包号（也就是码单号）</span>
               <input
                 className="input"
                 value={editNo}

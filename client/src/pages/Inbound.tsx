@@ -76,7 +76,7 @@ const todayISO = () => {
 
 type FormRow = {
   key: number
-  /** 包号：可填 7 / 7-9 / 7,9,11，留空则自动编号 */
+  /** 包号（=码单号）：留空由系统自动编号；混装包时手动填同一个号 */
   baleLabel: string
   species: string
   grade: string
@@ -149,7 +149,7 @@ function validateRow(row: FormRow): string[] {
 
   if (!(Number.isInteger(pieces) && pieces > 0)) reasons.push('片数必须是大于 0 的整数')
   if (!(Number.isInteger(bundles) && bundles > 0)) reasons.push('件数必须是大于 0 的整数')
-  if (toNumber(row.unitPrice) < 0) reasons.push('单价不能为负数')
+  if (!(toNumber(row.unitPrice) > 0)) reasons.push('单价必填，且必须大于 0')
 
   return reasons
 }
@@ -193,6 +193,18 @@ function parseBaleLabels(text: string): string[] {
   return result
 }
 
+/* ---------- 包号 = 码单号：显示规则与后端 buildBaleNo 保持一致 ---------- */
+
+const padBaleSeq = (seq: number) => String(seq).padStart(3, '0')
+
+/** 纯数字的包号补上柜号前缀（7 → A2-007），和后端生成规则一致 */
+function baleNoOf(label: string, containerNo: string | null): string {
+  const text = label.trim()
+  if (!containerNo) return text
+  if (/^\d+$/.test(text)) return `${containerNo}-${padBaleSeq(Number(text))}`
+  return text
+}
+
 const emptyInput = {
   order_no: '',
   supplier: '',
@@ -208,7 +220,7 @@ const PAGE_SIZE = 20
 
 
 const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
-  { field: 'baleLabel', label: '包号（7-9 可写范围）' },
+  { field: 'baleLabel', label: '包号' },
   { field: 'species', label: '品名' },
   { field: 'grade', label: '等级' },
   { field: 'thickness', label: '厚度mm' },
@@ -216,7 +228,7 @@ const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'length', label: '长度m' },
   { field: 'pieces', label: '片数' },
   { field: 'bundles', label: '件数' },
-  { field: 'unitPrice', label: '单价' },
+  { field: 'unitPrice', label: '单价*' },
 ]
 
 export default function Inbound() {
@@ -438,6 +450,50 @@ export default function Inbound() {
       ),
     [computedRows],
   )
+
+  // 当前选中的柜（包号 / 码单号都按柜内顺序排）
+  const activeContainer = useMemo(
+    () => containerOptions.find((item) => item.id === containerId) ?? null,
+    [containerOptions, containerId],
+  )
+
+  /** 每一行会生成哪些码单号：留空的按柜内顺序往后排，手填的按填的来 */
+  const balePlan = useMemo(() => {
+    const plan = new Map<number, string>()
+    let seq = activeContainer?.next_seq ?? 0
+
+    for (const row of computedRows) {
+      if (isRowEmpty(row)) continue
+
+      const label = row.baleLabel.trim()
+      if (label) {
+        plan.set(
+          row.key,
+          parseBaleLabels(label)
+            .map((item) => baleNoOf(item, activeContainer?.container_no ?? null))
+            .join('、'),
+        )
+        continue
+      }
+
+      if (!activeContainer) continue
+      const count = Math.max(0, Math.round(toNumber(row.bundles)))
+      if (count <= 0) continue
+
+      const from = seq
+      const to = seq + count - 1
+      seq = to + 1
+      const prefix = activeContainer.container_no
+      plan.set(
+        row.key,
+        from === to
+          ? `${prefix}-${padBaleSeq(from)}`
+          : `${prefix}-${padBaleSeq(from)} ~ ${prefix}-${padBaleSeq(to)}`,
+      )
+    }
+
+    return plan
+  }, [computedRows, activeContainer])
 
   const updateRow = (
     key: number,
@@ -1052,6 +1108,17 @@ export default function Inbound() {
             </datalist>
           </div>
 
+          {/* 包号就是码单号：告诉工人这次会生成哪几个号，不用自己编 */}
+          <p className="hint" style={{ marginTop: 14 }}>
+            {activeContainer
+              ? `包号 = 码单号，按柜内顺序自动生成：本柜已贴 ${activeContainer.bale_count} 张，` +
+                `下一张从 ${activeContainer.container_no}-${padBaleSeq(activeContainer.next_seq)} 开始。`
+              : '未选柜：保存时按入库单号自动编号（如 RK202610130001-001）。'}
+          </p>
+          <p className="hint">
+            件数就是包数，单价必填；一包货混了几个规格时，把那几行的包号填成同一个号即可。
+          </p>
+
           <table className="table table-detail">
             <thead>
               <tr>
@@ -1069,6 +1136,7 @@ export default function Inbound() {
               {computedRows.map((row) => {
                 const reasons = rowErrors[row.key] ?? []
                 const hint = row.specKey ? stockLookup[row.specKey] : undefined
+                const plan = balePlan.get(row.key) ?? ''
                 return (
                   <Fragment key={row.key}>
                     <tr>
@@ -1086,6 +1154,7 @@ export default function Inbound() {
                                 ? undefined
                                 : 'decimal'
                             }
+                            placeholder={field === 'baleLabel' ? '自动' : undefined}
                             list={
                               field === 'species'
                                 ? 'dict-species'
@@ -1116,10 +1185,14 @@ export default function Inbound() {
                         </button>
                       </td>
                     </tr>
-                    {hint && (
+                    {(hint || plan) && (
                       <tr>
                         <td colSpan={12} className="row-hint">
-                          该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
+                          {plan ? <span>将生成的码单：{plan}</span> : null}
+                          {plan && hint ? ' · ' : ''}
+                          {hint
+                            ? `该规格已有库存 ${formatCubic(hint.cubic)} 立方 / ${hint.bundles} 件`
+                            : ''}
                         </td>
                       </tr>
                     )}
@@ -1254,7 +1327,7 @@ export default function Inbound() {
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>码单号</th>
+                          <th>包号 / 码单号</th>
                           <th>品名</th>
                           <th>等级</th>
                           <th className="num">厚×宽×长</th>

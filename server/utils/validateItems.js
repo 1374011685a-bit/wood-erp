@@ -53,8 +53,9 @@ export function validateItems(items, { requirePositiveCubic = false } = {}) {
       reasons.push('件数必须是大于 0 的整数')
     }
 
-    if (!(item.unit_price >= 0)) {
-      reasons.push('单价不能为负数')
+    // 单价必填：金额是账面上要用的数，不能空着当 0
+    if (!(item.unit_price > 0)) {
+      reasons.push('单价必填，且必须大于 0')
     }
 
     // 出库额外要求：立方必须为正，挡住 0 / 负数出库

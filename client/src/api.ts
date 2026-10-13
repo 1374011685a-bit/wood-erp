@@ -675,6 +675,10 @@ export type ContainerOption = {
   bl_no: string | null
   supplier: string | null
   arrive_date: string | null
+  /** 这柜已经贴了几张码单 */
+  bale_count: number
+  /** 下一个该用的包号流水（包号 = 码单号 = 柜号-流水） */
+  next_seq: number
 }
 
 export type BaleRow = {

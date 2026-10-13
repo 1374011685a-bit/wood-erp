@@ -127,7 +127,7 @@ function validateRow(row: FormRow): string[] {
 
   if (!(Number.isInteger(pieces) && pieces > 0)) reasons.push('片数必须是大于 0 的整数')
   if (!(Number.isInteger(bundles) && bundles > 0)) reasons.push('件数必须是大于 0 的整数')
-  if (toNumber(row.unitPrice) < 0) reasons.push('单价不能为负数')
+  if (!(toNumber(row.unitPrice) > 0)) reasons.push('单价必填，且必须大于 0')
 
   return reasons
 }
@@ -182,7 +182,7 @@ const specFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
 const numberFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'pieces', label: '片数' },
   { field: 'bundles', label: '件数' },
-  { field: 'unitPrice', label: '单价' },
+  { field: 'unitPrice', label: '单价*' },
 ]
 
 const SPEC_ROW_COLUMNS = 1 + specFields.length + numberFields.length + 4 // 选择规格 + 规格 + 数量 + 立方/库存/金额/操作
@@ -1159,7 +1159,7 @@ export default function Outbound() {
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>码单号</th>
+                          <th>包号 / 码单号</th>
                           <th>柜号</th>
                           <th>合同号</th>
                           <th className="num">片数</th>
@@ -1231,7 +1231,7 @@ export default function Outbound() {
               <thead>
                 <tr>
                   <th>选择</th>
-                  <th>码单号</th>
+                  <th>包号 / 码单号</th>
                   <th>柜号</th>
                   <th>合同号</th>
                   <th>品名</th>

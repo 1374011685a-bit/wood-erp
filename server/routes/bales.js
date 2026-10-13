@@ -120,25 +120,64 @@ export function buildBaleNo(containerNo, inboundOrderNo, sequence) {
   return `${prefix}-${String(sequence).padStart(3, '0')}`
 }
 
-/** 这个柜（或这张入库单）已经发到第几号了 */
+/**
+ * 手填包号的统一格式：纯数字就补上柜号（7 → A2-007），
+ * 这样手填的和自动生成的看起来是同一套号，工人不会拿到两种写法。
+ */
+function normalizeBaleLabel(label, containerNo) {
+  const text = String(label ?? '').trim()
+  if (!text) return ''
+  if (containerNo && /^\d+$/.test(text)) {
+    return buildBaleNo(containerNo, null, Number(text))
+  }
+  return text
+}
+
+/**
+ * 从一串包号里取最大的流水号。
+ * 认两种写法：`A2-007`（带柜号）和 `7`（老数据里手填的纯数字），其余忽略。
+ */
+function maxSequence(baleNos) {
+  let max = 0
+  for (const no of baleNos) {
+    const text = String(no ?? '').trim()
+    const hit = /^(\d+)$/.exec(text) ?? /-(\d+)\s*$/.exec(text)
+    if (hit) max = Math.max(max, Number(hit[1]))
+  }
+  return max
+}
+
+/**
+ * 这一柜（或这张入库单）下一个该用的包号流水。
+ *
+ * 注意不能按 COUNT(*) 算：删掉中间某包之后 COUNT 会变小，
+ * 再生成的号就会和已经在用的号撞上（新包被并进老包，规格数据就乱了）。
+ * 所以按「已有号里的最大流水 + 1」，删过号也不会重复。
+ */
 export function nextBaleSequence(containerId, inboundOrderNo) {
   if (containerId) {
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) AS total FROM bales WHERE container_id = ?`,
-      )
-      .get(containerId)
-    return Number(row?.total ?? 0) + 1
+    const rows = db
+      .prepare(`SELECT bale_no FROM bales WHERE container_id = ?`)
+      .all(containerId)
+    return maxSequence(rows.map((row) => row.bale_no)) + 1
   }
 
-  const row = db
+  const rows = db
     .prepare(
-      `SELECT COUNT(*) AS total FROM bales
+      `SELECT bale_no FROM bales
         WHERE container_id IS NULL AND inbound_order_id IN
               (SELECT id FROM inbound_orders WHERE order_no = ?)`,
     )
-    .get(inboundOrderNo)
-  return Number(row?.total ?? 0) + 1
+    .all(inboundOrderNo)
+  return maxSequence(rows.map((row) => row.bale_no)) + 1
+}
+
+/** 这一柜已经贴了几张码单（给入库表单做「下一张从几号开始」的提示） */
+export function containerBaleInfo(containerId) {
+  const rows = db
+    .prepare(`SELECT bale_no FROM bales WHERE container_id = ?`)
+    .all(containerId)
+  return { count: rows.length, next_seq: maxSequence(rows.map((row) => row.bale_no)) + 1 }
 }
 
 const insertBale = db.prepare(
@@ -198,7 +237,7 @@ export function createBalesForItem({
 
   for (let i = 0; i < bundles; i += 1) {
     const baleNo = labels
-      ? labels[i]
+      ? normalizeBaleLabel(labels[i], containerNo)
       : buildBaleNo(containerNo, inboundOrderNo, sequence)
     if (!labels) sequence += 1
 
