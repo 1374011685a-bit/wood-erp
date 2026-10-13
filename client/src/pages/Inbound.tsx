@@ -801,7 +801,9 @@ export default function Inbound({
           data.items.map((line) => ({
           key: (rowSeq += 1),
           // 包号从这张单的包里读回来（编辑会同步重建码单）
-          baleLabel: (line.bale_labels ?? []).join('、'),
+          baleLabel: line.bale_no
+            ? line.bale_no
+            : (line.bale_labels ?? []).join('、'),
           boxNo: line.box_no ?? '',
           species: line.species ?? '',
           grade: line.grade ?? '',

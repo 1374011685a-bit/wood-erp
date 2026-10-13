@@ -84,6 +84,10 @@ function normalizeItems(items) {
       box_no: String(item.box_no ?? '').trim(),
       // 「同包再加一行」：明确标记过的行，才允许往已有的包里追加规格
       same_package: item.same_package === true,
+      // 这行的包号（人填的原文，编辑时原样读回）
+      bale_no: Array.isArray(item.bale_labels) && item.bale_labels.length > 0
+        ? item.bale_labels.join('、')
+        : String(item.bale_no ?? '').trim(),
     }
   })
 }
@@ -108,10 +112,10 @@ const insertShipmentStmt = db.prepare(
 
 const insertItem = db.prepare(
   `INSERT INTO order_items
-     (order_id, order_type, box_no, species, grade, thickness, width, length,
+     (order_id, order_type, box_no, bale_no, species, grade, thickness, width, length,
       pieces, bundles, cubic, unit_price, amount, unit_price_cents, amount_cents)
    VALUES
-     (@order_id, 'in', @box_no, @species, @grade, @thickness, @width, @length,
+     (@order_id, 'in', @box_no, @bale_no, @species, @grade, @thickness, @width, @length,
       @pieces, @bundles, @cubic, @unit_price, @amount, @unit_price_cents, @amount_cents)`,
 )
 
@@ -663,8 +667,7 @@ router.get('/:id', (req, res) => {
     )
     .all(id)
   for (const item of items) {
-    item.bale_labels = orderBales
-      .filter(
+    const matched = orderBales.filter(
         (bale) =>
           String(bale.species ?? '') === String(item.species ?? '') &&
           String(bale.grade ?? '') === String(item.grade ?? '') &&
@@ -672,8 +675,12 @@ router.get('/:id', (req, res) => {
           Number(bale.width) === Number(item.width) &&
           Number(bale.length) === Number(item.length) &&
           Number(bale.pieces) === Number(item.pieces),
-      )
-      .map((bale) => bale.bale_no)
+      ).map((bale) => bale.bale_no)
+    // 以明细行自己记的包号为准（精确）；没有才退化成按规格反查（兼容老数据）
+    const own = String(item.bale_no ?? '').trim()
+    item.bale_labels = own
+      ? own.split(/[、,，\s]+/).filter(Boolean)
+      : matched
   }
 
   // 这一单单下每包的状态（在库 / 已出库），入库后随时能看到哪包还没发

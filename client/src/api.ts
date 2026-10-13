@@ -71,6 +71,8 @@ export type InboundDetailItem = InboundItemPayload & {
   id: number
   order_id: number
   order_type: string
+  /** 这行明细对应的包号（人填的原文，编辑时原样读回） */
+  bale_no?: string | null
   cubic: number
   amount: number
   created_at: string

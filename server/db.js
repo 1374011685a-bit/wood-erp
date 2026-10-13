@@ -817,6 +817,63 @@ function migrateBaleSoftDelete() {
 }
 
 /**
+ * 明细行记住自己那一行的包号：order_items.bale_no。
+ *
+ * 为什么需要：包号只存在 bales 上，编辑入库单时只能按「规格+片数」去猜哪行对应哪些包，
+ * 同一单里两行规格一样就分不清了。把包号落到明细行上，编辑时就能精确读回。
+ *
+ * 老数据回填规则（保守）：
+ *   - 按「规格 + 片数」找到的包数 = 这行的件数 → 全部填上（能对上）
+ *   - 只找到 1 个包 → 也填上
+ *   - 其它（0 个 或 数量对不上）→ 留空并打印，等人工处理
+ */
+function migrateOrderItemBaleNo() {
+  const added = addColumnIfMissing('order_items', 'bale_no', 'TEXT')
+  if (!added) return
+
+  const items = db
+    .prepare(
+      `SELECT id, order_id, species, grade, thickness, width, length, pieces, bundles
+         FROM order_items
+        WHERE order_type = 'in' AND deleted_at IS NULL AND (bale_no IS NULL OR bale_no = '')`,
+    )
+    .all()
+  const balesOfOrder = db.prepare(
+    `SELECT bale_no FROM bales
+      WHERE inbound_order_id = ? AND deleted_at IS NULL
+        AND COALESCE(species, '') = COALESCE(?, '')
+        AND COALESCE(grade, '') = COALESCE(?, '')
+        AND thickness = ? AND width = ? AND length = ? AND pieces = ?
+      ORDER BY id`,
+  )
+  const fill = db.prepare(`UPDATE order_items SET bale_no = ? WHERE id = ?`)
+
+  let filled = 0
+  const unresolved = []
+  for (const item of items) {
+    const matches = balesOfOrder
+      .all(item.order_id, item.species, item.grade, item.thickness, item.width, item.length, item.pieces)
+      .map((row) => row.bale_no)
+    const bundles = Number(item.bundles ?? 0)
+    if (matches.length === 1 || matches.length === bundles) {
+      fill.run(matches.join('、'), item.id)
+      filled += 1
+    } else {
+      unresolved.push(
+        `明细 id=${item.id}（单 ${item.order_id} ${item.species} ${item.thickness}×${item.width}×${item.length} ${item.pieces}片 ${bundles}件）：找到 ${matches.length} 个包`,
+      )
+    }
+  }
+  writeLog(`[db] 迁移：明细新增列 bale_no（这行的包号），回填 ${filled} 行`)
+  if (unresolved.length > 0) {
+    writeLog(
+      `[db] 警告：有 ${unresolved.length} 行明细的包号回填不了（老数据同规格多行分不清），需要人工确认：\n        ` +
+        unresolved.join('\n        '),
+    )
+  }
+}
+
+/**
  * 规格行记住自己那一行的成本单价。
  *
  * 为什么必须存：改包 / 编辑码单时，入库明细是「扣掉再挂回」重建的。
@@ -1284,6 +1341,7 @@ export function initDB() {
   migrateBoxNo()
   migrateBaleItemPrice()
   migrateBaleSoftDelete()
+  migrateOrderItemBaleNo()
   relinkBalesToShipment()
   // 补挂之后再看一遍：如果某张提单还是没货，就清掉
   cleanEmptyShipments()
