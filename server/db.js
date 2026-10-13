@@ -534,6 +534,45 @@ const schema = `
   CREATE INDEX IF NOT EXISTS idx_contracts_no ON contracts (contract_no);
   CREATE INDEX IF NOT EXISTS idx_contracts_partner ON contracts (partner);
 
+  -- 柜（一个海运柜 = 一批到货；合同号、提单号挂在柜上，不挂在每一包上）
+  CREATE TABLE IF NOT EXISTS containers (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    container_no TEXT    NOT NULL UNIQUE,
+    contract_no  TEXT,
+    bl_no        TEXT,
+    supplier     TEXT,
+    arrive_date  TEXT,
+    remark       TEXT,
+    deleted_at   TEXT,
+    created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_containers_contract ON containers (contract_no);
+
+  -- 码单：一包一个，贴在包上；入库时生成，出库时按码单发货
+  CREATE TABLE IF NOT EXISTS bales (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    bale_no           TEXT    NOT NULL UNIQUE,
+    container_id      INTEGER,
+    inbound_order_id  INTEGER,
+    outbound_order_id INTEGER,
+    species           TEXT,
+    grade             TEXT,
+    thickness         REAL,
+    width             REAL,
+    length            REAL,
+    pieces            INTEGER,
+    cubic             REAL,
+    status            TEXT    NOT NULL DEFAULT 'in_stock',
+    created_at        TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    shipped_at        TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_bales_container ON bales (container_id);
+  CREATE INDEX IF NOT EXISTS idx_bales_status    ON bales (status, id);
+  CREATE INDEX IF NOT EXISTS idx_bales_inbound   ON bales (inbound_order_id);
+  CREATE INDEX IF NOT EXISTS idx_bales_outbound  ON bales (outbound_order_id);
+
   -- 入库单上的提单号
   -- （合同号那一列在 migrateOrderFields 里加，和操作员/仓库一起）
 
@@ -629,6 +668,7 @@ function migrateOrderFields() {
     ['inbound_orders', 'operator', 'TEXT'],
     ['inbound_orders', 'bl_no', 'TEXT'],
     ['inbound_orders', 'contract_no', 'TEXT'],
+    ['inbound_orders', 'container_id', 'INTEGER'],
     ['outbound_orders', 'warehouse', 'TEXT'],
     ['outbound_orders', 'operator', 'TEXT'],
   ]

@@ -3,6 +3,7 @@ import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
 import { pageParams } from '../utils/paging.js'
+import { createBalesForItem } from './bales.js'
 
 const router = express.Router()
 
@@ -81,8 +82,13 @@ function normalizeItems(items) {
 
 const insertOrder = db.prepare(
   `INSERT INTO inbound_orders
-     (order_no, supplier, order_date, remark, warehouse, operator, bl_no, contract_no)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     (order_no, supplier, order_date, remark, warehouse, operator,
+      bl_no, contract_no, container_id)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+)
+
+const findContainerStmt = db.prepare(
+  `SELECT * FROM containers WHERE id = ? AND deleted_at IS NULL`,
 )
 
 const insertItem = db.prepare(
@@ -105,6 +111,8 @@ const createInbound = db.transaction(
     operator,
     blNo,
     contractNo,
+    containerId,
+    containerNo,
     items,
   }) => {
   const { lastInsertRowid } = insertOrder.run(
@@ -116,12 +124,24 @@ const createInbound = db.transaction(
     operator || null,
     blNo || null,
     contractNo || null,
+    containerId ?? null,
   )
   const orderId = Number(lastInsertRowid)
+  const baleNos = []
   for (const item of items) {
     insertItem.run({ ...item, order_id: orderId })
+    // 每一包生成一个码单（贴包上的那张）
+    baleNos.push(
+      ...createBalesForItem({
+        item,
+        containerId,
+        containerNo,
+        inboundOrderId: orderId,
+        inboundOrderNo: orderNo,
+      }),
+    )
   }
-  return { id: orderId, order_no: orderNo }
+  return { id: orderId, order_no: orderNo, bale_count: baleNos.length, bale_nos: baleNos }
   },
 )
 
@@ -135,6 +155,7 @@ router.post('/', (req, res) => {
   const operator = String(body.operator ?? '').trim()
   const blNo = String(body.bl_no ?? '').trim()
   const contractNo = String(body.contract_no ?? '').trim()
+  const containerId = Number(body.container_id) || null
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
@@ -142,6 +163,15 @@ router.post('/', (req, res) => {
   }
   if (!warehouse) {
     return res.status(400).json({ error: '仓库不能为空' })
+  }
+
+  // 选了柜就从柜上继承合同号 / 提单号，不用在这张单上再填一遍
+  let container = null
+  if (containerId) {
+    container = findContainerStmt.get(containerId)
+    if (!container) {
+      return res.status(400).json({ error: '选中的柜不存在' })
+    }
   }
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
@@ -162,8 +192,10 @@ router.post('/', (req, res) => {
       remark,
       warehouse,
       operator,
-      blNo,
-      contractNo,
+      blNo: container ? container.bl_no : blNo,
+      contractNo: container ? container.contract_no : contractNo,
+      containerId: container ? container.id : null,
+      containerNo: container ? container.container_no : null,
       items,
     })
     res.json(result)
@@ -414,7 +446,15 @@ router.get('/', (req, res) => {
               o.operator,
               o.bl_no,
               o.contract_no,
+              o.container_id,
               c.id                                 AS contract_id,
+              (SELECT ct.container_no FROM containers ct
+                WHERE ct.id = o.container_id)      AS container_no,
+              (SELECT COUNT(*) FROM bales b
+                WHERE b.inbound_order_id = o.id)   AS bale_total,
+              (SELECT COUNT(*) FROM bales b
+                WHERE b.inbound_order_id = o.id AND b.status = 'in_stock')
+                                                   AS bale_in_stock,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
               ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
                                                    AS total_amount,
@@ -519,12 +559,30 @@ const softDeleteOrderStmt = db.prepare(
     WHERE id = ? AND deleted_at IS NULL`,
 )
 
+// 这批货里已经出库的包数：有的话不允许删入库单
+const shippedBaleCountStmt = db.prepare(
+  `SELECT COUNT(*) AS total FROM bales
+    WHERE inbound_order_id = ? AND status = 'shipped'`,
+)
+const deleteBalesStmt = db.prepare(`DELETE FROM bales WHERE inbound_order_id = ?`)
+
 // 事务：先校验删完库存会不会变负，通过后再删明细、删单头
 const removeInbound = db.transaction((id) => {
   const order = getOrderStmt.get(id)
   if (!order) {
     const error = new Error('入库单不存在')
     error.status = 404
+    throw error
+  }
+
+  // 这批货已经有包卖出去了就不能删：码单会断链，对不上账
+  const shippedNow = Number(shippedBaleCountStmt.get(id)?.total ?? 0)
+  if (shippedNow > 0) {
+    const error = new Error(
+      `无法删除：这张入库单里有 ${shippedNow} 包货已经出库了。` +
+        '请先撤销对应的出库单，再删这张入库单。',
+    )
+    error.status = 400
     throw error
   }
 
@@ -577,6 +635,7 @@ const removeInbound = db.transaction((id) => {
     throw error
   }
 
+  deleteBalesStmt.run(id)
   softDeleteOrderItemsStmt.run(id)
   softDeleteOrderStmt.run(id)
 

@@ -167,6 +167,39 @@ function specText(group) {
   )
 }
 
+/**
+ * 码单校验：出库是按包发的，每一包都必须是「在库」状态。
+ * 重复、已出、传错的码单都在这里挡下来，并说清楚是哪一包。
+ */
+function checkBales(baleIds) {
+  const problems = []
+  const seen = new Set()
+  const findBale = db.prepare(`SELECT bale_no, status FROM bales WHERE id = ?`)
+
+  for (const id of baleIds) {
+    if (!Number.isInteger(id) || id <= 0) {
+      problems.push('码单编号不合法')
+      continue
+    }
+    if (seen.has(id)) {
+      problems.push(`码单重复选择（id ${id}）`)
+      continue
+    }
+    seen.add(id)
+
+    const bale = findBale.get(id)
+    if (!bale) {
+      problems.push(`码单不存在（id ${id}）`)
+      continue
+    }
+    if (bale.status !== 'in_stock') {
+      problems.push(`码单 ${bale.bale_no} 已经出库了，不能重复发货`)
+    }
+  }
+
+  return problems
+}
+
 function checkStock(items) {
   const groups = new Map()
 
@@ -245,7 +278,7 @@ const insertItem = db.prepare(
 
 // 事务：库存校验与写入放在同一事务里，避免并发超卖
 const createOutbound = db.transaction(
-  ({ orderNo, customer, orderDate, remark, warehouse, operator, items }) => {
+  ({ orderNo, customer, orderDate, remark, warehouse, operator, items, baleIds }) => {
     const problems = checkStock(items)
     if (problems.length > 0) {
       const error = new Error(problems.join('\n'))
@@ -262,10 +295,23 @@ const createOutbound = db.transaction(
       operator || null,
     )
     const orderId = Number(lastInsertRowid)
-    for (const item of items) {
+    items.forEach((item, index) => {
       insertItem.run({ ...item, order_id: orderId })
+    })
+
+    // 把这次发走的码单标记成已出库，并挂到出库单上
+    const markShipped = db.prepare(
+      `UPDATE bales
+          SET status = 'shipped',
+              outbound_order_id = ?,
+              shipped_at = datetime('now', 'localtime')
+        WHERE id = ? AND status = 'in_stock'`,
+    )
+    for (const baleId of baleIds) {
+      markShipped.run(orderId, baleId)
     }
-    return { id: orderId, order_no: orderNo }
+
+    return { id: orderId, order_no: orderNo, bale_count: baleIds.length }
   },
 )
 
@@ -278,6 +324,7 @@ router.post('/', (req, res) => {
   const warehouse = String(body.warehouse ?? '').trim()
   const operator = String(body.operator ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
+  const rawBales = Array.isArray(body.bale_ids) ? body.bale_ids.map(Number) : []
 
   if (!customer) {
     return res.status(400).json({ error: '客户不能为空' })
@@ -287,6 +334,12 @@ router.post('/', (req, res) => {
   }
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
+  }
+
+  // 码单校验：必须都是「在库」状态，别人发过的包不能再发一次
+  const baleErrors = checkBales(rawBales)
+  if (baleErrors.length > 0) {
+    return res.status(400).json({ error: baleErrors.join('\n') })
   }
 
   const items = normalizeItems(rawItems)
@@ -305,6 +358,7 @@ router.post('/', (req, res) => {
       warehouse,
       operator,
       items,
+      baleIds: rawBales,
     })
     res.json(result)
   } catch (err) {
@@ -611,6 +665,13 @@ const softDeleteOrderStmt = db.prepare(
     WHERE id = ? AND deleted_at IS NULL`,
 )
 
+// 撤销出库：发走的码单要退回在库，货才算回到库里
+const releaseBalesStmt = db.prepare(
+  `UPDATE bales
+      SET status = 'in_stock', outbound_order_id = NULL, shipped_at = NULL
+    WHERE outbound_order_id = ?`,
+)
+
 // 事务：出库单删除后库存只会回涨，不需要额外校验
 const removeOutbound = db.transaction((id) => {
   const order = getOrderStmt.get(id)
@@ -622,6 +683,8 @@ const removeOutbound = db.transaction((id) => {
 
   softDeleteOrderItemsStmt.run(id)
   softDeleteOrderStmt.run(id)
+  // 码单退回在库
+  releaseBalesStmt.run(id)
 
   return order
 })

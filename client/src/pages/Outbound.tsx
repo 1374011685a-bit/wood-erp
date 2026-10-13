@@ -6,16 +6,16 @@ import {
   downloadFile,
   fetchOutboundDetail,
   fetchOutboundList,
+  fetchBales,
   fetchStock,
-  fetchStockList,
   outboundExportUrl,
   updateOutbound,
   type InboundItemPayload,
+  type BaleRow,
   type OutboundDetail,
   type OutboundListFilters,
   type OutboundListItem,
   type StockSnapshot,
-  type StockRow,
 } from '../api'
 import {
   EmptyState,
@@ -73,6 +73,9 @@ type FormRow = {
   pieces: string
   bundles: string
   unitPrice: string
+  /** 按码单发货时带上码单 id 和码单号 */
+  baleId?: number
+  baleNo?: string
 }
 
 let rowSeq = 0
@@ -232,12 +235,11 @@ export default function Outbound() {
 
   // 规格选择弹窗
   const [pickerRowKey, setPickerRowKey] = useState<number | null>(null)
-  const [pickerRows, setPickerRows] = useState<StockRow[]>([])
+  const [pickerBales, setPickerBales] = useState<BaleRow[]>([])
+  const [pickedBaleIds, setPickedBaleIds] = useState<number[]>([])
   const [pickerKeyword, setPickerKeyword] = useState('')
   const [pickerLoading, setPickerLoading] = useState(false)
   const [pickerError, setPickerError] = useState('')
-  const pickerKey = pickerRowKey ?? -1
-
   // 规格 -> 当前库存（实时提示用）
   const [stockMap, setStockMap] = useState<Record<string, StockSnapshot>>({})
   const requestedSpecs = useRef<Set<string>>(new Set())
@@ -364,16 +366,13 @@ export default function Outbound() {
     if (formError) setFormError('')
   }
 
-  const addRow = () => {
-    setRows((prev) => [...prev, createRow()])
-    if (formError) setFormError('')
-  }
-
   const loadPickerRows = async (keyword: string) => {
     setPickerLoading(true)
     setPickerError('')
     try {
-      setPickerRows(await fetchStockList(keyword))
+      // 出库是按包发的：这里列出「在库」的码单
+      const page = await fetchBales({ status: 'in_stock', keyword, limit: 200 })
+      setPickerBales(page.rows)
     } catch (err) {
       setPickerError(err instanceof Error ? err.message : '加载失败')
     } finally {
@@ -384,61 +383,36 @@ export default function Outbound() {
   const openPicker = (rowKey: number) => {
     setPickerRowKey(rowKey)
     setPickerKeyword('')
-    setPickerRows([])
+    setPickerBales([])
+    setPickedBaleIds([])
     void loadPickerRows('')
   }
 
-  // 选中规格：填好 5 个字段并锁定，片数按最近入库带出，单价按最近入库单价带出
-  const applySpec = async (rowKey: number, stockRow: StockRow) => {
-    const key = [
-      stockRow.species,
-      stockRow.grade ?? '',
-      stockRow.thickness,
-      stockRow.width,
-      stockRow.length,
-    ].join('|')
+  /** 选好码单：每包一行，规格和立方都由码单带出来 */
+  const applyBales = () => {
+    if (pickedBaleIds.length === 0) {
+      setPickerError('请至少选择一个码单')
+      return
+    }
 
-    setRows((prev) =>
-      prev.map((row) =>
-        row.key === rowKey
-          ? {
-              ...row,
-              species: stockRow.species,
-              grade: stockRow.grade ?? '',
-              thickness: String(stockRow.thickness),
-              width: String(stockRow.width),
-              length: String(stockRow.length),
-              unitPrice:
-                stockRow.last_unit_price === null
-                  ? row.unitPrice
-                  : String(stockRow.last_unit_price),
-            }
-          : row,
-      ),
+    const picked = pickerBales.filter((bale) => pickedBaleIds.includes(bale.id))
+    setRows(
+      picked.map((bale) => ({
+        key: (rowSeq += 1),
+        species: bale.species,
+        grade: bale.grade,
+        thickness: String(bale.thickness),
+        width: String(bale.width),
+        length: String(bale.length),
+        pieces: String(bale.pieces),
+        bundles: '1',
+        unitPrice: '',
+        baleId: bale.id,
+        baleNo: bale.bale_no,
+      })),
     )
     setPickerRowKey(null)
     setFormError('')
-
-    try {
-      const snapshot = await fetchStock({
-        species: stockRow.species,
-        grade: stockRow.grade ?? '',
-        thickness: stockRow.thickness,
-        width: stockRow.width,
-        length: stockRow.length,
-      })
-      requestedSpecs.current.add(key)
-      setStockMap((prev) => ({ ...prev, [key]: snapshot }))
-      if (snapshot.pieces > 0) {
-        setRows((prev) =>
-          prev.map((row) =>
-            row.key === rowKey ? { ...row, pieces: String(snapshot.pieces) } : row,
-          ),
-        )
-      }
-    } catch {
-      // 取不到就保持原样，用户可手填片数
-    }
   }
 
   const removeRow = (key: number) => {
@@ -618,6 +592,14 @@ export default function Outbound() {
       bundles: toNumber(row.bundles),
       unit_price: toNumber(row.unitPrice),
     }))
+    // 发走的码单 id：服务端会再校验一遍是否都还在库
+    const baleIds = filledRows
+      .map((row) => row.baleId)
+      .filter((id): id is number => typeof id === 'number')
+    if (baleIds.length !== filledRows.length) {
+      setFormError('有明细行没有选码单，请点「选择码单」重新挑选')
+      return
+    }
 
     setSaving(true)
     setFormError('')
@@ -629,6 +611,7 @@ export default function Outbound() {
         warehouse: form.warehouse.trim(),
         operator: form.operator.trim(),
         items,
+        bale_ids: baleIds,
       }
       const result = editing
         ? await updateOutbound(editing.id, payload)
@@ -969,13 +952,8 @@ export default function Outbound() {
                 return (
                   <Fragment key={row.key}>
                     <tr>
-                      <td className="cell-pick" data-label="规格">
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => openPicker(row.key)}
-                        >
-                          选择规格
-                        </button>
+                      <td className="cell-pick" data-label="码单号">
+                        <span className="bale-no">{row.baleNo || '未选码单'}</span>
                       </td>
                       {specFields.map(({ field, label }) => (
                         <td key={field} data-label={label}>
@@ -1040,12 +1018,12 @@ export default function Outbound() {
           </table>
 
           <div className="row-tools">
-            <button className="btn" onClick={addRow}>
-              + 加一行
+            <button className="btn btn-primary" onClick={() => openPicker(0)}>
+              选择码单
             </button>
             <span className="muted">
-              点每行左侧「选择规格」从库存里挑规格；「当前库存」按该规格实时显示
-              {editing ? '（修改时可用量 = 当前库存 + 本单原有数量）' : ''}
+              一包一单：点「选择码单」挑要发的包（可多选），规格和立方由码单带出
+              {editing ? '；修改时会重新校验码单是否还在库' : ''}
             </span>
           </div>
 
@@ -1180,7 +1158,7 @@ export default function Outbound() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
-              <h2 className="modal-title">选择规格</h2>
+              <h2 className="modal-title">选择码单</h2>
               <button
                 className="btn btn-sm btn-quiet"
                 onClick={() => setPickerRowKey(null)}
@@ -1192,7 +1170,7 @@ export default function Outbound() {
             <div className="toolbar">
               <input
                 className="input"
-                placeholder="品名关键字"
+                placeholder="码单号 / 柜号 / 合同号 / 品名"
                 value={pickerKeyword}
                 onChange={(event) => setPickerKeyword(event.target.value)}
                 onKeyDown={(event) => {
@@ -1208,61 +1186,59 @@ export default function Outbound() {
                 查询
               </button>
               <span className="spacer" />
-              <span className="muted">只列出有库存的规格</span>
+              <span className="muted">只列在库的码单，勾选后确认</span>
+              <button className="btn btn-primary" onClick={applyBales}>
+                确认选择（{pickedBaleIds.length}）
+              </button>
             </div>
 
             <table className="table">
               <thead>
                 <tr>
+                  <th>选择</th>
+                  <th>码单号</th>
+                  <th>柜号</th>
+                  <th>合同号</th>
                   <th>品名</th>
                   <th>等级</th>
                   <th className="num">厚×宽×长</th>
-                  <th className="num">当前件数</th>
-                  <th className="num">当前片数</th>
-                  <th className="num">当前立方</th>
-                  <th className="num">最近入库单价</th>
-                  <th>操作</th>
+                  <th className="num">片数</th>
+                  <th className="num">立方</th>
                 </tr>
               </thead>
               <tbody>
-                {pickerRows.map((row) => (
-                  <tr
-                    key={[
-                      row.species,
-                      row.grade,
-                      row.thickness,
-                      row.width,
-                      row.length,
-                    ].join('|')}
-                  >
+                {pickerBales.map((row) => (
+                  <tr key={row.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={pickedBaleIds.includes(row.id)}
+                        onChange={(event) =>
+                          setPickedBaleIds((prev) =>
+                            event.target.checked
+                              ? [...prev, row.id]
+                              : prev.filter((id) => id !== row.id),
+                          )
+                        }
+                      />
+                    </td>
+                    <td>{row.bale_no}</td>
+                    <td>{row.container_no || '—'}</td>
+                    <td>{row.contract_no || '—'}</td>
                     <td>{row.species}</td>
                     <td>{row.grade || '—'}</td>
                     <td className="num">
                       {row.thickness}×{row.width}×{row.length}
                     </td>
-                    <td className="num">{row.total_bundles}</td>
-                    <td className="num">{row.total_pieces}</td>
-                    <td className="num">{formatCubic(row.total_cubic)}</td>
-                    <td className="num">
-                      {row.last_unit_price === null
-                        ? '—'
-                        : formatAmount(row.last_unit_price)}
-                    </td>
-                    <td>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => void applySpec(pickerKey, row)}
-                      >
-                        选择
-                      </button>
-                    </td>
+                    <td className="num">{row.pieces}</td>
+                    <td className="num">{formatCubic(row.cubic)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
 
-            {!pickerLoading && pickerRows.length === 0 && (
-              <EmptyState text="当前无任何库存，请先入库" />
+            {!pickerLoading && pickerBales.length === 0 && (
+              <EmptyState text="当前没有在库的码单，请先入库" />
             )}
             {pickerLoading && <Loading />}
           </div>

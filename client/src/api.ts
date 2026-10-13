@@ -27,6 +27,8 @@ export type CreateInboundPayload = {
   /** 进口报关信息，选填 */
   bl_no?: string
   contract_no?: string
+  /** 整柜到货时选柜，合同号/提单号从柜上继承 */
+  container_id?: number
   items: InboundItemPayload[]
 }
 
@@ -280,6 +282,8 @@ export type CreateOutboundPayload = {
   /** 仓库必填；操作员选填 */
   warehouse: string
   operator?: string
+  /** 本次发走的码单 id（一包一个） */
+  bale_ids: number[]
   items: InboundItemPayload[]
 }
 
@@ -547,6 +551,129 @@ export function statementExportUrl(query: StatementQuery) {
 }
 
 /* ---------- 回收站 ---------- */
+
+export type ContainerRow = {
+  id: number
+  container_no: string
+  contract_no: string
+  bl_no: string
+  supplier: string
+  arrive_date: string
+  remark: string
+  bale_total: number
+  bale_in_stock: number
+  bale_shipped: number
+  cubic_in_stock: number
+  created_at: string
+}
+
+export type ContainerOption = {
+  id: number
+  container_no: string
+  contract_no: string | null
+  bl_no: string | null
+  supplier: string | null
+  arrive_date: string | null
+}
+
+export type BaleRow = {
+  id: number
+  bale_no: string
+  container_id: number | null
+  container_no: string
+  contract_no: string
+  inbound_order_id: number | null
+  outbound_order_id: number | null
+  outbound_order_no: string
+  species: string
+  grade: string
+  thickness: number
+  width: number
+  length: number
+  pieces: number
+  cubic: number
+  status: 'in_stock' | 'shipped'
+  created_at: string
+  shipped_at: string | null
+}
+
+export type BaleQuery = {
+  keyword?: string
+  status?: '' | 'in_stock' | 'shipped'
+  container_id?: number
+  species?: string
+  limit?: number
+  offset?: number
+}
+
+// 柜列表（带每柜的包数 / 在库 / 已出）
+export function fetchContainers(
+  query: {
+    keyword?: string
+    supplier?: string
+    date_from?: string
+    date_to?: string
+    limit?: number
+    offset?: number
+  } = {},
+) {
+  const search = new URLSearchParams()
+  if (query.keyword) search.set('keyword', query.keyword)
+  if (query.supplier) search.set('supplier', query.supplier)
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  const qs = search.toString()
+  return request<Paged<ContainerRow>>(`/api/containers${qs ? `?${qs}` : ''}`)
+}
+
+// 入库表单选柜 / 码单页筛柜用
+export function fetchContainerOptions() {
+  return request<ContainerOption[]>('/api/containers/options')
+}
+
+export type ContainerPayload = {
+  container_no: string
+  contract_no?: string
+  bl_no?: string
+  supplier?: string
+  arrive_date?: string
+  remark?: string
+}
+
+export function createContainer(payload: ContainerPayload) {
+  return request<{ ok: boolean; id: number; container_no: string }>('/api/containers', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function updateContainer(id: number, payload: ContainerPayload) {
+  return request<{ ok: boolean }>(`/api/containers/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteContainer(id: number) {
+  return request<{ ok: boolean }>(`/api/containers/${id}`, { method: 'DELETE' })
+}
+
+// 码单列表（一包一条，带柜号/合同号/出库单号）
+export function fetchBales(query: BaleQuery = {}) {
+  const search = new URLSearchParams()
+  if (query.keyword) search.set('keyword', query.keyword)
+  if (query.status) search.set('status', query.status)
+  if (query.container_id) search.set('container_id', String(query.container_id))
+  if (query.species) search.set('species', query.species)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  const qs = search.toString()
+  return request<Paged<BaleRow>>(`/api/bales${qs ? `?${qs}` : ''}`)
+}
 
 export type ContractRow = {
   id: number

@@ -14,11 +14,13 @@ import {
   fetchInboundDetail,
   fetchInboundList,
   fetchContractOptions,
+  fetchContainerOptions,
   openContractFile,
   fetchStockList,
   inboundExportUrl,
   updateInbound,
   type ContractOption,
+  type ContainerOption,
   type InboundDetail,
   type InboundItemPayload,
   type InboundListFilters,
@@ -202,6 +204,9 @@ export default function Inbound() {
   const [reloadToken, setReloadToken] = useState(0)
   // 合同下拉选项（填合同号时给提示，不强制）
   const [contractOptions, setContractOptions] = useState<ContractOption[]>([])
+  // 柜（一批到货）：选了柜，合同号/提单号直接从柜上带出来
+  const [containerOptions, setContainerOptions] = useState<ContainerOption[]>([])
+  const [containerId, setContainerId] = useState(0)
 
   const [detail, setDetail] = useState<InboundDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -284,9 +289,11 @@ export default function Inbound() {
   useEffect(() => {
     if (mode !== 'create') return
     let cancelled = false
-    fetchContractOptions()
-      .then((options) => {
-        if (!cancelled) setContractOptions(options)
+    void Promise.all([fetchContractOptions(), fetchContainerOptions()])
+      .then(([contracts, boxes]) => {
+        if (cancelled) return
+        setContractOptions(contracts)
+        setContainerOptions(boxes)
       })
       .catch(() => {
         // 拉不到就退化成手填，不打扰用户
@@ -295,6 +302,18 @@ export default function Inbound() {
       cancelled = true
     }
   }, [mode, editing])
+
+  // 选了柜：合同号、提单号从柜上带出来，不用在这张单上重复填
+  const handlePickContainer = (id: number) => {
+    setContainerId(id)
+    const box = containerOptions.find((item) => item.id === id)
+    if (!box) return
+    setForm((prev) => ({
+      ...prev,
+      contractNo: box.contract_no ?? '',
+      blNo: box.bl_no ?? '',
+    }))
+  }
 
   /** 列表里点合同号 → 直接打开那份 PDF */
   const handleOpenContract = async (contractId: number, contractNo: string) => {
@@ -592,6 +611,7 @@ export default function Inbound() {
         operator: form.operator.trim(),
         bl_no: form.blNo.trim(),
         contract_no: form.contractNo.trim(),
+        container_id: containerId || undefined,
         items,
       }
       const result = editing
@@ -919,23 +939,41 @@ export default function Inbound() {
           {/* 第三行：提单号 + 合同号（合同号可以从已上传的合同里选） */}
           <div className="field-row">
             <label className="field">
-              <span>提单号</span>
+              <span>柜（到货批次）</span>
+              <select
+                className="input"
+                value={containerId}
+                onChange={(event) => handlePickContainer(Number(event.target.value))}
+              >
+                <option value={0}>不选柜（零散到货）</option>
+                {containerOptions.map((box) => (
+                  <option key={box.id} value={box.id}>
+                    {box.container_no}
+                    {box.contract_no ? ` · 合同 ${box.contract_no}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>提单号{containerId ? '（来自柜）' : ''}</span>
               <input
                 className="input"
                 placeholder="例如：BL-2026-0001"
                 value={form.blNo}
+                readOnly={Boolean(containerId)}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, blNo: event.target.value }))
                 }
               />
             </label>
             <label className="field">
-              <span>合同号</span>
+              <span>合同号{containerId ? '（来自柜）' : ''}</span>
               <input
                 className="input"
-                list="contract-options"
+                list={containerId ? undefined : 'contract-options'}
                 placeholder="可从已有合同里选，也可手填"
                 value={form.contractNo}
+                readOnly={Boolean(containerId)}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, contractNo: event.target.value }))
                 }

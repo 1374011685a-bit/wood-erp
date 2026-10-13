@@ -99,6 +99,17 @@ const navGroups: NavGroup[] = [
     ),
       },
       {
+        to: '/bales',
+        label: '码单',
+        icon: (
+          <>
+            <rect x="3.5" y="6" width="17" height="12" rx="2.2" />
+            <path d="M7.5 10h5M7.5 13.5h9" />
+            <path d="M16.5 9.5h1.2v5h-1.2z" />
+          </>
+        ),
+      },
+      {
     to: '/count',
     label: '盘点',
     icon: (
