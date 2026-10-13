@@ -48,7 +48,7 @@ function applyNumberStyle(cell, column) {
  */
 export async function buildWorkbook({ title, subtitle, columns, rows, totals }) {
   const workbook = new ExcelJS.Workbook()
-  workbook.creator = '立川木业木材管理系统'
+  workbook.creator = '立川云木材管理系统'
   workbook.created = new Date()
 
   const sheet = workbook.addWorksheet(title.slice(0, 30))

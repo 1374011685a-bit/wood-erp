@@ -139,7 +139,7 @@ router.get('/inbound', async (req, res) => {
   }
 
   await sendWorkbook(res, `入库明细_${fileStamp()}.xlsx`, {
-    title: '立川木业木材管理系统 — 入库明细',
+    title: '立川云木材管理系统 — 入库明细',
     subtitle: `导出时间：${displayTime()}　　共 ${rows.length} 条`,
     columns,
     rows,
@@ -219,7 +219,7 @@ router.get('/outbound', async (req, res) => {
   }
 
   await sendWorkbook(res, `出库明细_${fileStamp()}.xlsx`, {
-    title: '立川木业木材管理系统 — 出库明细',
+    title: '立川云木材管理系统 — 出库明细',
     subtitle: `导出时间：${displayTime()}　　共 ${rows.length} 条`,
     columns,
     rows,
@@ -310,7 +310,7 @@ router.get('/stock', async (req, res) => {
   }
 
   await sendWorkbook(res, `库存表_${fileStamp()}.xlsx`, {
-    title: '立川木业木材管理系统 — 库存表',
+    title: '立川云木材管理系统 — 库存表',
     subtitle: `导出时间：${displayTime()}　　共 ${rows.length} 条`,
     columns,
     rows,

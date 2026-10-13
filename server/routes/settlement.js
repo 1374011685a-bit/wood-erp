@@ -470,7 +470,7 @@ router.get('/export', async (req, res) => {
   ]
 
   await sendWorkbook(res, `对账单_${partner}_${fileStamp()}.xlsx`, {
-    title: `立川木业木材管理系统 — ${cfg.label}对账单`,
+    title: `立川云木材管理系统 — ${cfg.label}对账单`,
     subtitle: `往来单位：${partner}　　期间：${statement.date_from || '不限'} ~ ${statement.date_to || '不限'}　　导出时间：${displayTime()}`,
     columns: [
       { key: 'date', header: '日期', type: 'text' },

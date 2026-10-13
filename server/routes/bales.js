@@ -845,11 +845,17 @@ router.get('/:id', (req, res) => {
   const bale = getBaleStmt.get(id)
   if (!bale) return res.status(404).json({ error: '码单不存在' })
 
+  // 标签上要印提单号，这里顺手带出来
+  const shipmentNo = bale.shipment_id
+    ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(bale.shipment_id)?.bl_no
+    : null
+
   res.json({
     id: bale.id,
     bale_no: bale.bale_no,
     barcode: bale.barcode ?? bale.bale_no ?? '',
     box_no: bale.box_no ?? '',
+    bl_no: shipmentNo ?? '',
     shipment_id: bale.shipment_id ?? null,
     inbound_order_id: bale.inbound_order_id,
     status: bale.status,

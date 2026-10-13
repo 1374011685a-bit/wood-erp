@@ -398,6 +398,93 @@ router.get('/stock', (req, res) => {
   res.json(getStock(spec))
 })
 
+/* ---------- 扫码出库：解析标签上的二维码 ---------- */
+
+/**
+ * 标签上的二维码内容：MZ|码单号|包号
+ *   码单号 = 条码号（bales.barcode，例如 BL-REG-001-001）
+ *   包号   = bales.bale_no（例如 P1）
+ * 扫到码以后交给前端追加到出库明细，规格、立方、成本价都由这里算好返回。
+ */
+const findBaleByBarcodeStmt = db.prepare(
+  `SELECT * FROM bales WHERE barcode = ? AND deleted_at IS NULL`,
+)
+const baleItemsOfStmt = db.prepare(
+  `SELECT * FROM bale_items WHERE bale_id = ? ORDER BY id`,
+)
+/** 规格行对应的入库单价（分）：按「品名+等级+规格+片数」到这张入库单的明细里找 */
+const itemPriceStmt = db.prepare(
+  `SELECT COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
+     FROM order_items
+    WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL
+      AND COALESCE(species, '') = COALESCE(?, '')
+      AND COALESCE(grade, '')   = COALESCE(?, '')
+      AND thickness = ? AND width = ? AND length = ? AND pieces = ?
+    ORDER BY id
+    LIMIT 1`,
+)
+
+/** 这一包的成本价（加权平均 = Σ(立方×单价) ÷ Σ立方），取不到就是 null */
+function baleCostPrice(bale) {
+  if (!bale.inbound_order_id) return null
+  const items = baleItemsOfStmt.all(bale.id)
+  const cubic = items.reduce((sum, item) => sum + (item.cubic ?? 0), 0)
+  if (cubic <= 0) return null
+  const amountCents = items.reduce((sum, item) => {
+    const cents = Number(
+      itemPriceStmt.get(
+        bale.inbound_order_id,
+        item.species,
+        item.grade,
+        item.thickness,
+        item.width,
+        item.length,
+        item.pieces,
+      )?.cents ?? 0,
+    )
+    return sum + Math.round((item.cubic ?? 0) * cents)
+  }, 0)
+  const price = fromCents(Math.round(amountCents / cubic))
+  return price > 0 ? price : null
+}
+
+router.get('/scan', (req, res) => {
+  const code = String(req.query.code ?? '').trim()
+  const parts = code.split('|')
+  // 不是「MZ|码单号|包号」这种格式的，直接告诉用户不是本系统的码
+  if (parts.length !== 3 || parts[0] !== 'MZ') {
+    return res.status(400).json({ error: '不是本系统的码' })
+  }
+
+  const [, barcode, baleNo] = parts
+  const bale = findBaleByBarcodeStmt.get(barcode)
+  if (!bale) {
+    return res.status(404).json({ error: '未找到该码对应的包' })
+  }
+  if (baleNo && bale.bale_no && baleNo !== bale.bale_no) {
+    return res.status(404).json({ error: '未找到该码对应的包' })
+  }
+  if (bale.status !== 'in_stock') {
+    return res.status(400).json({ error: '这一包已经出库了' })
+  }
+
+  res.json({
+    bale_id: bale.id,
+    bale_no: bale.bale_no ?? '',
+    barcode: bale.barcode ?? '',
+    box_no: bale.box_no ?? '',
+    species: bale.species ?? '',
+    grade: bale.grade ?? '',
+    thickness: bale.thickness,
+    width: bale.width,
+    length: bale.length,
+    pieces: bale.pieces ?? 0,
+    bundles: 1,
+    cubic: roundTo(bale.cubic ?? 0, 4),
+    unit_price: baleCostPrice(bale),
+  })
+})
+
 /* ---------- 修改 ---------- */
 
 const updateOrderStmt = db.prepare(

@@ -101,6 +101,8 @@ export type InboundDetail = {
   items: InboundDetailItem[]
   /** 这张单下面的码单（每包状态：在库 / 已出库） */
   bales: Array<{
+    /** 包的 id（打印标签要按 id 跳转） */
+    id: number
     bale_no: string
     /** 条码号：就是要打印贴包上的那张码 */
     barcode: string
@@ -426,6 +428,30 @@ export function fetchOutboundDetail(id: number) {
   return request<OutboundDetail>(`/api/outbound/${id}`)
 }
 
+/** 扫标签上的二维码（MZ|码单号|包号）→ 返回这一包的规格 / 立方 / 成本价 */
+export type ScanBaleResult = {
+  bale_id: number
+  bale_no: string
+  barcode: string
+  box_no: string
+  species: string
+  grade: string
+  thickness: number
+  width: number
+  length: number
+  pieces: number
+  bundles: number
+  cubic: number
+  /** 这一包的成本价（加权平均），取不到就是 null */
+  unit_price: number | null
+}
+
+export function scanOutboundBale(code: string) {
+  return request<ScanBaleResult>(
+    `/api/outbound/scan?code=${encodeURIComponent(code)}`,
+  )
+}
+
 // 删除出库单
 export function deleteOutbound(id: number) {
   return request<{ ok: boolean }>(`/api/outbound/${id}`, { method: 'DELETE' })
@@ -727,6 +753,8 @@ export type BaleDetail = {
   bale_no: string
   barcode: string
   box_no: string
+  /** 提单号（打印标签要用） */
+  bl_no: string
   shipment_id: number | null
   inbound_order_id: number | null
   status: 'in_stock' | 'shipped'

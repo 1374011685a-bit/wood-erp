@@ -10,8 +10,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/icon-192.png', 'icons/icon-512.png'],
       manifest: {
-        name: '立川木业木材管理系统',
-        short_name: '立川木业',
+        name: '立川云木材管理系统',
+        short_name: '立川云',
         description: '木材进销存：入库、出库、库存、盘点、流水与对账',
         theme_color: '#1d1d1f',
         background_color: '#ffffff',
@@ -79,6 +79,9 @@ export default defineConfig({
          */
         manualChunks(id: string) {
           if (id.includes('node_modules')) {
+            // 扫码库和二维码生成库都挺大，各自单独一个包，点到才下载
+            if (id.includes('html5-qrcode')) return 'qr-scanner'
+            if (id.includes('qrcode')) return 'qr-generator'
             if (id.includes('react-router')) return 'vendor-router'
             if (id.includes('react')) return 'vendor-react'
             return 'vendor'

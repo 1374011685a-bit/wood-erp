@@ -35,7 +35,7 @@ wood-erp/
 ```bash
 git init
 git add .
-git commit -m "初始化：立川木业木材管理系统"
+git commit -m "初始化：立川云木材管理系统"
 ```
 
 然后去 GitHub 新建一个**空仓库**（不要勾选 Add README / .gitignore / license，否则推送会冲突），

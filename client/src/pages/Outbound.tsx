@@ -1,4 +1,13 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   createOutbound,
@@ -10,6 +19,7 @@ import {
   fetchBales,
   fetchStock,
   outboundExportUrl,
+  scanOutboundBale,
   updateOutbound,
   type InboundItemPayload,
   type BaleRow,
@@ -25,6 +35,9 @@ import {
   Pager,
   ToastHost,
 } from '../components/Ui'
+
+// 扫码库挺大，点「扫一扫」才去下载
+const Scanner = lazy(() => import('../components/Scanner'))
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 
 /* ---------- 立方预览：与 server/utils/cubic.js 同一公式 ---------- */
@@ -249,6 +262,9 @@ export default function Outbound({
   // 确认选择时要先算每包的成本价（加权平均），算的时候把按钮锁住
   const [pickerApplying, setPickerApplying] = useState(false)
   const [pickerError, setPickerError] = useState('')
+  // 扫码弹窗 + 扫到码之后的一句反馈
+  const [scannerOpen, setScannerOpen] = useState(false)
+  const [scanHint, setScanHint] = useState('')
   // 规格 -> 当前库存（实时提示用）
   const [stockMap, setStockMap] = useState<Record<string, StockSnapshot>>({})
   const requestedSpecs = useRef<Set<string>>(new Set())
@@ -482,6 +498,49 @@ export default function Outbound({
       return
     }
     await appendBales(pickerBales.filter((bale) => pickedBaleIds.includes(bale.id)))
+  }
+
+  /**
+   * 扫到标签上的二维码（MZ|码单号|包号）：
+   * 问后端这一包是谁 → 追加一行（同样是追加，不冲掉已有的行）。
+   * 弹窗不自动关，方便工人一包一包连着扫。
+   */
+  const handleScan = async (code: string) => {
+    try {
+      const bale = await scanOutboundBale(code)
+      if (rows.some((row) => row.baleId === bale.bale_id)) {
+        setScanHint(`${bale.bale_no || bale.barcode} 已经在明细里了`)
+        return
+      }
+      setRows((prev) => {
+        const kept = prev.filter(
+          (row) => typeof row.baleId === 'number' || row.species.trim(),
+        )
+        return [
+          ...kept,
+          {
+            key: (rowSeq += 1),
+            species: bale.species,
+            grade: bale.grade,
+            thickness: String(bale.thickness),
+            width: String(bale.width),
+            length: String(bale.length),
+            pieces: String(bale.pieces),
+            bundles: '1',
+            unitPrice: bale.unit_price === null ? '' : String(bale.unit_price),
+            baleId: bale.bale_id,
+            baleNo: bale.bale_no,
+            baleBarcode: bale.barcode,
+          },
+        ]
+      })
+      setFormError('')
+      setScanHint(
+        `已加入 ${bale.bale_no || bale.barcode}（${formatCubic(bale.cubic)} m³）`,
+      )
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '扫码失败')
+    }
   }
 
   const removeRow = (key: number) => {
@@ -747,6 +806,14 @@ export default function Outbound({
 
       <ToastHost
         items={[
+          scanHint
+            ? {
+                id: 'outbound-scan-hint',
+                kind: 'info' as const,
+                message: scanHint,
+                onClose: () => setScanHint(''),
+              }
+            : null,
           exportHint
             ? {
                 id: 'outbound-export-hint',
@@ -1018,6 +1085,9 @@ export default function Outbound({
           <div className="sheet-toolbar">
             <button className="btn btn-sm btn-primary" onClick={() => openPicker('multi')}>
               选择码单
+            </button>
+            <button className="btn btn-sm" onClick={() => { setScanHint(''); setScannerOpen(true) }}>
+              扫一扫
             </button>
             <button className="btn btn-sm" onClick={() => openPicker('one')}>
               + 新增（手动选一包）
@@ -1519,6 +1589,16 @@ export default function Outbound({
             </div>
           </div>
         </div>
+      )}
+
+      {scannerOpen && (
+        <Suspense fallback={null}>
+          <Scanner
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onScan={handleScan}
+          />
+        </Suspense>
       )}
     </section>
   )

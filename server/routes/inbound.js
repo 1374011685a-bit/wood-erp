@@ -733,7 +733,7 @@ router.get('/:id', (req, res) => {
   // 这一单单下每包的状态（在库 / 已出库），入库后随时能看到哪包还没发
   const bales = db
     .prepare(
-      `SELECT b.bale_no, b.barcode, b.box_no, b.species, b.grade, b.thickness, b.width, b.length,
+      `SELECT b.id, b.bale_no, b.barcode, b.box_no, b.species, b.grade, b.thickness, b.width, b.length,
               b.pieces, b.cubic, b.status, b.shipped_at,
               o.order_no AS outbound_order_no
          FROM bales b
@@ -743,6 +743,7 @@ router.get('/:id', (req, res) => {
     )
     .all(id)
     .map((row) => ({
+      id: row.id,
       bale_no: row.bale_no,
       barcode: row.barcode ?? row.bale_no ?? '',
       box_no: row.box_no ?? '',

@@ -2,7 +2,7 @@
   "name": "wood-erp",
   "version": "0.1.0",
   "private": true,
-  "description": "立川木业木材管理系统（骨架）",
+  "description": "立川云木材管理系统（骨架）",
   "scripts": {
     "dev": "concurrently -k -n SERVER,CLIENT -c blue,green \"node --watch server/index.js\" \"cd client && node node_modules/vite/bin/vite.js\"",
     "dev:client": "cd client && node node_modules/vite/bin/vite.js",

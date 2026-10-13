@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   createInbound,
@@ -273,6 +274,7 @@ export default function Inbound({
   /** /inbound 走「先选入库方式」，/inbound/records 直接看记录 */
   defaultMode?: 'method' | 'list'
 }) {
+  const navigate = useNavigate()
   const [mode, setMode] = useState<'method' | 'list' | 'create'>(defaultMode)
   // 入库方式：直接入库 / 关联采购合同
   const [method, setMethod] = useState<'direct' | 'contract'>('direct')
@@ -1892,11 +1894,12 @@ export default function Inbound({
                           <th className="num">立方</th>
                           <th>状态</th>
                           <th>出库单</th>
+                          <th>操作</th>
                         </tr>
                       </thead>
                       <tbody>
                         {detail.bales.map((bale) => (
-                          <tr key={bale.barcode || bale.bale_no}>
+                          <tr key={bale.id ?? bale.barcode ?? bale.bale_no}>
                             <td>{bale.bale_no || '—'}</td>
                             <td>{bale.barcode || '—'}</td>
                             <td>{bale.box_no || '—'}</td>
@@ -1917,6 +1920,14 @@ export default function Inbound({
                               </span>
                             </td>
                             <td>{bale.outbound_order_no || '—'}</td>
+                            <td>
+                              <button
+                                className="btn btn-sm"
+                                onClick={() => navigate(`/label/print?ids=${bale.id}`)}
+                              >
+                                打印标签
+                              </button>
+                            </td>
                           </tr>
                         ))}
                       </tbody>

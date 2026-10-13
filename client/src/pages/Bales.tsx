@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   deleteBale,
   fetchBaleDetail,
@@ -27,12 +28,15 @@ const STATUS_TEXT: Record<BaleRow['status'], string> = {
  * 下半部分是一包一行的明细，点进度表的某一行就直接筛这张合同。
  */
 export default function Bales() {
+  const navigate = useNavigate()
   const [rows, setRows] = useState<BaleRow[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  // 勾选要批量打印标签的包
+  const [labelPicked, setLabelPicked] = useState<number[]>([])
 
   const [progress, setProgress] = useState<ContractPickerRow[]>([])
   const [progressLoading, setProgressLoading] = useState(false)
@@ -355,6 +359,14 @@ export default function Bales() {
         <button className="btn" onClick={handleReset}>
           重置
         </button>
+        <button
+          className="btn btn-primary"
+          disabled={labelPicked.length === 0}
+          title={labelPicked.length === 0 ? '先勾选要打印的包' : '打印这些小标签'}
+          onClick={() => navigate(`/label/print?ids=${labelPicked.join(',')}`)}
+        >
+          批量打印（{labelPicked.length}）
+        </button>
         <span className="spacer" />
         <span className="muted">
           共 {total} 包 · 本页在库 {inStockRows.length} 包 · 在库 {formatCubic(inStockCubic)} m³ ·
@@ -366,6 +378,15 @@ export default function Bales() {
         <table className="table">
           <thead>
             <tr>
+              <th className="col-check">
+                <input
+                  type="checkbox"
+                  checked={rows.length > 0 && labelPicked.length === rows.length}
+                  onChange={(event) =>
+                    setLabelPicked(event.target.checked ? rows.map((row) => row.id) : [])
+                  }
+                />
+              </th>
               <th>包号</th>
               <th>条码号</th>
               <th>柜号</th>
@@ -384,6 +405,19 @@ export default function Bales() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
+                <td className="col-check">
+                  <input
+                    type="checkbox"
+                    checked={labelPicked.includes(row.id)}
+                    onChange={(event) =>
+                      setLabelPicked((prev) =>
+                        event.target.checked
+                          ? [...prev, row.id]
+                          : prev.filter((id) => id !== row.id),
+                      )
+                    }
+                  />
+                </td>
                 <td>{row.bale_no || '—'}</td>
                 <td>{row.barcode || '—'}</td>
                 <td>{row.box_no || '—'}</td>
@@ -404,6 +438,12 @@ export default function Bales() {
                 <td>{row.outbound_order_no || '—'}</td>
                 <td>
                   <div className="row-actions">
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => navigate(`/label/print?ids=${row.id}`)}
+                    >
+                      打印标签
+                    </button>
                     <button className="btn btn-sm" onClick={() => void openBaleEdit(row)}>
                       编辑
                     </button>

@@ -84,7 +84,7 @@ export default function Login() {
     <div className="login-page">
       <main className="login-panel">
         <form className="login-card" onSubmit={handleSubmit}>
-          <h1 className="login-brand">立川木业</h1>
+          <h1 className="login-brand">立川云</h1>
           <p className="login-desc">木材进销存管理系统</p>
 
           <div className="login-fields">
@@ -130,7 +130,7 @@ export default function Login() {
         </form>
       </main>
 
-      <p className="login-version">立川木业木材管理系统 · v0.1.0</p>
+      <p className="login-version">立川云木材管理系统 · v0.1.0</p>
 
       {showHelp && (
         <div className="overlay" onClick={() => setShowHelp(false)}>

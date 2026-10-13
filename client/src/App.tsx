@@ -38,6 +38,7 @@ const Records = lazyPage(() => import('./pages/Records'))
 const Recycle = lazyPage(() => import('./pages/Recycle'))
 const Settlement = lazyPage(() => import('./pages/Settlement'))
 const Dict = lazyPage(() => import('./pages/Dict'))
+const LabelPrint = lazyPage(() => import('./pages/LabelPrint'))
 
 export default function App() {
   return (
@@ -73,6 +74,8 @@ export default function App() {
           <Route path="recycle" element={<Recycle />} />
           <Route path="settlement" element={<Settlement />} />
           <Route path="dict" element={<Dict />} />
+          {/* 打印小标签：/label/print?ids=1,2,3&size=60x40 */}
+          <Route path="label/print" element={<LabelPrint />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

@@ -541,7 +541,7 @@ export default function Settlement() {
             {statement && !statementLoading && (
               <div className="print-area">
                 <h3 className="print-title">
-                  立川木业木材管理系统 · {text.label}对账单
+                  立川云木材管理系统 · {text.label}对账单
                 </h3>
                 <p className="print-sub">
                   往来单位：{statement.partner}　　期间：{statement.date_from || '不限'} ~{' '}
