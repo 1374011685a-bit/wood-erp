@@ -129,10 +129,10 @@ export default function Home() {
         subtitle="库存、出货与应收的整体概览"
         extra={
           <>
-            <button className="btn btn-sm" onClick={() => navigate('/inbound')}>
+            <button className="btn btn-sm" onClick={() => navigate('/inbound/new')}>
               新增入库
             </button>
-            <button className="btn btn-sm" onClick={() => navigate('/outbound')}>
+            <button className="btn btn-sm" onClick={() => navigate('/outbound/new')}>
               新增出库
             </button>
             <button className="btn btn-sm" onClick={() => navigate('/count')}>

@@ -8,7 +8,8 @@ const roundTo = (value, digits) => Number(value.toFixed(digits))
 /**
  * 实时汇总库存（不建库存表）：按 品名 + 等级 + 厚度 + 宽度 + 长度 归组
  * 库存 = 入库合计 - 出库合计；立方、件数、片数分别汇总
- * 最近入库单价：取该规格最新一条入库明细的 unit_price 作为参考价
+ * 库存均价：该规格所有入库明细的「Σ(立方×单价) ÷ Σ立方」，即加权平均成本价
+ * （按加权平均法，出库按均价带走成本，剩余库存的均价仍是这个值）
  */
 const stockSql = (hasSpeciesFilter) => `
   SELECT i.species,
@@ -21,7 +22,10 @@ const stockSql = (hasSpeciesFilter) => `
          SUM(CASE WHEN i.order_type = 'in'
                   THEN i.pieces * i.bundles
                   ELSE -i.pieces * i.bundles END) AS total_pieces,
-         (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100)) / 100.0
+         (SELECT COALESCE(
+                   SUM(s.cubic * COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100)))
+                     / NULLIF(SUM(s.cubic), 0),
+                   0) / 100.0
             FROM order_items s
            WHERE s.order_type = 'in'
              AND s.deleted_at IS NULL
@@ -29,9 +33,7 @@ const stockSql = (hasSpeciesFilter) => `
              AND COALESCE(s.grade, '')   = COALESCE(i.grade, '')
              AND s.thickness = i.thickness
              AND s.width     = i.width
-             AND s.length    = i.length
-           ORDER BY s.id DESC
-           LIMIT 1) AS last_unit_price
+             AND s.length    = i.length) AS avg_unit_price
     FROM order_items i
    WHERE i.deleted_at IS NULL
    ${hasSpeciesFilter ? `AND i.species LIKE ?` : ''}
@@ -57,7 +59,7 @@ router.get('/', (req, res) => {
       total_bundles: row.total_bundles ?? 0,
       total_pieces: row.total_pieces ?? 0,
       total_cubic: roundTo(row.total_cubic ?? 0, 4),
-      last_unit_price: row.last_unit_price ?? null,
+      avg_unit_price: row.avg_unit_price ?? null,
     })),
   )
 })

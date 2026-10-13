@@ -135,7 +135,8 @@ export default function Stock() {
               <th className="num">当前件数</th>
               <th className="num">当前片数</th>
               <th className="num">当前立方</th>
-              <th className="num">最近入库单价</th>
+              {/* 加权平均成本价：Σ(入库立方×入库单价) ÷ Σ入库立方 */}
+              <th className="num">库存均价</th>
             </tr>
           </thead>
           <tbody>
@@ -149,7 +150,7 @@ export default function Stock() {
                 <td className="num">{row.total_bundles}</td>
                 <td className="num">{row.total_pieces}</td>
                 <td className="num">{formatCubic(row.total_cubic)}</td>
-                <td className="num amount">{formatPrice(row.last_unit_price)}</td>
+                <td className="num amount">{formatPrice(row.avg_unit_price)}</td>
               </tr>
             ))}
           </tbody>

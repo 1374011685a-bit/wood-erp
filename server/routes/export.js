@@ -69,6 +69,7 @@ const inboundRowsSql = (where) => `
          o.warehouse,
          o.operator,
          o.remark,
+         i.brand,
          i.species,
          i.grade,
          i.thickness,
@@ -115,6 +116,7 @@ router.get('/inbound', async (req, res) => {
       amountCents += Number(row.amount_cents ?? 0)
       return {
         ...row,
+        brand: row.brand ?? '',
         grade: row.grade ?? '',
         remark: row.remark ?? '',
         cubic: roundTo(row.cubic, 4),
@@ -122,8 +124,13 @@ router.get('/inbound', async (req, res) => {
       }
     })
 
+  // 入库明细多一列「品牌」，放在「品名」前面
   const columns = ORDER_ITEM_COLUMNS.map((column) =>
     column.key === 'partner' ? { ...column, header: '供应商' } : column,
+  ).flatMap((column) =>
+    column.key === 'species'
+      ? [{ key: 'brand', header: '品牌', type: 'text' }, column]
+      : [column],
   )
   const totals = {
     order_no: '合计',
@@ -233,7 +240,10 @@ const stockRowsSql = (hasSpeciesFilter) => `
                   THEN i.pieces * i.bundles
                   ELSE -i.pieces * i.bundles END) AS pieces,
          SUM(CASE WHEN i.order_type = 'in' THEN i.cubic ELSE -i.cubic END) AS cubic,
-         (SELECT COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100))
+         (SELECT COALESCE(
+                   SUM(s.cubic * COALESCE(s.unit_price_cents, ROUND(s.unit_price * 100)))
+                     / NULLIF(SUM(s.cubic), 0),
+                   0)
             FROM order_items s
            WHERE s.order_type = 'in'
              AND s.deleted_at IS NULL
@@ -241,9 +251,7 @@ const stockRowsSql = (hasSpeciesFilter) => `
              AND COALESCE(s.grade, '')   = COALESCE(i.grade, '')
              AND s.thickness = i.thickness
              AND s.width     = i.width
-             AND s.length    = i.length
-           ORDER BY s.id DESC
-           LIMIT 1) AS unit_price_cents
+             AND s.length    = i.length) AS unit_price_cents
     FROM order_items i
    WHERE i.deleted_at IS NULL
    ${hasSpeciesFilter ? `AND i.species LIKE ?` : ''}
@@ -289,7 +297,7 @@ router.get('/stock', async (req, res) => {
     { key: 'bundles', header: '当前件数', type: 'integer' },
     { key: 'pieces', header: '当前片数', type: 'integer' },
     { key: 'cubic', header: '当前立方', type: 'number', decimals: 4 },
-    { key: 'unit_price', header: '最近入库单价', type: 'number', decimals: 2 },
+    { key: 'unit_price', header: '库存均价', type: 'number', decimals: 2 },
     { key: 'amount', header: '库存金额', type: 'number', decimals: 2 },
   ]
 

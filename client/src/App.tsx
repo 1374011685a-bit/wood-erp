@@ -60,7 +60,10 @@ export default function App() {
         >
           <Route index element={<Home />} />
           <Route path="inbound" element={<Inbound defaultMode="list" />} />
+          {/* 首页「新增入库 / 新增出库」直接落到录入界面 */}
+          <Route path="inbound/new" element={<Inbound defaultMode="method" />} />
           <Route path="outbound" element={<Outbound />} />
+          <Route path="outbound/new" element={<Outbound defaultMode="create" />} />
           <Route path="stock" element={<Stock />} />
           <Route path="count" element={<Count />} />
           <Route path="repack" element={<Repack />} />

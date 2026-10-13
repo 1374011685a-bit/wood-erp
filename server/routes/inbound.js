@@ -111,6 +111,26 @@ const insertShipmentStmt = db.prepare(
    VALUES (?, ?, ?, ?, ?)`,
 )
 
+/**
+ * 把「这次请求里刚建的提单」撤掉。
+ *
+ * 为什么需要：手打新提单号时我们会顺手建一张提单，然后才做明细预检。
+ * 预检/写库失败时如果不撤，库里就留下一张 0 包的空提单（还能在提单下拉里选到）。
+ * 只有确认这张提单下面一包货都没有，才真删。
+ */
+function dropEmptyShipment(shipmentId) {
+  if (!shipmentId) return
+  const bales =
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM bales
+          WHERE shipment_id = ? AND deleted_at IS NULL`,
+      )
+      .get(shipmentId)?.total ?? 0
+  if (bales > 0) return
+  db.prepare(`DELETE FROM shipments WHERE id = ?`).run(shipmentId)
+}
+
 const insertItem = db.prepare(
   `INSERT INTO order_items
      (order_id, order_type, box_no, bale_no, brand, species, grade, thickness, width, length,
@@ -195,8 +215,27 @@ router.post('/', (req, res) => {
   if (!warehouse) {
     return res.status(400).json({ error: '仓库不能为空' })
   }
+  // 一票货一个提单号：留空就不收（前端也会先拦一次）
+  if (!blNo) {
+    return res.status(400).json({ error: '提单号必填，一票货一个号' })
+  }
 
+  // ── 先做不依赖提单的校验：能便宜地挡掉的就别先去建提单 ──
+  if (rawItems.length === 0) {
+    return res.status(400).json({ error: '至少需要一行明细' })
+  }
+
+  const items = normalizeItems(rawItems)
+  // 字段级校验：入库不校验 cubic > 0
+  const problems = validateItems(items)
+  if (problems.length > 0) {
+    return res.status(400).json({ error: problems.join('\n') })
+  }
+
+  // ── 再解析 / 建档提单 ──
   let shipment = null
+  // 记下「这次请求里新建的提单」：万一后面校验失败，要把它删掉，不留 0 包空提单
+  let createdShipmentId = null
   if (shipmentId) {
     shipment = findShipmentStmt.get(shipmentId)
     if (!shipment) {
@@ -215,19 +254,15 @@ router.post('/', (req, res) => {
         orderDate,
         '入库时自动建档',
       )
-      shipment = { id: Number(lastInsertRowid), bl_no: blNo, contract_no: contractNo || null }
+      createdShipmentId = Number(lastInsertRowid)
+      shipment = {
+        id: createdShipmentId,
+        bl_no: blNo,
+        contract_no: contractNo || null,
+      }
     }
   }
-  if (rawItems.length === 0) {
-    return res.status(400).json({ error: '至少需要一行明细' })
-  }
 
-  const items = normalizeItems(rawItems)
-  // 字段级校验：入库不校验 cubic > 0
-  const problems = validateItems(items)
-  if (problems.length > 0) {
-    return res.status(400).json({ error: problems.join('\n') })
-  }
   // 包号 / 件数 / 查重：全部在写库之前拦下，保证要么全写成、要么一条不写
   try {
     preflightBales({
@@ -236,6 +271,7 @@ router.post('/', (req, res) => {
       items,
     })
   } catch (err) {
+    dropEmptyShipment(createdShipmentId)
     return res.status(err.status === 400 ? 400 : 500).json({ error: err.message })
   }
 
@@ -256,6 +292,7 @@ router.post('/', (req, res) => {
     })
     res.json(result)
   } catch (err) {
+    dropEmptyShipment(createdShipmentId)
     res.status(500).json({ error: err.message })
   }
 })
@@ -474,6 +511,15 @@ router.put('/:id', (req, res) => {
     )
     .get(id)
   if (!existing) return res.status(404).json({ error: '入库单不存在' })
+
+  /**
+   * 提单号必填——但老单据例外：这张单入库那会儿还没有这条规则，
+   * 库里存的就是空，允许它继续空着保存（新建仍然必填）。
+   */
+  const legacyNoBl = !String(existing.bl_no ?? '').trim()
+  if (!blNo && !legacyNoBl) {
+    return res.status(400).json({ error: '提单号必填，一票货一个号' })
+  }
 
   const shipped = Number(
     db

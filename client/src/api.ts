@@ -463,7 +463,8 @@ export type StockRow = {
   total_bundles: number
   total_pieces: number
   total_cubic: number
-  last_unit_price: number | null
+  /** 库存均价 = 该规格所有入库的 Σ(立方×单价) ÷ Σ立方 */
+  avg_unit_price: number | null
 }
 
 // 库存列表（可选按品名模糊筛选），后端实时汇总

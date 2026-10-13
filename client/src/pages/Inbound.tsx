@@ -288,6 +288,11 @@ export default function Inbound({
   const [pickerPick, setPickerPick] = useState<ContractPickerRow | null>(null)
   // 非空 = 正在修改这张单（单号不变，只替换明细）
   const [editing, setEditing] = useState<{ id: number; order_no: string } | null>(null)
+  /**
+   * 老单据标记：这张单入库时提单号还不是必填，库里存的就是空。
+   * 这种单允许继续空着保存（新建仍然必填），不然它就永远改不了了。
+   */
+  const [legacyNoBl, setLegacyNoBl] = useState(false)
 
   const [list, setList] = useState<InboundListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
@@ -831,6 +836,7 @@ export default function Inbound({
     setNotice('')
     setFormError('')
     setEditing(null)
+    setLegacyNoBl(false)
     setRowErrors({})
     setHasValidated(false)
     // 先走「请选择入库方式」，和千木云一致
@@ -884,6 +890,8 @@ export default function Inbound({
       setRowErrors({})
       setHasValidated(false)
       setEditing({ id: item.id, order_no: item.order_no })
+      // 原单本来就没提单号 → 这张是老单据，允许留空保存
+      setLegacyNoBl(!String(data.bl_no ?? '').trim())
       setMode('create')
       closeDetail()
     } catch (err) {
@@ -940,6 +948,11 @@ export default function Inbound({
       setFormError('仓库不能为空')
       return
     }
+    // 提单号必填；老单据（入库那会儿还没这条规则）允许继续空着保存
+    if (!form.blNo.trim() && !legacyNoBl) {
+      setFormError('提单号必填，一票货一个号')
+      return
+    }
 
     const filledRows = computedRows.filter((row) => !isRowEmpty(row))
     if (filledRows.length === 0) {
@@ -990,6 +1003,7 @@ export default function Inbound({
       // 回到列表：清空筛选后重新加载，保证新单一定可见
       setMode('list')
       setEditing(null)
+      setLegacyNoBl(false)
       setForm({
         supplier: '',
         orderDate: todayISO(),
@@ -1649,7 +1663,9 @@ export default function Inbound({
           {/* 表下方：提单 / 合同 / 仓库 / 操作员 / 车号 */}
           <div className="sheet-bottom">
             <label className="sheet-field">
-              <span>提单号</span>
+              <span>
+                提单号{!legacyNoBl && <b className="req">*</b>}
+              </span>
               <input
                 className="input"
                 placeholder="例如：BL-2026-0001"
@@ -1668,7 +1684,11 @@ export default function Inbound({
                   <option key={box.id} value={box.bl_no} />
                 ))}
               </datalist>
-              <small className="muted">填过的提单号下次会自动带出；填了就归到那张提单下</small>
+              <small className="muted">
+                {legacyNoBl
+                  ? '这张老单据入库时没填提单号，可以继续留空保存（新建单据必填）'
+                  : '填过的提单号下次会自动带出；填了就归到那张提单下'}
+              </small>
             </label>
             <label className="sheet-field">
               <span>

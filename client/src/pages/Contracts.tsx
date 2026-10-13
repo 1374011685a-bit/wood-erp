@@ -6,6 +6,7 @@ import {
   formatFileSize,
   openContractFile,
   saveContract,
+  type ContractDetail,
   type ContractRow,
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
@@ -53,6 +54,9 @@ export default function Contracts() {
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  // 查看（只读）弹层：明细要另拉一次详情接口
+  const [viewing, setViewing] = useState<ContractDetail | null>(null)
+  const [viewLoading, setViewLoading] = useState(false)
 
   const [input, setInput] = useState({
     keyword: '',
@@ -125,6 +129,21 @@ export default function Contracts() {
     setFile(null)
     setFormError('')
     setSheetOpen(true)
+  }
+
+  /** 查看：只读拉一次详情（含明细），不进编辑态 */
+  const openView = async (row: ContractRow) => {
+    setError('')
+    setViewing({ ...row, items: [] })
+    setViewLoading(true)
+    try {
+      setViewing(await fetchContractDetail(row.id))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '读取合同明细失败')
+      setViewing(null)
+    } finally {
+      setViewLoading(false)
+    }
   }
 
   const openEdit = (row: ContractRow) => {
@@ -346,6 +365,9 @@ export default function Contracts() {
                 </td>
                 <td>
                   <div className="row-actions">
+                    <button className="btn btn-sm" onClick={() => void openView(row)}>
+                      查看
+                    </button>
                     <button className="btn btn-sm" onClick={() => openEdit(row)}>
                       编辑
                     </button>
@@ -583,6 +605,103 @@ export default function Contracts() {
                 {saving ? '提交中…' : editing ? '确认修改' : '确认上传'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 查看：只读，明细看这里，不是编辑 */
+      }
+      {viewing && (
+        <div className="overlay" onClick={() => setViewing(null)}>
+          <div className="modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-head">
+              <h2 className="modal-title">合同详情：{viewing.contract_no}</h2>
+              <div className="modal-actions">
+                {viewing.has_file && (
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => void handleOpen(viewing)}
+                    disabled={openingId === viewing.id}
+                  >
+                    {openingId === viewing.id ? '打开中…' : '打开 PDF'}
+                  </button>
+                )}
+                <button
+                  className="btn btn-sm"
+                  onClick={() => {
+                    const row = viewing
+                    setViewing(null)
+                    openEdit(row)
+                  }}
+                >
+                  编辑
+                </button>
+                <button className="btn btn-quiet" onClick={() => setViewing(null)}>
+                  关闭
+                </button>
+              </div>
+            </div>
+
+            <div className="meta">
+              <span>名称：{viewing.title || '—'}</span>
+              <span>往来单位：{viewing.partner || '—'}</span>
+              <span>签订日期：{viewing.sign_date || '—'}</span>
+              <span>合同金额：{formatAmount(viewing.amount)} 元</span>
+              <span>备注：{viewing.remark || '—'}</span>
+              <span>
+                文件：
+                {viewing.has_file
+                  ? `${viewing.file_original}（${formatFileSize(viewing.file_size)}）`
+                  : '未上传（选填）'}
+              </span>
+              <span>创建时间：{viewing.created_at}</span>
+            </div>
+
+            <h3 className="section-title" style={{ marginTop: 4 }}>
+              合同明细（{viewing.items.length} 行）
+            </h3>
+            {viewLoading ? (
+              <Loading />
+            ) : viewing.items.length === 0 ? (
+              <p className="muted">这份合同还没有登记明细。</p>
+            ) : (
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>品牌</th>
+                    <th>品名</th>
+                    <th>等级</th>
+                    <th className="num">数量 (m³)</th>
+                    <th className="num">单价 (元/m³)</th>
+                    <th className="num">金额 (元)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {viewing.items.map((item) => (
+                    <tr key={item.id}>
+                      <td>{item.brand || '—'}</td>
+                      <td>{item.species}</td>
+                      <td>{item.grade || '—'}</td>
+                      <td className="num">{formatAmount(item.quantity)}</td>
+                      <td className="num">{formatAmount(item.unit_price)}</td>
+                      <td className="num">{formatAmount(item.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td colSpan={3}>合计</td>
+                    <td className="num">
+                      {formatAmount(
+                        viewing.items.reduce((sum, item) => sum + item.quantity, 0),
+                      )}
+                    </td>
+                    <td />
+                    <td className="num">{formatAmount(viewing.amount)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
           </div>
         </div>
       )}

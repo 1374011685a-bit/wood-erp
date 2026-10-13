@@ -199,9 +199,11 @@ const navItems: NavItem[] = [homeItem, ...navGroups.flatMap((group) => group.ite
 
 /** 路由 → 标签名（和左侧菜单同名） */
 function labelOf(path: string) {
-  const hit = navItems.find((item) => item.to === path)
+  // /inbound/new、/outbound/new 这类「直接进录入」的地址，标签跟它所属的功能同名
+  const base = path.replace(/\/new$/, '')
+  const hit = navItems.find((item) => item.to === base)
   if (hit) return hit.label
-  return path.replace(/^\//, '') || '首页'
+  return base.replace(/^\//, '') || '首页'
 }
 
 export default function Layout() {

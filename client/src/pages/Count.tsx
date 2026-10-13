@@ -193,9 +193,9 @@ export default function Count() {
             // 默认实盘 = 账面，只改盘出来不一样的行
             actualBundles: String(bundles),
             unitPrice:
-              row.last_unit_price === null || row.last_unit_price === undefined
+              row.avg_unit_price === null || row.avg_unit_price === undefined
                 ? ''
-                : String(row.last_unit_price),
+                : String(row.avg_unit_price),
             manual: false,
           }
         }),

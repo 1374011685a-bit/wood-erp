@@ -534,7 +534,24 @@ function findOrderItem(orderId, item, pieces) {
  * 从入库单里减掉一包：找到同规格那一行，件数 -1、立方按「厚×宽×长×片数×剩余件数」重算。
  * 减到 0 就把这一行删掉。
  */
-function removeOneBundleFromOrder(orderId, item) {
+/**
+ * 从这一行的包号列表里摘掉「已经拆出去的那一包」。
+ *
+ * 为什么必须摘：改包/删码单是「原明细行扣 1 件 + 新增一行」。
+ * 如果原行的 bale_no 还留着被拆走的包号（比如原来写「P1、P2」，拆走 P1 后还剩 1 件），
+ * 编辑入库单时这一批里就会出现两个 P1（原行 + 新增行），整单存不回去。
+ */
+function stripBaleNo(baleNo, detached) {
+  const labels = String(baleNo ?? '')
+    .split(/[、,，\s]+/)
+    .map((one) => one.trim())
+    .filter(Boolean)
+  if (!detached) return labels.join('、') || null
+  const rest = labels.filter((one) => one !== detached)
+  return rest.join('、') || null
+}
+
+function removeOneBundleFromOrder(orderId, item, detachedBaleNo) {
   /**
    * 先按「规格 + 片数」精确匹配，匹配不到再退化成只按规格。
    * 只按规格会在「同一单里同规格但片数不同」时扣错行（加回来是按规格+片数加的，
@@ -560,9 +577,16 @@ function removeOneBundleFromOrder(orderId, item) {
   const amountCents = calcAmountCents(cubic, priceCents)
   db.prepare(
     `UPDATE order_items
-        SET bundles = ?, cubic = ?, amount = ?, amount_cents = ?
+        SET bundles = ?, cubic = ?, amount = ?, amount_cents = ?, bale_no = ?
       WHERE id = ?`,
-  ).run(bundles, cubic, fromCents(amountCents), amountCents, row.id)
+  ).run(
+    bundles,
+    cubic,
+    fromCents(amountCents),
+    amountCents,
+    stripBaleNo(row.bale_no, detachedBaleNo),
+    row.id,
+  )
   return true
 }
 
@@ -647,7 +671,8 @@ function addOneBundleToOrder(orderId, item) {
 function detachBaleFromOrder(bale) {
   if (!bale.inbound_order_id) return
   for (const item of baleItemsStmt.all(bale.id)) {
-    removeOneBundleFromOrder(bale.inbound_order_id, item)
+    // 把这一包的包号一起带进去：扣件时要从原行的包号列表里摘掉它
+    removeOneBundleFromOrder(bale.inbound_order_id, item, bale.bale_no)
   }
 }
 

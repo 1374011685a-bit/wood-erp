@@ -175,8 +175,13 @@ const numberFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
 // 表格总列数：序号 + 勾选 + 操作 + 条码号 + 包号 + 规格 + 数量列 + 立方/单位/金额/库存
 const SHEET_COLUMNS = 3 + 2 + specFields.length + numberFields.length + 4
 
-export default function Outbound() {
-  const [mode, setMode] = useState<'list' | 'create'>('list')
+export default function Outbound({
+  defaultMode = 'list',
+}: {
+  /** /outbound/new 直接进录入表单，/outbound 先看列表 */
+  defaultMode?: 'list' | 'create'
+}) {
+  const [mode, setMode] = useState<'list' | 'create'>(defaultMode)
   // 非空 = 正在修改这张单（单号不变，只替换明细）
   const [editing, setEditing] = useState<{ id: number; order_no: string } | null>(null)
 
