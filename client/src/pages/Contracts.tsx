@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   deleteContract,
+  fetchContractDetail,
   fetchContracts,
   formatFileSize,
   openContractFile,
@@ -29,6 +30,35 @@ const emptyForm = () => ({
   remark: '',
 })
 
+/** 合同明细行：只记「定了什么货」，不记长宽高 */
+type ItemRow = {
+  key: number
+  brand: string
+  species: string
+  grade: string
+  quantity: string
+  unitPrice: string
+}
+
+let itemSeq = 0
+const createItemRow = (): ItemRow => ({
+  key: (itemSeq += 1),
+  brand: '',
+  species: '',
+  grade: '',
+  quantity: '',
+  unitPrice: '',
+})
+
+const itemAmount = (row: ItemRow) => toNumber(row.quantity) * toNumber(row.unitPrice)
+const isItemEmpty = (row: ItemRow) =>
+  !row.brand.trim() && !row.species.trim() && !row.grade.trim() && !row.quantity.trim()
+
+const toNumber = (value: string) => {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
+}
+
 export default function Contracts() {
   const [rows, setRows] = useState<ContractRow[]>([])
   const [total, setTotal] = useState(0)
@@ -55,6 +85,7 @@ export default function Contracts() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [editing, setEditing] = useState<ContractRow | null>(null)
   const [form, setForm] = useState(emptyForm)
+  const [items, setItems] = useState<ItemRow[]>(() => [createItemRow()])
   const [file, setFile] = useState<File | null>(null)
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -103,6 +134,7 @@ export default function Contracts() {
   const openUpload = () => {
     setEditing(null)
     setForm(emptyForm())
+    setItems([createItemRow()])
     setFile(null)
     setFormError('')
     setSheetOpen(true)
@@ -118,9 +150,29 @@ export default function Contracts() {
       amount: row.amount ? String(row.amount) : '',
       remark: row.remark,
     })
+    setItems([createItemRow()])
     setFile(null)
     setFormError('')
     setSheetOpen(true)
+    // 明细单独拉一次（详情接口才带明细）
+    void fetchContractDetail(row.id)
+      .then((detail) => {
+        if (detail.items && detail.items.length > 0) {
+          setItems(
+            detail.items.map((item) => ({
+              key: (itemSeq += 1),
+              brand: item.brand,
+              species: item.species,
+              grade: item.grade,
+              quantity: String(item.quantity ?? ''),
+              unitPrice: item.unit_price ? String(item.unit_price) : '',
+            })),
+          )
+        }
+      })
+      .catch(() => {
+        // 拿不到明细就留一行空的
+      })
   }
 
   const submit = async () => {
@@ -145,6 +197,17 @@ export default function Contracts() {
     payload.append('sign_date', form.sign_date)
     payload.append('amount', form.amount || '0')
     payload.append('remark', form.remark.trim())
+    payload.append('items', JSON.stringify(
+      items
+        .filter((row) => !isItemEmpty(row))
+        .map((row) => ({
+          brand: row.brand.trim(),
+          species: row.species.trim(),
+          grade: row.grade.trim(),
+          quantity: toNumber(row.quantity),
+          unit_price: toNumber(row.unitPrice),
+        })),
+    ))
     if (file) payload.append('file', file)
 
     setSaving(true)
@@ -425,6 +488,91 @@ export default function Contracts() {
                 onChange={(event) => setFile(event.target.files?.[0] ?? null)}
               />
             </label>
+
+            {/* 合同明细：只记定了什么货，长宽高不在合同上定 */}
+            <h3 className="section-title" style={{ marginTop: 22 }}>
+              合同明细（定了什么货）
+            </h3>
+            <table className="sheet-table">
+              <thead>
+                <tr>
+                  <th className="col-no">#</th>
+                  <th className="col-op">操作</th>
+                  <th>品牌</th>
+                  <th>品名 *</th>
+                  <th>等级</th>
+                  <th>数量</th>
+                  <th>单价</th>
+                  <th>金额</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((row, index) => (
+                  <tr key={row.key}>
+                    <td className="col-no">{index + 1}</td>
+                    <td className="col-op">
+                      <button
+                        type="button"
+                        className="sheet-icon sheet-icon-danger"
+                        title="删掉这一行"
+                        onClick={() =>
+                          setItems((prev) =>
+                            prev.length > 1 ? prev.filter((item) => item.key !== row.key) : prev,
+                          )
+                        }
+                      >
+                        ✕
+                      </button>
+                    </td>
+                    {(['brand', 'species', 'grade', 'quantity', 'unitPrice'] as const).map((field) => (
+                      <td key={field}>
+                        <input
+                          className="sheet-input"
+                          type="text"
+                          inputMode={
+                            field === 'quantity' || field === 'unitPrice' ? 'decimal' : undefined
+                          }
+                          value={row[field]}
+                          onChange={(event) =>
+                            setItems((prev) =>
+                              prev.map((item) =>
+                                item.key === row.key
+                                  ? { ...item, [field]: event.target.value }
+                                  : item,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                    ))}
+                    <td className="num">
+                      {itemAmount(row) ? itemAmount(row).toFixed(2) : ''}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={5} className="sheet-total-label">
+                    合计
+                  </td>
+                  <td className="num">
+                    {items.reduce((sum, row) => sum + toNumber(row.quantity), 0) || ''}
+                  </td>
+                  <td />
+                  <td className="num">
+                    {items.reduce((sum, row) => sum + itemAmount(row), 0).toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+            <div className="sheet-toolbar">
+              <button className="btn btn-sm" onClick={() => setItems((prev) => [...prev, createItemRow()])}>
+                + 加一行
+              </button>
+              <span className="spacer" />
+              <span className="muted">合同金额 = 明细金额合计（按数量 × 单价自动算）</span>
+            </div>
 
             {editing?.has_file && !file && (
               <p className="hint" style={{ marginTop: 8 }}>

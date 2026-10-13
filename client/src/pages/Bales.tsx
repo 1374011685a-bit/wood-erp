@@ -383,6 +383,7 @@ export default function Bales() {
             <tr>
               <th>包号</th>
               <th>条码号</th>
+              <th>箱号</th>
               <th>提单号</th>
               <th>合同号</th>
               <th>品名</th>
@@ -400,6 +401,7 @@ export default function Bales() {
               <tr key={row.id}>
                 <td>{row.bale_no || '—'}</td>
                 <td>{row.barcode || '—'}</td>
+                <td>{row.box_no || '—'}</td>
                 <td>{row.bl_no || '—'}</td>
                 <td>{row.contract_no || '—'}</td>
                 <td>{row.species}</td>

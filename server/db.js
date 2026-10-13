@@ -650,6 +650,21 @@ const schema = `
   );
 
   CREATE INDEX IF NOT EXISTS idx_repacks_date ON repacks (repack_date, id);
+
+  -- 采购合同的明细：只记「定了什么货」——品牌/品名/等级/数量/单价/金额，不记长宽高
+  CREATE TABLE IF NOT EXISTS contract_items (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    contract_id      INTEGER NOT NULL,
+    brand            TEXT,
+    species          TEXT,
+    grade            TEXT,
+    quantity         REAL    NOT NULL DEFAULT 0,
+    unit_price_cents INTEGER NOT NULL DEFAULT 0,
+    amount_cents     INTEGER NOT NULL DEFAULT 0,
+    remark           TEXT
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_contract_items_contract ON contract_items (contract_id);
 `
 
 const DEFAULT_ADMIN = { username: 'admin', password: 'admin123' }
@@ -780,6 +795,37 @@ function migrateVehicleNo() {
     addColumnIfMissing('outbound_orders', 'vehicle_no', 'TEXT'),
   ].filter(Boolean)
   if (added.length > 0) writeLog('[db] 迁移：单据新增列 vehicle_no（车号）')
+}
+
+/** 箱号：一包货装在哪个箱/柜里，工人手填，单据上自动统计箱数 */
+function migrateBoxNo() {
+  const added = [
+    addColumnIfMissing('bales', 'box_no', 'TEXT'),
+    addColumnIfMissing('order_items', 'box_no', 'TEXT'),
+  ].filter(Boolean)
+  if (added.length > 0) writeLog('[db] 迁移：包与明细新增列 box_no（箱号）')
+}
+
+/**
+ * 数据修复：入库单上填了提单号、但包还没挂到那张提单上的，
+ * 按单号补挂一次，「采购入库明细」里才对得上。
+ */
+function relinkBalesToShipment() {
+  const result = db
+    .prepare(
+      `UPDATE bales
+          SET shipment_id = (
+                SELECT s.id FROM shipments s
+                  JOIN inbound_orders o ON o.bl_no = s.bl_no
+                 WHERE o.id = bales.inbound_order_id AND s.deleted_at IS NULL
+                 LIMIT 1
+              )
+        WHERE shipment_id IS NULL AND inbound_order_id IS NOT NULL`,
+    )
+    .run()
+  if (result.changes > 0) {
+    writeLog(`[db] 修复：把 ${result.changes} 个包按入库单上的提单号补挂到提单`)
+  }
 }
 
 /**
@@ -1016,6 +1062,8 @@ export function initDB() {
   migrateBaleBarcode()
   migrateVehicleNo()
   migrateDropContainerLayer()
+  migrateBoxNo()
+  relinkBalesToShipment()
   seedDefaultAdmin()
   seedDict()
   warnIfSuspiciouslyEmpty()

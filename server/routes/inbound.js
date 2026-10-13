@@ -80,6 +80,8 @@ function normalizeItems(items) {
       bale_labels: Array.isArray(item.bale_labels)
         ? item.bale_labels.map((label) => String(label).trim()).filter(Boolean)
         : [],
+      // 箱号：这一行货装在哪个箱/柜里
+      box_no: String(item.box_no ?? '').trim(),
     }
   })
 }
@@ -94,13 +96,20 @@ const insertOrder = db.prepare(
 const findShipmentStmt = db.prepare(
   `SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL`,
 )
+const findShipmentByNoStmt = db.prepare(
+  `SELECT * FROM shipments WHERE bl_no = ? AND deleted_at IS NULL`,
+)
+const insertShipmentStmt = db.prepare(
+  `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
+   VALUES (?, ?, ?, ?, ?)`,
+)
 
 const insertItem = db.prepare(
   `INSERT INTO order_items
-     (order_id, order_type, species, grade, thickness, width, length,
+     (order_id, order_type, box_no, species, grade, thickness, width, length,
       pieces, bundles, cubic, unit_price, amount, unit_price_cents, amount_cents)
    VALUES
-     (@order_id, 'in', @species, @grade, @thickness, @width, @length,
+     (@order_id, 'in', @box_no, @species, @grade, @thickness, @width, @length,
       @pieces, @bundles, @cubic, @unit_price, @amount, @unit_price_cents, @amount_cents)`,
 )
 
@@ -184,6 +193,21 @@ router.post('/', (req, res) => {
     shipment = findShipmentStmt.get(shipmentId)
     if (!shipment) {
       return res.status(400).json({ error: '选中的提单不存在' })
+    }
+  }
+  // 手打了提单号（直接入库那种）：找到这张提单就挂上去，没有就顺手建一张，
+  // 这样「采购入库明细」里一定看得到这票货，不会断链。
+  if (!shipment && blNo) {
+    shipment = findShipmentByNoStmt.get(blNo) ?? null
+    if (!shipment) {
+      const { lastInsertRowid } = insertShipmentStmt.run(
+        blNo,
+        contractNo || null,
+        supplier || null,
+        orderDate,
+        '入库时自动建档',
+      )
+      shipment = { id: Number(lastInsertRowid), bl_no: blNo, contract_no: contractNo || null }
     }
   }
   if (rawItems.length === 0) {
@@ -474,6 +498,10 @@ router.get('/', (req, res) => {
               (SELECT COUNT(*) FROM bales b
                 WHERE b.inbound_order_id = o.id AND b.status = 'in_stock')
                                                    AS bale_in_stock,
+              (SELECT COUNT(DISTINCT b.box_no) FROM bales b
+                WHERE b.inbound_order_id = o.id
+                  AND b.box_no IS NOT NULL AND TRIM(b.box_no) <> '')
+                                                   AS box_count,
               ROUND(COALESCE(SUM(i.cubic), 0), 4)  AS total_cubic,
               ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
                                                    AS total_amount,
@@ -524,7 +552,7 @@ router.get('/:id', (req, res) => {
   // 这一单单下每包的状态（在库 / 已出库），入库后随时能看到哪包还没发
   const bales = db
     .prepare(
-      `SELECT b.bale_no, b.barcode, b.species, b.grade, b.thickness, b.width, b.length,
+      `SELECT b.bale_no, b.barcode, b.box_no, b.species, b.grade, b.thickness, b.width, b.length,
               b.pieces, b.cubic, b.status, b.shipped_at,
               o.order_no AS outbound_order_no
          FROM bales b
@@ -536,6 +564,7 @@ router.get('/:id', (req, res) => {
     .map((row) => ({
       bale_no: row.bale_no,
       barcode: row.barcode ?? row.bale_no ?? '',
+      box_no: row.box_no ?? '',
       species: row.species ?? '',
       grade: row.grade ?? '',
       thickness: row.thickness,
@@ -564,6 +593,10 @@ router.get('/:id', (req, res) => {
     contract_id: contract?.id ?? null,
     total_cubic: totals.total_cubic,
     total_amount: fromCents(totals.amountCents),
+    // 柜数（箱号）：同一张单里有几个不同的箱号，系统自己数
+    box_count: new Set(
+      bales.map((bale) => bale.box_no).filter((box) => box && box.trim() !== ''),
+    ).size,
     items,
     bales,
   })

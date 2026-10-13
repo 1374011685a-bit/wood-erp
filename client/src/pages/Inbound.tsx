@@ -78,6 +78,8 @@ const todayISO = () => {
 
 type FormRow = {
   key: number
+  /** 箱号：这包货装在哪个箱/柜里 */
+  boxNo: string
   /** 包号（=码单号）：留空由系统自动编号；混装包时手动填同一个号 */
   baleLabel: string
   species: string
@@ -95,6 +97,7 @@ let rowSeq = 0
 const createRow = (): FormRow => ({
   key: (rowSeq += 1),
   baleLabel: '',
+  boxNo: '',
   species: '',
   grade: '',
   thickness: '',
@@ -114,6 +117,7 @@ const padRows = (list: FormRow[]) => {
 
 const isRowEmpty = (row: FormRow) =>
   !row.baleLabel.trim() &&
+  !row.boxNo.trim() &&
   !row.species.trim() &&
   !row.grade.trim() &&
   !row.thickness.trim() &&
@@ -225,6 +229,7 @@ const MIN_SHEET_ROWS = 10
 
 const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'baleLabel', label: '包号' },
+  { field: 'boxNo', label: '箱号' },
   { field: 'species', label: '品名 *' },
   { field: 'grade', label: '等级' },
   { field: 'thickness', label: '厚度' },
@@ -587,6 +592,17 @@ export default function Inbound({
     }
   }, [computedRows, activeShipment])
 
+  /** 柜数：明细里填了几个不同的箱号，系统自己数 */
+  const boxCount = useMemo(() => {
+    const boxes = new Set<string>()
+    for (const row of computedRows) {
+      if (isRowEmpty(row)) continue
+      const box = row.boxNo.trim()
+      if (box) boxes.add(box)
+    }
+    return boxes.size
+  }, [computedRows])
+
   const updateRow = (
     key: number,
     field: keyof Omit<FormRow, 'key'>,
@@ -719,6 +735,7 @@ export default function Inbound({
           key: (rowSeq += 1),
           // 编辑老单据时包号留空，改完保存会按老单据原有码单处理
           baleLabel: '',
+          boxNo: line.box_no ?? '',
           species: line.species ?? '',
           grade: line.grade ?? '',
           thickness: String(line.thickness ?? ''),
@@ -817,6 +834,7 @@ export default function Inbound({
       unit_price: toNumber(row.unitPrice),
       // 包号：填了范围就按范围生成码单，留空让后端自动编号
       bale_labels: parseBaleLabels(row.baleLabel),
+      box_no: row.boxNo.trim(),
     }))
 
     setSaving(true)
@@ -1089,9 +1107,6 @@ export default function Inbound({
               重置
             </button>
             <span className="spacer" />
-            <button className="btn btn-primary" onClick={openCreate}>
-              新增采购
-            </button>
           </div>
 
           <div className="card">
@@ -1532,16 +1547,10 @@ export default function Inbound({
                 }
               />
             </label>
+            {/* 柜数按明细里的箱号自动统计，不用手填 */}
             <label className="sheet-field">
-              <span>车号</span>
-              <input
-                className="input"
-                placeholder="选填，例如：鲁Q12345"
-                value={form.vehicleNo}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, vehicleNo: event.target.value }))
-                }
-              />
+              <span>柜数（自动统计）</span>
+              <input className="input input-readonly" readOnly value={`${boxCount} 个箱`} />
             </label>
           </div>
 
@@ -1797,12 +1806,14 @@ export default function Inbound({
                   <th>选择</th>
                   <th>日期</th>
                   <th>合同号</th>
-                  <th>合同名称</th>
                   <th>供应商</th>
-                  <th className="num">合同金额</th>
-                  <th className="num">已入库立方</th>
-                  <th className="num">已入库金额</th>
-                  <th className="num">入库次数</th>
+                  <th>品名</th>
+                  <th>品牌</th>
+                  <th className="num">总数量</th>
+                  <th className="num">入库</th>
+                  <th className="num">未发货</th>
+                  <th>单据状态</th>
+                  <th>关联单号</th>
                 </tr>
               </thead>
               <tbody>
@@ -1821,12 +1832,40 @@ export default function Inbound({
                     </td>
                     <td>{row.sign_date || '—'}</td>
                     <td>{row.contract_no}</td>
-                    <td>{row.title || '—'}</td>
                     <td>{row.partner || '—'}</td>
-                    <td className="num amount">{formatAmount(row.amount)}</td>
-                    <td className="num">{formatCubic(row.in_cubic)}</td>
-                    <td className="num amount">{formatAmount(row.in_amount)}</td>
-                    <td className="num">{row.in_orders}</td>
+                    <td>{row.species_text || '—'}</td>
+                    <td>{row.brand_text || '—'}</td>
+                    <td className="num">{row.total_qty || '—'}</td>
+                    <td className="num">{row.in_bundles}</td>
+                    <td className="num">{row.left_qty}</td>
+                    <td>
+                      <span className={row.status === '全部发货' ? 'tag tag-in' : 'tag tag-out'}>
+                        {row.status}
+                      </span>
+                    </td>
+                    <td>
+                      {row.orders.length === 0 ? (
+                        '—'
+                      ) : (
+                        <div className="row-actions">
+                          {row.orders.map((order) => (
+                            <button
+                              key={order.id}
+                              type="button"
+                              className="link-btn"
+                              title="点一下去改这张入库单"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setPickerOpen(false)
+                                void openEdit({ id: order.id, order_no: order.order_no })
+                              }}
+                            >
+                              {order.order_no}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

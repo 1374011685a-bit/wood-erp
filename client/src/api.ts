@@ -17,6 +17,8 @@ export type InboundItemPayload = {
   unit_price: number
   /** 包号列表（一个包号一个码单）；留空则按柜内顺序自动编号 */
   bale_labels?: string[]
+  /** 箱号：这包货装在哪个箱/柜里 */
+  box_no?: string
 }
 
 export type CreateInboundPayload = {
@@ -51,6 +53,8 @@ export type InboundListItem = {
   bl_no: string | null
   contract_no: string | null
   vehicle_no: string | null
+  /** 这张单里一共几个箱号（系统自动数） */
+  box_count: number
   /** 这个合同号在合同库里有对应记录时给出 id，前端据此渲染成可点的链接 */
   contract_id: number | null
   /** 这张单下面的码单数与在库数 */
@@ -94,6 +98,7 @@ export type InboundDetail = {
     bale_no: string
     /** 条码号：就是要打印贴包上的那张码 */
     barcode: string
+    box_no: string
     species: string
     grade: string
     thickness: number
@@ -711,6 +716,8 @@ export type BaleRow = {
   bale_no: string
   /** 条码号：就是要打印贴包上的那张码 */
   barcode: string
+  /** 箱号 */
+  box_no: string
   shipment_id: number | null
   bl_no: string
   contract_no: string
@@ -901,9 +908,21 @@ export type ContractPickerRow = {
   partner: string
   sign_date: string
   amount: number
+  /** 合同明细的总数量（件） */
+  total_qty: number
+  species_text: string
+  brand_text: string
+  /** 已经入库的件数 */
+  in_bundles: number
   in_orders: number
   in_cubic: number
   in_amount: number
+  /** 未发货（件）= 总数量 − 已入库 */
+  left_qty: number
+  /** 未发货 / 部分发货 / 全部发货 */
+  status: string
+  /** 这张合同已经开过的入库单，点一下能跳过去改 */
+  orders: Array<{ id: number; order_no: string; order_date: string }>
 }
 
 export type ContractPickerQuery = {
@@ -931,6 +950,24 @@ export type ContractQuery = {
   date_to?: string
   limit?: number
   offset?: number
+}
+
+/** 合同明细：只记「定了什么货」——品牌 / 品名 / 等级 / 数量 / 单价 / 金额 */
+export type ContractItem = {
+  id: number
+  brand: string
+  species: string
+  grade: string
+  quantity: number
+  unit_price: number
+  amount: number
+  remark: string
+}
+
+export type ContractDetail = ContractRow & { items: ContractItem[] }
+
+export function fetchContractDetail(id: number) {
+  return request<ContractDetail>(`/api/contracts/${id}`)
 }
 
 // 合同列表（合同号/名称关键字、往来单位、签订日期范围，支持分页）

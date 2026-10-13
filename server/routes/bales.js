@@ -59,6 +59,12 @@ router.get('/', (req, res) => {
     params.push(species)
   }
 
+  const boxNo = like(req.query.box_no)
+  if (boxNo) {
+    conditions.push(`AND b.box_no LIKE ?`)
+    params.push(boxNo)
+  }
+
   const where = conditions.join(' ')
   const countSql = `
     SELECT COUNT(*) AS total
@@ -81,6 +87,7 @@ router.get('/', (req, res) => {
       shipment_id: row.shipment_id ?? null,
       bl_no: row.bl_no ?? '',
       contract_no: row.contract_no ?? '',
+      box_no: row.box_no ?? '',
       inbound_order_id: row.inbound_order_id,
       outbound_order_id: row.outbound_order_id,
       outbound_order_no: row.outbound_order_no ?? '',
@@ -246,13 +253,14 @@ export function createBalesForItem({
       const { lastInsertRowid } = db
         .prepare(
           `INSERT INTO bales
-             (bale_no, barcode, shipment_id, inbound_order_id, species, grade,
+             (bale_no, barcode, box_no, shipment_id, inbound_order_id, species, grade,
               thickness, width, length, pieces, cubic, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
         )
         .run(
           label || barcode,
           barcode,
+          item.box_no ?? null,
           shipmentId ?? null,
           inboundOrderId,
           item.species,
@@ -555,6 +563,7 @@ router.get('/:id', (req, res) => {
     id: bale.id,
     bale_no: bale.bale_no,
     barcode: bale.barcode ?? bale.bale_no ?? '',
+    box_no: bale.box_no ?? '',
     shipment_id: bale.shipment_id ?? null,
     inbound_order_id: bale.inbound_order_id,
     status: bale.status,

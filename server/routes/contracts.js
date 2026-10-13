@@ -25,6 +25,89 @@ const upload = multer({
 
 const roundTo = (value, digits) => Number((value ?? 0).toFixed(digits))
 
+/* ---------- 合同明细：只记「定了什么货」——品牌 / 品名 / 等级 / 数量 / 单价 / 金额 ---------- */
+
+const insertContractItem = db.prepare(
+  `INSERT INTO contract_items
+     (contract_id, brand, species, grade, quantity, unit_price_cents, amount_cents, remark)
+   VALUES (@contract_id, @brand, @species, @grade, @quantity, @unit_price_cents, @amount_cents, @remark)`,
+)
+const deleteContractItems = db.prepare(`DELETE FROM contract_items WHERE contract_id = ?`)
+const listContractItems = db.prepare(
+  `SELECT * FROM contract_items WHERE contract_id = ? ORDER BY id`,
+)
+
+const itemToApi = (row) => ({
+  id: row.id,
+  brand: row.brand ?? '',
+  species: row.species ?? '',
+  grade: row.grade ?? '',
+  quantity: roundTo(row.quantity ?? 0, 3),
+  unit_price: fromCents(row.unit_price_cents ?? 0),
+  amount: fromCents(row.amount_cents ?? 0),
+  remark: row.remark ?? '',
+})
+
+/** 表单里的明细是 JSON 字符串（multipart），解析一下 */
+function readRawItems(body) {
+  const raw = body?.items
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  try {
+    const list = JSON.parse(raw)
+    return Array.isArray(list) ? list : null
+  } catch {
+    return null
+  }
+}
+
+function normalizeContractItems(rawItems) {
+  const items = []
+  const problems = []
+  rawItems.forEach((item, index) => {
+    const brand = String(item?.brand ?? '').trim()
+    const species = String(item?.species ?? '').trim()
+    const grade = String(item?.grade ?? '').trim()
+    const remark = String(item?.remark ?? '').trim()
+    const quantity = Number(item?.quantity)
+    const priceCents = toCents(item?.unit_price ?? 0)
+
+    // 整行空着就跳过
+    if (!brand && !species && !quantity) return
+
+    const reasons = []
+    if (!species) reasons.push('品名不能为空')
+    if (!(Number.isFinite(quantity) && quantity > 0)) reasons.push('数量要大于 0')
+    if (priceCents < 0) reasons.push('单价不能为负数')
+    if (reasons.length > 0) {
+      problems.push(`第 ${index + 1} 行：${reasons.join('；')}`)
+      return
+    }
+
+    items.push({
+      brand,
+      species,
+      grade,
+      remark,
+      quantity,
+      unit_price_cents: priceCents,
+      amount_cents: Math.round(quantity * priceCents),
+    })
+  })
+  return { items, problems }
+}
+
+/** 明细合计（分） */
+const itemsTotalCents = (items) =>
+  items.reduce((sum, item) => sum + item.amount_cents, 0)
+
+/** 把合同明细整体换掉 */
+function replaceContractItems(contractId, items) {
+  deleteContractItems.run(contractId)
+  for (const item of items) {
+    insertContractItem.run({ ...item, contract_id: contractId })
+  }
+}
+
 function todayLocal() {
   const now = new Date()
   const month = String(now.getMonth() + 1).padStart(2, '0')
@@ -123,7 +206,18 @@ router.get('/', (req, res) => {
         LIMIT ? OFFSET ?`,
     )
     .all(...params, limit, offset)
-    .map(toApi)
+    .map((row) => ({
+      ...toApi(row),
+      // 明细的总数量（件），列表上直接能看出这单订了多少
+      total_qty: roundTo(
+        db
+          .prepare(
+            `SELECT COALESCE(SUM(quantity), 0) AS qty FROM contract_items WHERE contract_id = ?`,
+          )
+          .get(row.id)?.qty ?? 0,
+        3,
+      ),
+    }))
 
   res.json({ total, limit, offset, rows })
 })
@@ -159,8 +253,19 @@ router.get('/options', (_req, res) => {
  */
 const pickerSql = (where) => `
   SELECT ct.id, ct.contract_no, ct.title, ct.partner, ct.sign_date, ct.amount_cents,
+         (SELECT ROUND(COALESCE(SUM(quantity), 0), 3) FROM contract_items ci
+           WHERE ci.contract_id = ct.id)                                 AS total_qty,
+         (SELECT GROUP_CONCAT(DISTINCT ci2.species) FROM contract_items ci2
+           WHERE ci2.contract_id = ct.id)                                AS species_text,
+         (SELECT GROUP_CONCAT(DISTINCT ci3.brand) FROM contract_items ci3
+           WHERE ci3.contract_id = ct.id)                                AS brand_text,
          (SELECT COUNT(*) FROM inbound_orders o
            WHERE o.contract_no = ct.contract_no AND o.deleted_at IS NULL) AS in_orders,
+         (SELECT ROUND(COALESCE(SUM(i.bundles), 0), 0)
+            FROM order_items i
+            JOIN inbound_orders o4 ON o4.id = i.order_id
+           WHERE o4.contract_no = ct.contract_no AND o4.deleted_at IS NULL
+             AND i.deleted_at IS NULL AND i.order_type = 'in')           AS in_bundles,
          (SELECT ROUND(COALESCE(SUM(i.cubic), 0), 4)
             FROM order_items i
             JOIN inbound_orders o2 ON o2.id = i.order_id
@@ -212,9 +317,37 @@ router.get('/picker', (req, res) => {
       partner: row.partner ?? '',
       sign_date: row.sign_date ?? '',
       amount: fromCents(row.amount_cents),
+      total_qty: roundTo(row.total_qty ?? 0, 3),
+      species_text: row.species_text ?? '',
+      brand_text: row.brand_text ?? '',
+      in_bundles: row.in_bundles ?? 0,
       in_orders: row.in_orders ?? 0,
       in_cubic: roundTo(row.in_cubic ?? 0, 4),
       in_amount: roundTo(row.in_amount ?? 0, 2),
+      // 未发货 = 合同总数量 − 已经入库的件数；状态按这个判断
+      left_qty: roundTo(
+        Math.max(0, (row.total_qty ?? 0) - (row.in_bundles ?? 0)),
+        3,
+      ),
+      status:
+        (row.in_bundles ?? 0) <= 0
+          ? '未发货'
+          : (row.total_qty ?? 0) > 0 && (row.in_bundles ?? 0) >= (row.total_qty ?? 0)
+            ? '全部发货'
+            : '部分发货',
+      // 关联单号：这张合同已经开过哪几张入库单，点一下能跳过去改
+      orders: db
+        .prepare(
+          `SELECT id, order_no, order_date FROM inbound_orders
+            WHERE contract_no = ? AND deleted_at IS NULL
+            ORDER BY id DESC LIMIT 20`,
+        )
+        .all(row.contract_no)
+        .map((order) => ({
+          id: order.id,
+          order_no: order.order_no,
+          order_date: order.order_date ?? '',
+        })),
     }))
 
   res.json({ total, limit, offset, rows })
@@ -229,7 +362,10 @@ router.get('/:id', (req, res) => {
     .get(id)
 
   if (!row) return res.status(404).json({ error: '合同不存在' })
-  res.json(toApi(row))
+  res.json({
+    ...toApi(row),
+    items: listContractItems.all(id).map(itemToApi),
+  })
 })
 
 /* ---------- 打开 PDF ---------- */
@@ -276,7 +412,19 @@ router.post('/', upload.single('file'), (req, res) => {
   const partner = String(body.partner ?? '').trim()
   const signDate = body.sign_date ? String(body.sign_date) : todayLocal()
   const remark = String(body.remark ?? '').trim()
-  const amountCents = toCents(body.amount)
+  let amountCents = toCents(body.amount)
+
+  // 明细填了就以明细合计为准（合同金额 = Σ 数量 × 单价）
+  const rawItems = readRawItems(body)
+  let items = []
+  if (rawItems) {
+    const parsed = normalizeContractItems(rawItems)
+    if (parsed.problems.length > 0) {
+      return res.status(400).json({ error: parsed.problems.join('\n') })
+    }
+    items = parsed.items
+    if (items.length > 0) amountCents = itemsTotalCents(items)
+  }
 
   if (!contractNo) return res.status(400).json({ error: '合同号不能为空' })
   if (!isPdf(req.file)) {
@@ -303,6 +451,12 @@ router.post('/', upload.single('file'), (req, res) => {
       file_original: req.file.originalname,
       file_size: req.file.size,
     })
+    if (rawItems) {
+      const row = db
+        .prepare(`SELECT id FROM contracts WHERE contract_no = ? AND deleted_at IS NULL`)
+        .get(contractNo)
+      if (row?.id) replaceContractItems(row.id, items)
+    }
     res.json({ ok: true, contract_no: contractNo })
   } catch (err) {
     removeFile(fileName)
@@ -337,7 +491,19 @@ router.put('/:id', upload.single('file'), (req, res) => {
   const partner = String(body.partner ?? '').trim()
   const signDate = body.sign_date ? String(body.sign_date) : current.sign_date
   const remark = String(body.remark ?? '').trim()
-  const amountCents = toCents(body.amount)
+  let amountCents = toCents(body.amount)
+
+  // 明细填了就以明细合计为准
+  const rawItems = readRawItems(body)
+  let items = []
+  if (rawItems) {
+    const parsed = normalizeContractItems(rawItems)
+    if (parsed.problems.length > 0) {
+      return res.status(400).json({ error: parsed.problems.join('\n') })
+    }
+    items = parsed.items
+    if (items.length > 0) amountCents = itemsTotalCents(items)
+  }
 
   if (!contractNo) return res.status(400).json({ error: '合同号不能为空' })
   if (amountCents < 0) return res.status(400).json({ error: '金额不能为负数' })
@@ -381,6 +547,7 @@ router.put('/:id', upload.single('file'), (req, res) => {
 
     // 换了文件才删旧的，避免更新失败把原文件弄丢
     if (newFile && current.file_name) removeFile(current.file_name)
+    if (rawItems) replaceContractItems(id, items)
     res.json({ ok: true, contract_no: contractNo })
   } catch (err) {
     removeFile(newFile)
