@@ -132,6 +132,16 @@ const navGroups: NavGroup[] = [
     ),
       },
       {
+        to: '/repack',
+        label: '改包',
+        icon: (
+          <>
+            <path d="M4 8.5 12 4.5l8 4v7l-8 4-8-4z" />
+            <path d="m9.2 12.6 2 2 4-4.4" />
+          </>
+        ),
+      },
+      {
     to: '/records',
     label: '流水',
     icon: (

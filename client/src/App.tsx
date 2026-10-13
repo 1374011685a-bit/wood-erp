@@ -10,6 +10,7 @@ import Inbound from './pages/Inbound'
 import Login from './pages/Login'
 import Outbound from './pages/Outbound'
 import Recycle from './pages/Recycle'
+import Repack from './pages/Repack'
 import Settlement from './pages/Settlement'
 import Stock from './pages/Stock'
 import Records from './pages/Records'
@@ -32,6 +33,7 @@ export default function App() {
           <Route path="outbound" element={<Outbound />} />
           <Route path="stock" element={<Stock />} />
           <Route path="count" element={<Count />} />
+          <Route path="repack" element={<Repack />} />
           <Route path="contracts" element={<Contracts />} />
           <Route path="bales" element={<Bales />} />
           <Route path="records" element={<Records />} />

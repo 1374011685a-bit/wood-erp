@@ -29,6 +29,8 @@ export type CreateInboundPayload = {
   /** 进口报关信息，选填 */
   bl_no?: string
   contract_no?: string
+  /** 车号，选填 */
+  vehicle_no?: string
   /** 整柜到货时选柜，合同号/提单号从柜上继承 */
   container_id?: number
   items: InboundItemPayload[]
@@ -48,6 +50,7 @@ export type InboundListItem = {
   operator: string | null
   bl_no: string | null
   contract_no: string | null
+  vehicle_no: string | null
   /** 这个合同号在合同库里有对应记录时给出 id，前端据此渲染成可点的链接 */
   contract_id: number | null
   /** 这张单下面的码单数与在库数 */
@@ -80,6 +83,7 @@ export type InboundDetail = {
   operator: string | null
   bl_no: string | null
   contract_no: string | null
+  vehicle_no: string | null
   contract_id: number | null
   created_at: string
   total_cubic: number
@@ -306,6 +310,8 @@ export type CreateOutboundPayload = {
   /** 仓库必填；操作员选填 */
   warehouse: string
   operator?: string
+  /** 车号，选填 */
+  vehicle_no?: string
   /** 本次发走的码单 id（一包一个） */
   bale_ids: number[]
   items: InboundItemPayload[]
@@ -336,6 +342,7 @@ export type OutboundDetail = {
   remark: string | null
   warehouse: string | null
   operator: string | null
+  vehicle_no: string | null
   created_at: string
   total_cubic: number
   total_amount: number
@@ -972,6 +979,122 @@ export function renameDictItem(id: number, name: string) {
 
 export function deleteDictItem(id: number) {
   return request<{ ok: boolean }>(`/api/dict/${id}`, { method: 'DELETE' })
+}
+
+/* ---------- 改包 ---------- */
+
+export type RepackLine = {
+  species: string
+  grade: string
+  thickness: number
+  width: number
+  length: number
+  pieces: number
+  cubic: number
+  /** 入库时的单价（改前成本算它） */
+  unit_price?: number
+}
+
+export type RepackRow = {
+  id: number
+  repack_no: string
+  repack_date: string
+  bale_id: number | null
+  barcode: string
+  bale_no: string
+  container_no: string
+  summary: string
+  remark: string
+  before_cubic: number
+  before_amount: number
+  after_cubic: number
+  after_amount: number
+  loss_cubic: number
+  loss_amount: number
+  price_pinned: boolean
+  before_items: RepackLine[]
+  after_items: RepackLine[]
+  bl_no: string
+  contract_no: string
+  created_at: string
+}
+
+export type RepackSums = {
+  before_cubic: number
+  after_cubic: number
+  loss_cubic: number
+  before_amount: number
+  after_amount: number
+}
+
+export type RepackPage = Paged<RepackRow> & { sums: RepackSums }
+
+export type RepackQuery = {
+  date_from?: string
+  date_to?: string
+  species?: string
+  keyword?: string
+  limit?: number
+  offset?: number
+}
+
+/** 可以改包的包（在库的，带规格行） */
+export type RepackBale = {
+  id: number
+  bale_no: string
+  barcode: string
+  cubic: number
+  pieces: number
+  container_no: string
+  contract_no: string
+  bl_no: string
+  items: RepackLine[]
+}
+
+export function fetchRepackBales() {
+  return request<RepackBale[]>('/api/repacks/bales')
+}
+
+export function fetchRepackList(query: RepackQuery = {}) {
+  const search = new URLSearchParams()
+  if (query.date_from) search.set('date_from', query.date_from)
+  if (query.date_to) search.set('date_to', query.date_to)
+  if (query.species) search.set('species', query.species)
+  if (query.keyword) search.set('keyword', query.keyword)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  const qs = search.toString()
+  return request<RepackPage>(`/api/repacks${qs ? `?${qs}` : ''}`)
+}
+
+export function createRepack(payload: {
+  repack_date: string
+  bale_id: number
+  summary?: string
+  remark?: string
+  bl_no?: string
+  contract_no?: string
+  after_items: Array<{
+    species: string
+    grade: string
+    thickness: number
+    width: number
+    length: number
+    pieces: number
+    unit_price?: number
+  }>
+}) {
+  return request<{ id: number; repack_no: string }>('/api/repacks', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function deleteRepack(id: number) {
+  return request<{ ok: boolean; repack_no: string }>(`/api/repacks/${id}`, {
+    method: 'DELETE',
+  })
 }
 
 // 新增 / 修改合同（multipart，含 PDF 文件）

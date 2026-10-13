@@ -263,8 +263,9 @@ function checkStock(items) {
 }
 
 const insertOrder = db.prepare(
-  `INSERT INTO outbound_orders (order_no, customer, order_date, remark, warehouse, operator)
-   VALUES (?, ?, ?, ?, ?, ?)`,
+  `INSERT INTO outbound_orders
+     (order_no, customer, order_date, remark, warehouse, operator, vehicle_no)
+   VALUES (?, ?, ?, ?, ?, ?, ?)`,
 )
 
 const insertItem = db.prepare(
@@ -278,7 +279,17 @@ const insertItem = db.prepare(
 
 // 事务：库存校验与写入放在同一事务里，避免并发超卖
 const createOutbound = db.transaction(
-  ({ orderNo, customer, orderDate, remark, warehouse, operator, items, baleIds }) => {
+  ({
+    orderNo,
+    customer,
+    orderDate,
+    remark,
+    warehouse,
+    operator,
+    vehicleNo,
+    items,
+    baleIds,
+  }) => {
     const problems = checkStock(items)
     if (problems.length > 0) {
       const error = new Error(problems.join('\n'))
@@ -293,6 +304,7 @@ const createOutbound = db.transaction(
       remark || null,
       warehouse,
       operator || null,
+      vehicleNo || null,
     )
     const orderId = Number(lastInsertRowid)
     items.forEach((item, index) => {
@@ -325,6 +337,7 @@ router.post('/', (req, res) => {
   const operator = String(body.operator ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
   const rawBales = Array.isArray(body.bale_ids) ? body.bale_ids.map(Number) : []
+  const vehicleNo = String(body.vehicle_no ?? '').trim()
 
   if (!customer) {
     return res.status(400).json({ error: '客户不能为空' })
@@ -357,6 +370,7 @@ router.post('/', (req, res) => {
       remark,
       warehouse,
       operator,
+      vehicleNo,
       items,
       baleIds: rawBales,
     })
@@ -384,7 +398,8 @@ router.get('/stock', (req, res) => {
 
 const updateOrderStmt = db.prepare(
   `UPDATE outbound_orders
-      SET customer = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?
+      SET customer = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?,
+          vehicle_no = ?
     WHERE id = ? AND deleted_at IS NULL`,
 )
 const replaceOrderItemsStmt = db.prepare(
@@ -417,7 +432,7 @@ function bumpGroups(groups, item, sign) {
  * 这条规则套用到修改上。单号保持不变。
  */
 const updateOutbound = db.transaction(
-  ({ id, customer, orderDate, remark, warehouse, operator, items }) => {
+  ({ id, customer, orderDate, remark, warehouse, operator, vehicleNo, items }) => {
   const order = getOrderStmt.get(id)
   if (!order) {
     const error = new Error('出库单不存在')
@@ -465,7 +480,15 @@ const updateOutbound = db.transaction(
   for (const item of items) {
     insertItem.run({ ...item, order_id: id })
   }
-  updateOrderStmt.run(customer, orderDate, remark || null, warehouse, operator || null, id)
+  updateOrderStmt.run(
+    customer,
+    orderDate,
+    remark || null,
+    warehouse,
+    operator || null,
+    vehicleNo || null,
+    id,
+  )
 
   return { id, order_no: order.order_no }
   },
@@ -504,7 +527,16 @@ router.put('/:id', (req, res) => {
 
   try {
     res.json(
-      updateOutbound({ id, customer, orderDate, remark, warehouse, operator, items }),
+      updateOutbound({
+        id,
+        customer,
+        orderDate,
+        remark,
+        warehouse,
+        operator,
+        vehicleNo: String(body.vehicle_no ?? '').trim(),
+        items,
+      }),
     )
   } catch (err) {
     if (err.status === 400 || err.status === 404) {

@@ -317,9 +317,10 @@ export function createBalesForItem({
 /* ---------- 码单编辑 / 删除：库存口径在入库单明细上，必须同步 ---------- */
 
 const getBaleStmt = db.prepare(`SELECT * FROM bales WHERE id = ?`)
-const baleItemsStmt = db.prepare(
+export const baleItemsStmt = db.prepare(
   `SELECT * FROM bale_items WHERE bale_id = ? ORDER BY id`,
 )
+export const getBale = (id) => getBaleStmt.get(id)
 
 /** 规格完全一致才认为是同一行 */
 const specMatchSql = `
@@ -378,7 +379,10 @@ function removeOneBundleFromOrder(orderId, item) {
   return true
 }
 
-/** 往入库单里加一包：规格和片数都对得上就累加，否则新开一行（单价取该规格最近入库价） */
+/**
+ * 往入库单里加一包：规格和片数都对得上就累加，否则新开一行。
+ * 单价默认取该规格最近入库价；改包时会把算好的成本价直接传进来（item.unit_price_cents）。
+ */
 function addOneBundleToOrder(orderId, item) {
   const row = findOrderItem(orderId, item, item.pieces)
   if (row) {
@@ -399,23 +403,27 @@ function addOneBundleToOrder(orderId, item) {
     return
   }
 
-  const lastPrice = db
-    .prepare(
-      `SELECT COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
-         FROM order_items
-        WHERE order_type = 'in' AND deleted_at IS NULL
-          AND ${specMatchSql}
-        ORDER BY id DESC
-        LIMIT 1`,
-    )
-    .get(
-      item.species,
-      item.grade,
-      item.thickness,
-      item.width,
-      item.length,
-    )
-  const priceCents = Number(lastPrice?.cents ?? 0)
+  const pinned = Number(item.unit_price_cents)
+  let priceCents = Number.isFinite(pinned) ? pinned : NaN
+  if (!Number.isFinite(priceCents)) {
+    const lastPrice = db
+      .prepare(
+        `SELECT COALESCE(unit_price_cents, ROUND(unit_price * 100)) AS cents
+           FROM order_items
+          WHERE order_type = 'in' AND deleted_at IS NULL
+            AND ${specMatchSql}
+          ORDER BY id DESC
+          LIMIT 1`,
+      )
+      .get(
+        item.species,
+        item.grade,
+        item.thickness,
+        item.width,
+        item.length,
+      )
+    priceCents = Number(lastPrice?.cents ?? 0)
+  }
   const cubic = roundTo(
     calcCubic(item.thickness, item.width, item.length, item.pieces, 1),
     4,
@@ -460,8 +468,31 @@ function attachBaleToOrder(bale, items) {
   }
 }
 
+/**
+ * 把一包的规格行整体换掉，并同步入库单明细（库存跟着变）。
+ * 码单编辑和「改包」都走这里，保证两条路的库存口径一致。
+ */
+export function replaceBaleItems(bale, items) {
+  detachBaleFromOrder(bale)
+  db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
+  for (const item of items) {
+    insertBaleItem.run({
+      bale_id: bale.id,
+      species: item.species,
+      grade: item.grade,
+      thickness: item.thickness,
+      width: item.width,
+      length: item.length,
+      pieces: item.pieces,
+      cubic: item.cubic,
+    })
+  }
+  refreshBaleSummary(bale.id)
+  attachBaleToOrder(bale, items)
+}
+
 /** 重算码单的汇总列（总立方、总片数、主规格） */
-function refreshBaleSummary(baleId) {
+export function refreshBaleSummary(baleId) {
   const totals = db
     .prepare(
       `SELECT ROUND(COALESCE(SUM(cubic), 0), 4) AS cubic,
@@ -489,7 +520,7 @@ function refreshBaleSummary(baleId) {
 }
 
 /** 校验前端传来的规格行 */
-function normalizeBaleItems(rawItems) {
+export function normalizeBaleItems(rawItems) {
   const items = Array.isArray(rawItems) ? rawItems : []
   const problems = []
 
@@ -579,23 +610,8 @@ const updateBale = db.transaction((id, baleNo, items) => {
     throw error
   }
 
-  detachBaleFromOrder(bale)
-  db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(id)
-  for (const item of items) {
-    insertBaleItem.run({
-      bale_id: id,
-      species: item.species,
-      grade: item.grade,
-      thickness: item.thickness,
-      width: item.width,
-      length: item.length,
-      pieces: item.pieces,
-      cubic: item.cubic,
-    })
-  }
+  replaceBaleItems(bale, items)
   db.prepare(`UPDATE bales SET bale_no = ? WHERE id = ?`).run(baleNo, id)
-  refreshBaleSummary(id)
-  attachBaleToOrder(bale, items)
 
   return { id, bale_no: baleNo }
 })

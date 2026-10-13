@@ -87,8 +87,8 @@ function normalizeItems(items) {
 const insertOrder = db.prepare(
   `INSERT INTO inbound_orders
      (order_no, supplier, order_date, remark, warehouse, operator,
-      bl_no, contract_no, container_id)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      bl_no, contract_no, vehicle_no, container_id)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 )
 
 const findContainerStmt = db.prepare(
@@ -115,6 +115,7 @@ const createInbound = db.transaction(
     operator,
     blNo,
     contractNo,
+    vehicleNo,
     containerId,
     containerNo,
     items,
@@ -128,6 +129,7 @@ const createInbound = db.transaction(
     operator || null,
     blNo || null,
     contractNo || null,
+    vehicleNo || null,
     containerId ?? null,
   )
   const orderId = Number(lastInsertRowid)
@@ -165,6 +167,7 @@ router.post('/', (req, res) => {
   const operator = String(body.operator ?? '').trim()
   const blNo = String(body.bl_no ?? '').trim()
   const contractNo = String(body.contract_no ?? '').trim()
+  const vehicleNo = String(body.vehicle_no ?? '').trim()
   const containerId = Number(body.container_id) || null
   const rawItems = Array.isArray(body.items) ? body.items : []
 
@@ -204,6 +207,7 @@ router.post('/', (req, res) => {
       operator,
       blNo: container ? container.bl_no : blNo,
       contractNo: container ? container.contract_no : contractNo,
+      vehicleNo,
       containerId: container ? container.id : null,
       containerNo: container ? container.container_no : null,
       items,
@@ -220,7 +224,7 @@ router.post('/', (req, res) => {
 const updateOrderStmt = db.prepare(
   `UPDATE inbound_orders
       SET supplier = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?,
-          bl_no = ?, contract_no = ?
+          bl_no = ?, contract_no = ?, vehicle_no = ?
     WHERE id = ? AND deleted_at IS NULL`,
 )
 const replaceOrderItemsStmt = db.prepare(
@@ -263,6 +267,7 @@ const updateInbound = db.transaction(
     operator,
     blNo,
     contractNo,
+    vehicleNo,
     items,
   }) => {
   const order = getOrderStmt.get(id)
@@ -320,6 +325,7 @@ const updateInbound = db.transaction(
     operator || null,
     blNo || null,
     contractNo || null,
+    vehicleNo || null,
     id,
   )
 
@@ -342,6 +348,7 @@ router.put('/:id', (req, res) => {
   const operator = String(body.operator ?? '').trim()
   const blNo = String(body.bl_no ?? '').trim()
   const contractNo = String(body.contract_no ?? '').trim()
+  const vehicleNo = String(body.vehicle_no ?? '').trim()
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
@@ -371,6 +378,7 @@ router.put('/:id', (req, res) => {
         operator,
         blNo,
         contractNo,
+        vehicleNo,
         items,
       }),
     )
@@ -456,6 +464,7 @@ router.get('/', (req, res) => {
               o.operator,
               o.bl_no,
               o.contract_no,
+              o.vehicle_no,
               o.container_id,
               c.id                                 AS contract_id,
               (SELECT ct.container_no FROM containers ct

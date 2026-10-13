@@ -83,6 +83,9 @@ const shipmentsRouter = await load('./routes/shipments.js', async () =>
 const dictRouter = await load('./routes/dict.js', async () =>
   (await import('./routes/dict.js')).default,
 )
+const repacksRouter = await load('./routes/repacks.js', async () =>
+  (await import('./routes/repacks.js')).default,
+)
 
 writeLog('[load] 全部模块加载完成')
 
@@ -149,6 +152,7 @@ app.use('/api/containers', requireAuth, containersRouter)
 app.use('/api/bales', requireAuth, balesRouter)
 app.use('/api/shipments', requireAuth, shipmentsRouter)
 app.use('/api/dict', requireAuth, dictRouter)
+app.use('/api/repacks', requireAuth, repacksRouter)
 
 // 生产模式：同时把前端构建产物当静态资源服务（先执行 cd client && pnpm build）
 const clientDist = path.join(serverDir, '..', 'client', 'dist')

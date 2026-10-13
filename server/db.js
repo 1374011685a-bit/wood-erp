@@ -624,6 +624,32 @@ const schema = `
     password_hash TEXT    NOT NULL,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
   );
+
+  -- 改包记录：把一包货的规格改掉，留下改前 / 改后 / 损耗，方便对账和回溯
+  CREATE TABLE IF NOT EXISTS repacks (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    repack_no           TEXT    NOT NULL UNIQUE,
+    repack_date         TEXT    NOT NULL,
+    bale_id             INTEGER,
+    barcode             TEXT,
+    bale_no             TEXT,
+    container_no        TEXT,
+    summary             TEXT,
+    remark              TEXT,
+    before_cubic        REAL    NOT NULL DEFAULT 0,
+    before_amount_cents INTEGER NOT NULL DEFAULT 0,
+    after_cubic         REAL    NOT NULL DEFAULT 0,
+    after_amount_cents  INTEGER NOT NULL DEFAULT 0,
+    loss_cubic          REAL    NOT NULL DEFAULT 0,
+    price_pinned        INTEGER NOT NULL DEFAULT 0,
+    before_json         TEXT,
+    after_json          TEXT,
+    bl_no               TEXT,
+    contract_no         TEXT,
+    created_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_repacks_date ON repacks (repack_date, id);
 `
 
 const DEFAULT_ADMIN = { username: 'admin', password: 'admin123' }
@@ -745,6 +771,15 @@ function migrateBaleBarcode() {
   )
   db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_barcode ON bales (barcode)`)
   if (added) writeLog('[db] 迁移：码单新增列 barcode（条码号），老数据用包号补上')
+}
+
+/** 单据上的「车号」（选填，来车拉货时记一下） */
+function migrateVehicleNo() {
+  const added = [
+    addColumnIfMissing('inbound_orders', 'vehicle_no', 'TEXT'),
+    addColumnIfMissing('outbound_orders', 'vehicle_no', 'TEXT'),
+  ].filter(Boolean)
+  if (added.length > 0) writeLog('[db] 迁移：单据新增列 vehicle_no（车号）')
 }
 
 // 首次初始化时建一个默认管理员（表非空则跳过）
@@ -912,6 +947,7 @@ export function initDB() {
   migrateSoftDelete()
   migrateOrderFields()
   migrateBaleBarcode()
+  migrateVehicleNo()
   seedDefaultAdmin()
   seedDict()
   warnIfSuspiciouslyEmpty()

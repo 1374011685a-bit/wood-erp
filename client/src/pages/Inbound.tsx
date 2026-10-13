@@ -299,6 +299,7 @@ export default function Inbound({
     warehouse: '',
     operator: '',
     blNo: '',
+    vehicleNo: '',
     contractNo: '',
   })
   const [rows, setRows] = useState<FormRow[]>(() => padRows([]))
@@ -445,6 +446,7 @@ export default function Inbound({
       warehouse: '',
       operator: '',
       blNo: '',
+      vehicleNo: '',
       contractNo: method === 'contract' ? pickedContract?.contract_no ?? '' : '',
     })
     setMode('create')
@@ -709,6 +711,7 @@ export default function Inbound({
         operator: data.operator ?? '',
         blNo: data.bl_no ?? '',
         contractNo: data.contract_no ?? '',
+        vehicleNo: data.vehicle_no ?? '',
       })
       setRows(
         padRows(
@@ -826,6 +829,7 @@ export default function Inbound({
         warehouse: form.warehouse.trim(),
         operator: form.operator.trim(),
         bl_no: form.blNo.trim(),
+        vehicle_no: form.vehicleNo.trim(),
         contract_no: form.contractNo.trim(),
         container_id: containerId || undefined,
         items,
@@ -843,6 +847,7 @@ export default function Inbound({
         warehouse: '',
         operator: '',
         blNo: '',
+        vehicleNo: '',
         contractNo: '',
       })
       setRows(padRows([]))
@@ -1519,6 +1524,17 @@ export default function Inbound({
                 value={form.operator}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, operator: event.target.value }))
+                }
+              />
+            </label>
+            <label className="sheet-field">
+              <span>车号</span>
+              <input
+                className="input"
+                placeholder="选填，例如：鲁Q12345"
+                value={form.vehicleNo}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, vehicleNo: event.target.value }))
                 }
               />
             </label>

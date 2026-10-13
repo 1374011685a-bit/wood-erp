@@ -238,6 +238,7 @@ export default function Outbound() {
     remark: '',
     warehouse: '',
     operator: '',
+    vehicleNo: '',
   })
   const [rows, setRows] = useState<FormRow[]>(() => [createRow()])
   // 表格左侧勾选的行（批量删除用）
@@ -502,6 +503,7 @@ export default function Outbound() {
       remark: '',
       warehouse: '',
       operator: '',
+      vehicleNo: '',
     })
     setRows([createRow()])
     setMode('create')
@@ -520,6 +522,7 @@ export default function Outbound() {
         remark: data.remark ?? '',
         warehouse: data.warehouse ?? '',
         operator: data.operator ?? '',
+        vehicleNo: data.vehicle_no ?? '',
       })
       setRows(
         data.items.map((line) => ({
@@ -639,6 +642,7 @@ export default function Outbound() {
         remark: form.remark.trim(),
         warehouse: form.warehouse.trim(),
         operator: form.operator.trim(),
+        vehicle_no: form.vehicleNo.trim(),
         items,
         bale_ids: baleIds,
       }
@@ -653,6 +657,7 @@ export default function Outbound() {
         remark: '',
         warehouse: '',
         operator: '',
+        vehicleNo: '',
       })
       setRows([createRow()])
       // 出库后库存变了，清掉缓存重新取
@@ -1153,6 +1158,17 @@ export default function Outbound() {
                 value={form.operator}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, operator: event.target.value }))
+                }
+              />
+            </label>
+            <label className="sheet-field">
+              <span>车号</span>
+              <input
+                className="input"
+                placeholder="选填，例如：鲁Q12345"
+                value={form.vehicleNo}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, vehicleNo: event.target.value }))
                 }
               />
             </label>
