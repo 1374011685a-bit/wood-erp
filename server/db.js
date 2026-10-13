@@ -810,6 +810,11 @@ function migrateBoxNo() {
  * 包支持软删：删入库单时不再真删包，只打 deleted_at 标记。
  * 这样从回收站恢复单据时，包、码单号、规格行能一起回来（以前回来的是空单）。
  */
+function migrateRepackCreator() {
+  const added = addColumnIfMissing('repacks', 'created_by', 'TEXT')
+  if (added) writeLog('[db] 迁移：改包记录新增列 created_by（制单人）')
+}
+
 function migrateBaleSoftDelete() {
   const added = addColumnIfMissing('bales', 'deleted_at', 'TEXT')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_deleted ON bales (deleted_at)`)
@@ -1342,6 +1347,7 @@ export function initDB() {
   migrateBaleItemPrice()
   migrateBaleSoftDelete()
   migrateOrderItemBaleNo()
+  migrateRepackCreator()
   relinkBalesToShipment()
   // 补挂之后再看一遍：如果某张提单还是没货，就清掉
   cleanEmptyShipments()

@@ -113,6 +113,11 @@ const toApi = (row) => ({
   after_cubic: roundTo(row.after_cubic ?? 0, 4),
   after_amount: fromCents(row.after_amount_cents ?? 0),
   loss_cubic: roundTo(row.loss_cubic ?? 0, 4),
+  loss_rate:
+    Number(row.before_cubic ?? 0) > 0
+      ? Number(((Number(row.loss_cubic ?? 0) / Number(row.before_cubic)) * 100).toFixed(2))
+      : null,
+  created_by: row.created_by ?? '',
   loss_amount: fromCents(
     Number(row.after_amount_cents ?? 0) - Number(row.before_amount_cents ?? 0),
   ),
@@ -189,6 +194,10 @@ router.get('/', (req, res) => {
       before_cubic: roundTo(sums?.before_cubic ?? 0, 4),
       after_cubic: roundTo(sums?.after_cubic ?? 0, 4),
       loss_cubic: roundTo(sums?.loss_cubic ?? 0, 4),
+      loss_rate:
+        Number(sums?.before_cubic ?? 0) > 0
+          ? Number((((sums?.loss_cubic ?? 0) / sums.before_cubic) * 100).toFixed(2))
+          : null,
       before_amount: fromCents(sums?.before_cents ?? 0),
       after_amount: fromCents(sums?.after_cents ?? 0),
     },
@@ -239,12 +248,12 @@ const insertRepack = db.prepare(
      (repack_no, repack_date, bale_id, barcode, bale_no, container_no,
       summary, remark, before_cubic, before_amount_cents,
       after_cubic, after_amount_cents, loss_cubic, price_pinned,
-      before_json, after_json, bl_no, contract_no)
+      before_json, after_json, bl_no, contract_no, created_by)
    VALUES
      (@repack_no, @repack_date, @bale_id, @barcode, @bale_no, @container_no,
       @summary, @remark, @before_cubic, @before_amount_cents,
       @after_cubic, @after_amount_cents, @loss_cubic, @price_pinned,
-      @before_json, @after_json, @bl_no, @contract_no)`,
+      @before_json, @after_json, @bl_no, @contract_no, @created_by)`,
 )
 
 const createRepack = db.transaction((payload) => {
@@ -289,7 +298,10 @@ const createRepack = db.transaction((payload) => {
     return sum + calcAmountCents(item.cubic, cents)
   }, 0)
 
-  // 提单号：柜已经不要了，直接从提单上取
+  // 提单号 / 合同号：改前的值（留空时同步它）
+  const baseContractNo = bale.inbound_order_id
+    ? db.prepare(`SELECT contract_no FROM inbound_orders WHERE id = ?`).get(bale.inbound_order_id)?.contract_no ?? null
+    : null
   const shipment = bale.shipment_id
     ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(bale.shipment_id)
     : null
@@ -314,8 +326,10 @@ const createRepack = db.transaction((payload) => {
       beforeItems.map((item) => itemPriceCents(bale.inbound_order_id, item)),
     ),
     after_json: snapshot(payload.items, afterPriceCents),
-    bl_no: payload.blNo || null,
-    contract_no: payload.contractNo || null,
+    // 留空就跟改前一致（真正写进记录，不只是显示）
+    bl_no: payload.blNo || shipment?.bl_no || null,
+    contract_no: payload.contractNo || baseContractNo || null,
+    created_by: payload.createdBy || null,
   })
 
   // 规格换掉，入库明细一起同步（库存跟着变）；
@@ -355,6 +369,7 @@ router.post('/', (req, res) => {
       contractNo: String(body.contract_no ?? '').trim(),
       items,
       prices: rawItems.map((item) => item?.unit_price),
+      createdBy: req.user?.username ?? '',
     })
     res.json(result)
   } catch (err) {

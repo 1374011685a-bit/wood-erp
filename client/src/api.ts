@@ -983,6 +983,10 @@ export type RepackRow = {
   after_cubic: number
   after_amount: number
   loss_cubic: number
+  /** 损耗率 %（改前方数为 0 时为 null） */
+  loss_rate: number | null
+  /** 制单人 */
+  created_by: string
   loss_amount: number
   price_pinned: boolean
   before_items: RepackLine[]
@@ -996,6 +1000,7 @@ export type RepackSums = {
   before_cubic: number
   after_cubic: number
   loss_cubic: number
+  loss_rate: number | null
   before_amount: number
   after_amount: number
 }

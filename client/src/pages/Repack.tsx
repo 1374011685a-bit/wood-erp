@@ -217,6 +217,17 @@ export default function Repack() {
 
   const addRow = () => setRows((prev) => [...prev, createRow()])
 
+  /** 新增一行：复制当前最后一行的规格，省得重复填（单价不带过去，免得手滑钉住成本） */
+  const copyLastRow = () =>
+    setRows((prev) => {
+      const last = prev[prev.length - 1]
+      if (!last) return [...prev, createRow()]
+      const { key, unitPrice, ...rest } = last
+      void key
+      void unitPrice
+      return [...prev, { ...createRow(), ...rest }]
+    })
+
   const removeRow = (key: number) => {
     setRows((prev) =>
       prev.length > 1 ? prev.filter((row) => row.key !== key) : [createRow()],
@@ -297,6 +308,9 @@ export default function Repack() {
   }
 
   const lossCubic = roundTo(afterCubic - beforeCubic, 4)
+  // 损耗率 = 损耗方数 ÷ 改前方数
+  const lossRate = beforeCubic > 0 ? roundTo((lossCubic / beforeCubic) * 100, 2) : null
+  const lossArrow = lossCubic > 0 ? '↑' : lossCubic < 0 ? '↓' : ''
 
   return (
     <section>
@@ -482,9 +496,12 @@ export default function Repack() {
           <button className="btn btn-sm" onClick={copyBefore} disabled={!bale}>
             复制改包前数据
           </button>
-          <button className="btn btn-sm" onClick={addRow}>
-            + 加一行
-          </button>
+            <button className="btn btn-sm" onClick={copyLastRow}>
+              + 新增（复制当前行）
+            </button>
+            <button className="btn btn-sm" onClick={addRow}>
+              + 空白行
+            </button>
           <span className="spacer" />
           <span className="muted">
             单价留空 = 按「改前总成本 ÷ 改后总方数」自动算；自己填了就以你填的为准
@@ -584,9 +601,11 @@ export default function Repack() {
                   损耗（改后 − 改前）
                 </td>
                 <td className={lossCubic < 0 ? 'num is-short' : 'num'}>
-                  {formatCubic(lossCubic)}
+                  {formatCubic(lossCubic)} {lossArrow}
                 </td>
-                <td>m³</td>
+                <td>
+                  {lossRate === null ? '—' : `${lossRate}% ${lossArrow}`}
+                </td>
                 <td />
                 <td className="num">
                   {formatAmount(roundTo(afterAmount - beforeAmount, 2))}
@@ -604,6 +623,11 @@ export default function Repack() {
               value={form.blNo}
               onChange={(event) => setForm((prev) => ({ ...prev, blNo: event.target.value }))}
             />
+            {!form.blNo.trim() && bale?.bl_no && (
+              <span className="hint">
+                改前提单号是 {bale.bl_no}，你留空了 —— 保存时会自动同步成 {bale.bl_no}
+              </span>
+            )}
           </label>
           <label className="sheet-field">
             <span>合同号（留空就跟改前一致）</span>
@@ -614,6 +638,11 @@ export default function Repack() {
                 setForm((prev) => ({ ...prev, contractNo: event.target.value }))
               }
             />
+            {!form.contractNo.trim() && bale?.contract_no && (
+              <span className="hint">
+                改前合同号是 {bale.contract_no}，你留空了 —— 保存时会自动同步
+              </span>
+            )}
           </label>
         </div>
 
@@ -693,8 +722,9 @@ export default function Repack() {
               <th className="num">改前立方</th>
               <th className="num">改后立方</th>
               <th className="num">损耗</th>
+              <th className="num">损耗率</th>
               <th>摘要</th>
-              <th>备注</th>
+              <th>制单人</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -720,9 +750,20 @@ export default function Repack() {
                 <td className="num">{formatCubic(row.after_cubic)}</td>
                 <td className={row.loss_cubic < 0 ? 'num is-short' : 'num'}>
                   {formatCubic(row.loss_cubic)}
+                  {row.loss_cubic > 0 ? ' ↑' : row.loss_cubic < 0 ? ' ↓' : ''}
+                </td>
+                <td className="num">
+                  {row.loss_rate === null ? '—' : `${row.loss_rate}%`}
+                  {row.loss_rate === null
+                    ? ''
+                    : row.loss_rate > 0
+                      ? ' ↑'
+                      : row.loss_rate < 0
+                        ? ' ↓'
+                        : ''}
                 </td>
                 <td>{row.summary || '—'}</td>
-                <td>{row.remark || '—'}</td>
+                <td>{row.created_by || '—'}</td>
                 <td>
                   <button className="btn btn-sm btn-danger" onClick={() => setUndoTarget(row)}>
                     撤销
