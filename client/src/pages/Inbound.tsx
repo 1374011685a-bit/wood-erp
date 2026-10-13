@@ -871,7 +871,7 @@ export default function Inbound() {
                   <Fragment key={row.key}>
                     <tr>
                       {rowFields.map(({ field }) => (
-                        <td key={field}>
+                        <td key={field} data-label={rowFields.find((f) => f.field === field)?.label}>
                           <input
                             className={
                               reasons.length > 0
@@ -891,9 +891,13 @@ export default function Inbound() {
                           />
                         </td>
                       ))}
-                      <td className="num">{formatCubic(row.cubic)}</td>
-                      <td className="num amount">{formatAmount(row.amount)}</td>
-                      <td>
+                      <td className="num" data-label="立方">
+                        {formatCubic(row.cubic)}
+                      </td>
+                      <td className="num amount" data-label="金额">
+                        {formatAmount(row.amount)}
+                      </td>
+                      <td className="cell-actions">
                         <button
                           className="btn btn-sm btn-danger"
                           onClick={() => removeRow(row.key)}

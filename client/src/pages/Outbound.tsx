@@ -969,7 +969,7 @@ export default function Outbound() {
                 return (
                   <Fragment key={row.key}>
                     <tr>
-                      <td>
+                      <td className="cell-pick" data-label="规格">
                         <button
                           className="btn btn-sm"
                           onClick={() => openPicker(row.key)}
@@ -977,8 +977,8 @@ export default function Outbound() {
                           选择规格
                         </button>
                       </td>
-                      {specFields.map(({ field }) => (
-                        <td key={field}>
+                      {specFields.map(({ field, label }) => (
+                        <td key={field} data-label={label}>
                           <input
                             className={`${inputClassName} input-locked`}
                             type="text"
@@ -988,8 +988,8 @@ export default function Outbound() {
                           />
                         </td>
                       ))}
-                      {numberFields.map(({ field }) => (
-                        <td key={field}>
+                      {numberFields.map(({ field, label }) => (
+                        <td key={field} data-label={label}>
                           <input
                             className={inputClassName}
                             type="text"
@@ -1001,13 +1001,20 @@ export default function Outbound() {
                           />
                         </td>
                       ))}
-                      <td className="num">{formatCubic(row.cubic)}</td>
-                      <td className={short ? 'num is-short' : 'num'}>
+                      <td className="num" data-label="立方">
+                        {formatCubic(row.cubic)}
+                      </td>
+                      <td
+                        className={short ? 'num is-short' : 'num'}
+                        data-label="当前库存"
+                      >
                         {stock ? `${formatCubic(stock.cubic)} 立方 / ${stock.bundles} 件` : '—'}
                         {short ? ' 不足' : ''}
                       </td>
-                      <td className="num amount">{formatAmount(row.amount)}</td>
-                      <td>
+                      <td className="num amount" data-label="金额">
+                        {formatAmount(row.amount)}
+                      </td>
+                      <td className="cell-actions">
                         <div className="row-actions">
                           <button
                             className="btn btn-sm btn-danger"

@@ -2154,6 +2154,411 @@ section > .toolbar .btn-primary {
 
 /* ---------- 登录页 ---------- */
 
+/* ============================================================
+   手机端适配（< 768px）
+   桌面端样式一行不动，所有改动都收在这个媒体查询里
+   ============================================================ */
+
+/* 汉堡按钮 / 抽屉遮罩：桌面隐藏 */
+.menu-toggle {
+  display: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--border-control);
+  border-radius: 9px;
+  background-color: #ffffff;
+  color: var(--text);
+  cursor: pointer;
+  transition: background-color var(--ease), border-color var(--ease);
+}
+
+.menu-toggle:hover {
+  background-color: var(--panel-soft);
+}
+
+.menu-toggle svg {
+  width: 17px;
+  height: 17px;
+}
+
+.sidebar-mask {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  /* ---------- 布局与抽屉 ---------- */
+
+  .content {
+    padding: 12px 16px calc(36px + env(safe-area-inset-bottom));
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(280px, 82vw);
+    flex: none;
+    overflow-y: auto;
+    transform: translateX(-102%);
+    transition: transform 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .sidebar.is-open {
+    transform: none;
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.22);
+  }
+
+  .sidebar-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background-color: rgba(0, 0, 0, 0.38);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    animation: overlay-in 0.2s ease-out;
+  }
+
+  /* ---------- 顶栏 ---------- */
+
+  .topbar {
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .menu-toggle {
+    display: grid;
+  }
+
+  /* ---------- 功能索引 ---------- */
+
+  .tabbar {
+    margin: -12px -16px 16px;
+    padding: 8px 16px;
+  }
+
+  /* ---------- 页头 ---------- */
+
+  .page-head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding-bottom: 14px;
+    margin-bottom: 16px;
+  }
+
+  .page-head h1 {
+    font-size: 22px;
+    letter-spacing: -0.02em;
+  }
+
+  .page-head .modal-actions {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .page-head .modal-actions .btn {
+    flex: 1;
+    min-width: 88px;
+  }
+
+  .segmented {
+    width: 100%;
+  }
+
+  .segmented-item {
+    flex: 1;
+    height: 34px;
+    padding: 0 10px;
+  }
+
+  /* ---------- 卡片 / 表格：横向滚动，不挤成两行 ---------- */
+
+  .card {
+    padding: 14px;
+    border-radius: 14px;
+    margin-bottom: 16px;
+  }
+
+  .card-head {
+    flex-wrap: wrap;
+    gap: 10px;
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+  }
+
+  .table {
+    min-width: 620px;
+  }
+
+  .table th {
+    height: 40px;
+    padding: 0 12px;
+  }
+
+  .table td {
+    height: 48px;
+    padding: 0 12px;
+  }
+
+  /* 筛选条：字段竖排更好点 */
+  .toolbar {
+    gap: 8px;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+
+  section > .toolbar .input {
+    flex: 1 1 46%;
+    min-width: 0;
+  }
+
+  section > .toolbar .btn-primary {
+    flex: 1 1 100%;
+    margin-left: 0;
+  }
+
+  /* ---------- 表单：手指好点 ---------- */
+
+  .input {
+    height: 44px;
+    font-size: 15px;
+  }
+
+  .input-cell {
+    height: 40px;
+    font-size: 14px;
+  }
+
+  .field-row {
+    flex-direction: column;
+    gap: 14px;
+    margin-bottom: 16px;
+  }
+
+  .field {
+    width: 100%;
+  }
+
+  .field .input {
+    width: 100%;
+  }
+
+  /* ---------- 按钮 ---------- */
+
+  .btn {
+    height: 42px;
+    padding: 0 16px;
+    font-size: 15px;
+  }
+
+  .btn-sm {
+    height: 34px;
+    font-size: 13.5px;
+  }
+
+  .row-tools {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .row-tools .btn-primary {
+    width: 100%;
+  }
+
+  .row-tools .muted {
+    font-size: 12px;
+  }
+
+  .totals {
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+
+  /* ---------- 明细录入表：手机改成卡片 ---------- */
+
+  .table-detail,
+  .table-detail tbody,
+  .table-detail tr,
+  .table-detail td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .table-detail {
+    min-width: 0;
+  }
+
+  .table-detail thead {
+    display: none;
+  }
+
+  .table-detail tbody tr {
+    border: 1px solid var(--border-panel);
+    border-radius: 14px;
+    background-color: #ffffff;
+    padding: 12px 12px 8px;
+    margin-bottom: 12px;
+  }
+
+  .table-detail tbody tr:hover td {
+    background-color: transparent;
+  }
+
+  .table-detail td {
+    height: auto;
+    padding: 0 0 10px;
+    border-bottom: none;
+    white-space: normal;
+  }
+
+  .table-detail td::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 5px;
+    font-size: 12px;
+    color: var(--text-3);
+    letter-spacing: var(--track-caps);
+  }
+
+  .table-detail td:empty {
+    display: none;
+  }
+
+  /* 卡片右下角放危险操作 */
+  .table-detail td.cell-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding-bottom: 4px;
+  }
+
+  .table-detail td.cell-actions::before {
+    display: none;
+  }
+
+  /* 出库明细第一格（选择规格按钮）横排：标签在左、按钮在右 */
+  .table-detail td.cell-pick {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .table-detail td.cell-pick::before {
+    display: block;
+    margin-bottom: 0;
+  }
+
+  /* 校验提示 / 库存提示行也当卡片底部的一条说明 */
+  .table-detail td.row-error,
+  .table-detail td.row-hint {
+    border-radius: 10px;
+    padding: 8px 10px;
+    margin-bottom: 4px;
+  }
+
+  .table-detail td.row-error::before,
+  .table-detail td.row-hint::before {
+    display: none;
+  }
+
+  /* ---------- 首页看板 ---------- */
+
+  .dash {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dash-hero {
+    padding: 18px 16px 16px;
+    border-radius: 16px;
+  }
+
+  .hero-value {
+    font-size: 36px;
+  }
+
+  .hero-meta {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .dash-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .mini-value {
+    font-size: 19px;
+  }
+
+  .trend {
+    height: 76px;
+    gap: 2px;
+  }
+
+  .trend-bar {
+    width: 5px;
+  }
+
+  .chart-stats,
+  .trend-foot {
+    font-size: 12px;
+  }
+
+  .stack-legend {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* ---------- 弹窗 ---------- */
+
+  .overlay {
+    padding: 16px 12px calc(24px + env(safe-area-inset-bottom));
+  }
+
+  .modal {
+    max-width: none;
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+
+  .modal-alert {
+    max-width: none;
+  }
+
+  .meta {
+    gap: 10px 18px;
+    font-size: 12.5px;
+  }
+
+  /* 弹窗里的表格照样横滑 */
+  .modal .table {
+    min-width: 560px;
+  }
+
+  /* ---------- 分页 ---------- */
+
+  .pager {
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12.5px;
+  }
+
+}
+
+/* 手机横屏也给抽屉留出足够宽度 */
+@media (max-width: 767px) and (orientation: landscape) {
+  .sidebar {
+    width: min(280px, 60vw);
+  }
+}
+
 .login-page {
   position: relative;
   display: flex;
@@ -2336,4 +2741,29 @@ section > .toolbar .btn-primary {
   color: var(--text-3);
   letter-spacing: 0.02em;
   z-index: 2;
+}
+
+
+/* ============================================================
+   手机端（< 768px）—— 登录页
+   这段必须放在登录页基础样式之后，否则会被后者覆盖
+   ============================================================ */
+@media (max-width: 767px) {
+  .login-page {
+    padding: 48px 24px calc(88px + env(safe-area-inset-bottom));
+    align-items: flex-start;
+  }
+
+  .login-card {
+    max-width: none;
+    padding: 28px 22px 26px;
+  }
+
+  .login-fields {
+    margin-top: 24px;
+  }
+
+  .login-card .input {
+    height: 46px;
+  }
 }

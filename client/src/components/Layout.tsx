@@ -178,6 +178,8 @@ export default function Layout() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<ToastItem | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  // 手机端的抽屉式侧边栏
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const accountRef = useRef<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
   // 分组默认全展开，点标题可以收起；切到某个功能时会自动把它所在的分组展开
@@ -201,6 +203,12 @@ export default function Layout() {
 
   useEscapeKey(menuOpen, () => setMenuOpen(false))
   useEscapeKey(passwordOpen, () => setPasswordOpen(false))
+  useEscapeKey(drawerOpen, () => setDrawerOpen(false))
+
+  // 手机端点完菜单就收起抽屉
+  useEffect(() => {
+    setDrawerOpen(false)
+  }, [location.pathname])
 
   // 切到没打开过的功能就补一个标签（首页不做索引）
   useEffect(() => {
@@ -308,7 +316,7 @@ export default function Layout() {
 
   return (
     <div className="layout">
-      <aside className="sidebar">
+      <aside className={drawerOpen ? 'sidebar is-open' : 'sidebar'}>
         <div className="sidebar-brand">立川木业木材管理系统</div>
         <nav className="sidebar-nav">
           {/* 首页独立，不归到任何分类里 */}
@@ -393,8 +401,32 @@ export default function Layout() {
           })}
         </nav>
       </aside>
+
+      {/* 手机上抽屉外的遮罩，点一下收起 */}
+      {drawerOpen && (
+        <div className="sidebar-mask" onClick={() => setDrawerOpen(false)} />
+      )}
+
       <main className="content">
         <div className="topbar">
+          <button
+            type="button"
+            className="menu-toggle"
+            aria-label="打开菜单"
+            aria-expanded={drawerOpen}
+            onClick={() => setDrawerOpen((open) => !open)}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
+          </button>
           <div className="account" ref={accountRef}>
             <button
               type="button"
