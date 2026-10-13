@@ -76,6 +76,8 @@ type FormRow = {
   /** 按码单发货时带上码单 id 和码单号 */
   baleId?: number
   baleNo?: string
+  /** 条码号（就是码单，要打印贴包上） */
+  baleBarcode?: string
 }
 
 let rowSeq = 0
@@ -409,6 +411,7 @@ export default function Outbound() {
         unitPrice: '',
         baleId: bale.id,
         baleNo: bale.bale_no,
+        baleBarcode: bale.barcode,
       })),
     )
     setPickerRowKey(null)
@@ -952,8 +955,11 @@ export default function Outbound() {
                 return (
                   <Fragment key={row.key}>
                     <tr>
-                      <td className="cell-pick" data-label="码单号">
+                      <td className="cell-pick" data-label="包号 / 条码号">
                         <span className="bale-no">{row.baleNo || '未选码单'}</span>
+                        {row.baleBarcode && (
+                          <span className="bale-code">{row.baleBarcode}</span>
+                        )}
                       </td>
                       {specFields.map(({ field, label }) => (
                         <td key={field} data-label={label}>
@@ -1159,7 +1165,8 @@ export default function Outbound() {
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>包号 / 码单号</th>
+                          <th>包号</th>
+                          <th>条码号</th>
                           <th>柜号</th>
                           <th>合同号</th>
                           <th className="num">片数</th>
@@ -1168,8 +1175,9 @@ export default function Outbound() {
                       </thead>
                       <tbody>
                         {detail.bales.map((bale) => (
-                          <tr key={bale.bale_no}>
-                            <td>{bale.bale_no}</td>
+                          <tr key={bale.barcode || bale.bale_no}>
+                            <td>{bale.bale_no || '—'}</td>
+                            <td>{bale.barcode || '—'}</td>
                             <td>{bale.container_no || '—'}</td>
                             <td>{bale.contract_no || '—'}</td>
                             <td className="num">{bale.pieces}</td>
@@ -1231,7 +1239,8 @@ export default function Outbound() {
               <thead>
                 <tr>
                   <th>选择</th>
-                  <th>包号 / 码单号</th>
+                  <th>包号</th>
+                  <th>条码号</th>
                   <th>柜号</th>
                   <th>合同号</th>
                   <th>品名</th>
@@ -1257,7 +1266,8 @@ export default function Outbound() {
                         }
                       />
                     </td>
-                    <td>{row.bale_no}</td>
+                    <td>{row.bale_no || '—'}</td>
+                    <td>{row.barcode || '—'}</td>
                     <td>{row.container_no || '—'}</td>
                     <td>{row.contract_no || '—'}</td>
                     <td>{row.species}</td>

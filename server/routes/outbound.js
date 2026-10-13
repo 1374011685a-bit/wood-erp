@@ -654,7 +654,7 @@ router.get('/:id', (req, res) => {
   // 这张单发走的码单（一包一条），能看出是哪几包、属于哪个柜和合同
   const bales = db
     .prepare(
-      `SELECT b.bale_no, b.cubic, b.pieces, b.status,
+      `SELECT b.bale_no, b.barcode, b.cubic, b.pieces, b.status,
               c.container_no, c.contract_no
          FROM bales b
          LEFT JOIN containers c ON c.id = b.container_id
@@ -664,6 +664,7 @@ router.get('/:id', (req, res) => {
     .all(id)
     .map((row) => ({
       bale_no: row.bale_no,
+      barcode: row.barcode ?? row.bale_no ?? '',
       cubic: roundTo(row.cubic ?? 0, 4),
       pieces: row.pieces ?? 0,
       status: row.status,

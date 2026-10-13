@@ -14,6 +14,7 @@ import {
   fetchInboundDetail,
   fetchInboundList,
   fetchContractOptions,
+  fetchContractPicker,
   fetchContainerOptions,
   fetchDict,
   openContractFile,
@@ -21,6 +22,7 @@ import {
   inboundExportUrl,
   updateInbound,
   type ContractOption,
+  type ContractPickerRow,
   type ContainerOption,
   type DictAll,
   type InboundDetail,
@@ -193,17 +195,9 @@ function parseBaleLabels(text: string): string[] {
   return result
 }
 
-/* ---------- 包号 = 码单号：显示规则与后端 buildBaleNo 保持一致 ---------- */
+/* ---------- 条码号（=要打印贴包上的那张码）：显示规则与后端 buildBaleNo 一致 ---------- */
 
 const padBaleSeq = (seq: number) => String(seq).padStart(3, '0')
-
-/** 纯数字的包号补上柜号前缀（7 → A2-007），和后端生成规则一致 */
-function baleNoOf(label: string, containerNo: string | null): string {
-  const text = label.trim()
-  if (!containerNo) return text
-  if (/^\d+$/.test(text)) return `${containerNo}-${padBaleSeq(Number(text))}`
-  return text
-}
 
 const emptyInput = {
   order_no: '',
@@ -215,6 +209,7 @@ const emptyInput = {
 }
 
 const PAGE_SIZE = 20
+const PICKER_PAGE_SIZE = 20
 
 /* ---------- 样式 ---------- */
 
@@ -231,8 +226,25 @@ const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'unitPrice', label: '单价*' },
 ]
 
-export default function Inbound() {
-  const [mode, setMode] = useState<'list' | 'create'>('list')
+export default function Inbound({
+  defaultMode = 'list',
+}: {
+  /** /inbound 走「先选入库方式」，/inbound/records 直接看记录 */
+  defaultMode?: 'method' | 'list'
+}) {
+  const [mode, setMode] = useState<'method' | 'list' | 'create'>(defaultMode)
+  // 入库方式：直接入库 / 关联采购合同
+  const [method, setMethod] = useState<'direct' | 'contract'>('direct')
+  const [pickedContract, setPickedContract] = useState<ContractPickerRow | null>(null)
+  // 选合同大页面
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerKeyword, setPickerKeyword] = useState('')
+  const [pickerRows, setPickerRows] = useState<ContractPickerRow[]>([])
+  const [pickerTotal, setPickerTotal] = useState(0)
+  const [pickerOffset, setPickerOffset] = useState(0)
+  const [pickerLoading, setPickerLoading] = useState(false)
+  const [pickerError, setPickerError] = useState('')
+  const [pickerPick, setPickerPick] = useState<ContractPickerRow | null>(null)
   // 非空 = 正在修改这张单（单号不变，只替换明细）
   const [editing, setEditing] = useState<{ id: number; order_no: string } | null>(null)
 
@@ -363,6 +375,70 @@ export default function Inbound() {
     }))
   }
 
+  /* ---------- 关联采购合同：弹一个大页面按合同明细挑 ---------- */
+
+  const loadPicker = useCallback(async (keyword: string, nextOffset: number) => {
+    setPickerLoading(true)
+    setPickerError('')
+    try {
+      const page = await fetchContractPicker({
+        keyword: keyword.trim() || undefined,
+        limit: PICKER_PAGE_SIZE,
+        offset: nextOffset,
+      })
+      setPickerRows(page.rows)
+      setPickerTotal(page.total)
+    } catch (err) {
+      setPickerError(err instanceof Error ? err.message : '加载合同失败')
+    } finally {
+      setPickerLoading(false)
+    }
+  }, [])
+
+  const openContractPicker = () => {
+    setPickerKeyword('')
+    setPickerOffset(0)
+    setPickerPick(null)
+    setPickerOpen(true)
+    void loadPicker('', 0)
+  }
+
+  const confirmPick = () => {
+    if (!pickerPick) {
+      setPickerError('请先勾选一个采购合同')
+      return
+    }
+    setPickedContract(pickerPick)
+    setMethod('contract')
+    setPickerOpen(false)
+  }
+
+  /** 「下一步」：按选好的方式进入录入表单 */
+  const startCreate = () => {
+    if (method === 'contract' && !pickedContract) {
+      setFormError('')
+      setPickerError('请先选择采购合同')
+      openContractPicker()
+      return
+    }
+    setEditing(null)
+    setContainerId(0)
+    setRows([createRow()])
+    setRowErrors({})
+    setFormError('')
+    setForm({
+      // 挂了合同就把供应商（往来单位）一起带出来，省得再打一遍
+      supplier: method === 'contract' ? pickedContract?.partner ?? '' : '',
+      orderDate: todayISO(),
+      remark: '',
+      warehouse: '',
+      operator: '',
+      blNo: '',
+      contractNo: method === 'contract' ? pickedContract?.contract_no ?? '' : '',
+    })
+    setMode('create')
+  }
+
   /** 列表里点合同号 → 直接打开那份 PDF */
   const handleOpenContract = async (contractId: number, contractNo: string) => {
     setActionError('')
@@ -457,42 +533,42 @@ export default function Inbound() {
     [containerOptions, containerId],
   )
 
-  /** 每一行会生成哪些码单号：留空的按柜内顺序往后排，手填的按填的来 */
-  const balePlan = useMemo(() => {
-    const plan = new Map<number, string>()
-    let seq = activeContainer?.next_seq ?? 0
+  /**
+   * 这次保存会生成几个条码号。
+   * 手填了包号的行：同一个包号算一包（多个规格并进同一张码）；
+   * 没填包号的行：按件数（=包数）算。
+   */
+  const barcodePlan = useMemo(() => {
+    if (!activeContainer) return null
 
+    const labels = new Set<string>()
+    let count = 0
     for (const row of computedRows) {
       if (isRowEmpty(row)) continue
 
       const label = row.baleLabel.trim()
       if (label) {
-        plan.set(
-          row.key,
-          parseBaleLabels(label)
-            .map((item) => baleNoOf(item, activeContainer?.container_no ?? null))
-            .join('、'),
-        )
+        for (const one of parseBaleLabels(label)) {
+          if (labels.has(one)) continue
+          labels.add(one)
+          count += 1
+        }
         continue
       }
+      count += Math.max(0, Math.round(toNumber(row.bundles)))
+    }
 
-      if (!activeContainer) continue
-      const count = Math.max(0, Math.round(toNumber(row.bundles)))
-      if (count <= 0) continue
-
-      const from = seq
-      const to = seq + count - 1
-      seq = to + 1
-      const prefix = activeContainer.container_no
-      plan.set(
-        row.key,
+    if (count <= 0) return null
+    const from = activeContainer.next_seq
+    const to = from + count - 1
+    const prefix = activeContainer.container_no
+    return {
+      count,
+      text:
         from === to
           ? `${prefix}-${padBaleSeq(from)}`
           : `${prefix}-${padBaleSeq(from)} ~ ${prefix}-${padBaleSeq(to)}`,
-      )
     }
-
-    return plan
   }, [computedRows, activeContainer])
 
   const updateRow = (
@@ -564,17 +640,10 @@ export default function Inbound() {
     setEditing(null)
     setRowErrors({})
     setHasValidated(false)
-    setForm({
-      supplier: '',
-      orderDate: todayISO(),
-      remark: '',
-      warehouse: '',
-      operator: '',
-      blNo: '',
-      contractNo: '',
-    })
-    setRows([createRow()])
-    setMode('create')
+    // 先走「请选择入库方式」，和千木云一致
+    setMethod('direct')
+    setPickedContract(null)
+    setMode('method')
   }
 
   // 修改：拉出原单明细填进同一套表单，保存时走 PUT，单号保持不变
@@ -749,12 +818,20 @@ export default function Inbound() {
   return (
     <section>
       <PageHead
-        title="入库"
-        subtitle="录入与修改入库单、按供应商与日期查询、查看明细；保存时自动生成单号并重算立方金额"
+        title={mode === 'create' ? '采购入库' : mode === 'method' ? '采购入库' : '采购入库记录'}
+        subtitle={
+          mode === 'method'
+            ? '先选入库方式：整柜到货就挂采购合同，零散到货直接入库'
+            : mode === 'create'
+              ? '包号照货上写的填，条码号由系统生成（就是之后要打印贴包上的那张码）'
+              : '按供应商、日期、仓库查询已录入的入库单，可查看明细、编辑或删除'
+        }
         extra={
-          <button className="btn" onClick={handleExport} disabled={exporting}>
-            {exporting ? '导出中…' : '导出 Excel'}
-          </button>
+          mode === 'list' ? (
+            <button className="btn" onClick={handleExport} disabled={exporting}>
+              {exporting ? '导出中…' : '导出 Excel'}
+            </button>
+          ) : null
         }
       />
 
@@ -811,7 +888,75 @@ export default function Inbound() {
         ]}
       />
 
-      {mode === 'list' ? (
+      {mode === 'method' ? (
+        <div className="card">
+          <h2 className="section-title">请选择入库方式</h2>
+          <div className="method-options">
+            <label className={method === 'direct' ? 'method-option is-active' : 'method-option'}>
+              <input
+                type="radio"
+                name="inbound-method"
+                checked={method === 'direct'}
+                onChange={() => setMethod('direct')}
+              />
+              <span className="method-body">
+                <strong>直接入库</strong>
+                <em>零散到货、还没归档的货，直接录进来</em>
+              </span>
+            </label>
+
+            <label className={method === 'contract' ? 'method-option is-active' : 'method-option'}>
+              <input
+                type="radio"
+                name="inbound-method"
+                checked={method === 'contract'}
+                onChange={() => {
+                  setMethod('contract')
+                  if (!pickedContract) openContractPicker()
+                }}
+              />
+              <span className="method-body">
+                <strong>关联采购合同</strong>
+                <em>整柜到货挂到采购合同上，方便对账和查这单入了多少</em>
+              </span>
+              {method === 'contract' && (
+                pickedContract ? (
+                  <span className="method-picked">
+                    <b>{pickedContract.contract_no}</b>
+                    <i>
+                      {[pickedContract.title, pickedContract.partner]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </i>
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={(event) => {
+                      event.preventDefault()
+                      openContractPicker()
+                    }}
+                  >
+                    选择合同
+                  </button>
+                )
+              )}
+            </label>
+          </div>
+
+          <div className="method-foot">
+            {method === 'contract' && pickedContract && (
+              <button type="button" className="btn btn-sm btn-quiet" onClick={openContractPicker}>
+                重新选择合同
+              </button>
+            )}
+            <button className="btn btn-primary" onClick={startCreate}>
+              下一步
+            </button>
+          </div>
+        </div>
+      ) : mode === 'list' ? (
         <>
           <div className="toolbar">
             <input
@@ -1077,13 +1222,24 @@ export default function Inbound() {
               />
             </label>
             <label className="field">
-              <span>合同号{containerId ? '（来自柜）' : ''}</span>
+              <span>
+                合同号
+                {containerId
+                  ? '（来自柜）'
+                  : method === 'contract' && pickedContract
+                    ? '（来自所选采购合同）'
+                    : ''}
+              </span>
               <input
                 className="input"
-                list={containerId ? undefined : 'contract-options'}
+                list={
+                  containerId || (method === 'contract' && pickedContract)
+                    ? undefined
+                    : 'contract-options'
+                }
                 placeholder="可从已有合同里选，也可手填"
                 value={form.contractNo}
-                readOnly={Boolean(containerId)}
+                readOnly={Boolean(containerId) || (method === 'contract' && !!pickedContract)}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, contractNo: event.target.value }))
                 }
@@ -1111,13 +1267,19 @@ export default function Inbound() {
           {/* 包号就是码单号：告诉工人这次会生成哪几个号，不用自己编 */}
           <p className="hint" style={{ marginTop: 14 }}>
             {activeContainer
-              ? `包号 = 码单号，按柜内顺序自动生成：本柜已贴 ${activeContainer.bale_count} 张，` +
-                `下一张从 ${activeContainer.container_no}-${padBaleSeq(activeContainer.next_seq)} 开始。`
-              : '未选柜：保存时按入库单号自动编号（如 RK202610130001-001）。'}
+              ? `条码号（要打印贴包上的那张码）由系统生成，按柜内顺序排：本柜已贴 ${activeContainer.bale_count} 张，` +
+                `下一个从 ${activeContainer.container_no}-${padBaleSeq(activeContainer.next_seq)} 开始。`
+              : '未选柜：条码号保存时按入库单号自动编（如 RK202610130001-001）。'}
           </p>
           <p className="hint">
-            件数就是包数，单价必填；一包货混了几个规格时，把那几行的包号填成同一个号即可。
+            包号照货上写的填（可以留空）；一包货混了几个规格时，把那几行的包号填成同一个号，系统会并成一张码单。
+            件数就是包数，单价必填。
           </p>
+          {barcodePlan && (
+            <p className="hint">
+              本次将生成 {barcodePlan.count} 个条码号：{barcodePlan.text}
+            </p>
+          )}
 
           <table className="table table-detail">
             <thead>
@@ -1136,7 +1298,6 @@ export default function Inbound() {
               {computedRows.map((row) => {
                 const reasons = rowErrors[row.key] ?? []
                 const hint = row.specKey ? stockLookup[row.specKey] : undefined
-                const plan = balePlan.get(row.key) ?? ''
                 return (
                   <Fragment key={row.key}>
                     <tr>
@@ -1154,7 +1315,7 @@ export default function Inbound() {
                                 ? undefined
                                 : 'decimal'
                             }
-                            placeholder={field === 'baleLabel' ? '自动' : undefined}
+                            placeholder={field === 'baleLabel' ? '可手打' : undefined}
                             list={
                               field === 'species'
                                 ? 'dict-species'
@@ -1185,14 +1346,10 @@ export default function Inbound() {
                         </button>
                       </td>
                     </tr>
-                    {(hint || plan) && (
+                    {hint && (
                       <tr>
                         <td colSpan={12} className="row-hint">
-                          {plan ? <span>将生成的码单：{plan}</span> : null}
-                          {plan && hint ? ' · ' : ''}
-                          {hint
-                            ? `该规格已有库存 ${formatCubic(hint.cubic)} 立方 / ${hint.bundles} 件`
-                            : ''}
+                          该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
                         </td>
                       </tr>
                     )}
@@ -1231,7 +1388,7 @@ export default function Inbound() {
             <button
               className="btn"
               onClick={() => {
-                setMode('list')
+                setMode(defaultMode)
                 setEditing(null)
               }}
             >
@@ -1327,7 +1484,8 @@ export default function Inbound() {
                     <table className="table">
                       <thead>
                         <tr>
-                          <th>包号 / 码单号</th>
+                          <th>包号</th>
+                          <th>条码号</th>
                           <th>品名</th>
                           <th>等级</th>
                           <th className="num">厚×宽×长</th>
@@ -1339,8 +1497,9 @@ export default function Inbound() {
                       </thead>
                       <tbody>
                         {detail.bales.map((bale) => (
-                          <tr key={bale.bale_no}>
-                            <td>{bale.bale_no}</td>
+                          <tr key={bale.barcode || bale.bale_no}>
+                            <td>{bale.bale_no || '—'}</td>
+                            <td>{bale.barcode || '—'}</td>
                             <td>{bale.species}</td>
                             <td>{bale.grade || '—'}</td>
                             <td className="num">
@@ -1428,6 +1587,125 @@ export default function Inbound() {
                 disabled={deleting}
               >
                 {deleting ? '删除中…' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 关联采购合同：大页面按合同明细挑，比只给一个合同号下拉好选 */}
+      {pickerOpen && (
+        <div className="overlay" onClick={() => setPickerOpen(false)}>
+          <div
+            className="modal modal-xwide modal-sheet"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-head">
+              <h2 className="modal-title">选择采购合同</h2>
+              <button className="btn btn-sm btn-quiet" onClick={() => setPickerOpen(false)}>
+                关闭
+              </button>
+            </div>
+
+            <div className="toolbar">
+              <input
+                className="input"
+                placeholder="合同号 / 合同名称 / 供应商"
+                value={pickerKeyword}
+                onChange={(event) => setPickerKeyword(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    setPickerOffset(0)
+                    void loadPicker(pickerKeyword, 0)
+                  }
+                }}
+              />
+              <button
+                className="btn"
+                onClick={() => {
+                  setPickerOffset(0)
+                  void loadPicker(pickerKeyword, 0)
+                }}
+              >
+                查询
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setPickerKeyword('')
+                  setPickerOffset(0)
+                  void loadPicker('', 0)
+                }}
+              >
+                重置
+              </button>
+            </div>
+
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>选择</th>
+                  <th>日期</th>
+                  <th>合同号</th>
+                  <th>合同名称</th>
+                  <th>供应商</th>
+                  <th className="num">合同金额</th>
+                  <th className="num">已入库立方</th>
+                  <th className="num">已入库金额</th>
+                  <th className="num">入库次数</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pickerRows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={pickerPick?.id === row.id ? 'row-active' : undefined}
+                    onClick={() => setPickerPick(row)}
+                  >
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={pickerPick?.id === row.id}
+                        onChange={() => setPickerPick(row)}
+                      />
+                    </td>
+                    <td>{row.sign_date || '—'}</td>
+                    <td>{row.contract_no}</td>
+                    <td>{row.title || '—'}</td>
+                    <td>{row.partner || '—'}</td>
+                    <td className="num amount">{formatAmount(row.amount)}</td>
+                    <td className="num">{formatCubic(row.in_cubic)}</td>
+                    <td className="num amount">{formatAmount(row.in_amount)}</td>
+                    <td className="num">{row.in_orders}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {!pickerLoading && pickerRows.length === 0 && (
+              <EmptyState text="没有符合条件的合同，先到「采购合同」页新建合同" />
+            )}
+            {pickerLoading && <Loading />}
+
+            {pickerError && <p className="login-error">{pickerError}</p>}
+
+            <Pager
+              total={pickerTotal}
+              limit={PICKER_PAGE_SIZE}
+              offset={pickerOffset}
+              onChange={(next) => {
+                setPickerOffset(next)
+                void loadPicker(pickerKeyword, next)
+              }}
+              unit="份合同"
+            />
+
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setPickerOpen(false)}>
+                取消
+              </button>
+              <button className="btn btn-primary" onClick={confirmPick}>
+                确定
               </button>
             </div>
           </div>

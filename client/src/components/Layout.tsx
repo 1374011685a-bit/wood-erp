@@ -42,7 +42,7 @@ const navGroups: NavGroup[] = [
     items: [
       {
     to: '/inbound',
-    label: '入库',
+    label: '采购入库',
     icon: (
       <>
         <path d="M12 3v10" />
@@ -53,7 +53,7 @@ const navGroups: NavGroup[] = [
       },
       {
         to: '/contracts',
-        label: '合同',
+    label: '采购合同',
         icon: (
           <>
             <path d="M6.8 3.6h7.4l4.2 4.2v12.6H6.8z" />
@@ -61,6 +61,28 @@ const navGroups: NavGroup[] = [
             <path d="M9.6 13.4h5M9.6 16.4h5" />
           </>
         ),
+      },
+      {
+    to: '/inbound/records',
+    label: '采购入库记录',
+    icon: (
+      <>
+        <path d="M4.5 5.5h15v14h-15z" />
+        <path d="M8 3.5v4M16 3.5v4" />
+        <path d="M8.5 11h7M8.5 14.5h4.5" />
+      </>
+    ),
+      },
+      {
+    to: '/bales',
+    label: '采购入库明细',
+    icon: (
+      <>
+        <rect x="3.5" y="6" width="17" height="12" rx="2.2" />
+        <path d="M7.5 10h5M7.5 13.5h9" />
+        <path d="M16.5 9.5h1.2v5h-1.2z" />
+      </>
+    ),
       },
     ],
   },
@@ -97,17 +119,6 @@ const navGroups: NavGroup[] = [
         <path d="M12 12v9" />
       </>
     ),
-      },
-      {
-        to: '/bales',
-        label: '码单',
-        icon: (
-          <>
-            <rect x="3.5" y="6" width="17" height="12" rx="2.2" />
-            <path d="M7.5 10h5M7.5 13.5h9" />
-            <path d="M16.5 9.5h1.2v5h-1.2z" />
-          </>
-        ),
       },
       {
     to: '/count',

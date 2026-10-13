@@ -85,6 +85,7 @@ router.get('/', (req, res) => {
     .map((row) => ({
       id: row.id,
       bale_no: row.bale_no,
+      barcode: row.barcode ?? row.bale_no ?? '',
       container_id: row.container_id,
       container_no: row.container_no ?? '',
       shipment_id: row.shipment_id ?? null,
@@ -121,25 +122,12 @@ export function buildBaleNo(containerNo, inboundOrderNo, sequence) {
 }
 
 /**
- * 手填包号的统一格式：纯数字就补上柜号（7 → A2-007），
- * 这样手填的和自动生成的看起来是同一套号，工人不会拿到两种写法。
+ * 从一串条码号里取最大的流水号。
+ * 认两种写法：`A2-007`（带柜号）和 `7`（老数据里的纯数字），其余忽略。
  */
-function normalizeBaleLabel(label, containerNo) {
-  const text = String(label ?? '').trim()
-  if (!text) return ''
-  if (containerNo && /^\d+$/.test(text)) {
-    return buildBaleNo(containerNo, null, Number(text))
-  }
-  return text
-}
-
-/**
- * 从一串包号里取最大的流水号。
- * 认两种写法：`A2-007`（带柜号）和 `7`（老数据里手填的纯数字），其余忽略。
- */
-function maxSequence(baleNos) {
+function maxSequence(barcodes) {
   let max = 0
-  for (const no of baleNos) {
+  for (const no of barcodes) {
     const text = String(no ?? '').trim()
     const hit = /^(\d+)$/.exec(text) ?? /-(\d+)\s*$/.exec(text)
     if (hit) max = Math.max(max, Number(hit[1]))
@@ -148,36 +136,39 @@ function maxSequence(baleNos) {
 }
 
 /**
- * 这一柜（或这张入库单）下一个该用的包号流水。
+ * 这一柜（或这张入库单）下一个该用的条码号流水。
  *
  * 注意不能按 COUNT(*) 算：删掉中间某包之后 COUNT 会变小，
- * 再生成的号就会和已经在用的号撞上（新包被并进老包，规格数据就乱了）。
+ * 再生成的号就会和已经在用的号撞上。
  * 所以按「已有号里的最大流水 + 1」，删过号也不会重复。
  */
 export function nextBaleSequence(containerId, inboundOrderNo) {
   if (containerId) {
     const rows = db
-      .prepare(`SELECT bale_no FROM bales WHERE container_id = ?`)
+      .prepare(`SELECT barcode FROM bales WHERE container_id = ?`)
       .all(containerId)
-    return maxSequence(rows.map((row) => row.bale_no)) + 1
+    return maxSequence(rows.map((row) => row.barcode)) + 1
   }
 
   const rows = db
     .prepare(
-      `SELECT bale_no FROM bales
+      `SELECT barcode FROM bales
         WHERE container_id IS NULL AND inbound_order_id IN
               (SELECT id FROM inbound_orders WHERE order_no = ?)`,
     )
     .all(inboundOrderNo)
-  return maxSequence(rows.map((row) => row.bale_no)) + 1
+  return maxSequence(rows.map((row) => row.barcode)) + 1
 }
 
-/** 这一柜已经贴了几张码单（给入库表单做「下一张从几号开始」的提示） */
+/** 这一柜已经贴了几张码单（给入库表单做「下一个条码号从几开始」的提示） */
 export function containerBaleInfo(containerId) {
   const rows = db
-    .prepare(`SELECT bale_no FROM bales WHERE container_id = ?`)
+    .prepare(`SELECT barcode FROM bales WHERE container_id = ?`)
     .all(containerId)
-  return { count: rows.length, next_seq: maxSequence(rows.map((row) => row.bale_no)) + 1 }
+  return {
+    count: rows.length,
+    next_seq: maxSequence(rows.map((row) => row.barcode)) + 1,
+  }
 }
 
 const insertBale = db.prepare(
@@ -190,6 +181,7 @@ const insertBale = db.prepare(
 )
 
 const findBaleByNo = db.prepare(`SELECT * FROM bales WHERE bale_no = ?`)
+const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ?`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items (bale_id, species, grade, thickness, width, length, pieces, cubic)
    VALUES (@bale_id, @species, @grade, @thickness, @width, @length, @pieces, @cubic)`,
@@ -209,9 +201,10 @@ const updateBaleSummary = db.prepare(
 /**
  * 把一行明细落到具体的包上。
  *
- * - 填了包号（支持 7 / 7-9 / 7,9,11）：每个包号对应一个码单，包号相同就表示
- *   「同一包里再录一个规格」，规格累加到这一包上；
- * - 没填包号：按「包数」自动往后编号（柜内连续）。
+ * - 包号是工人手打的，照抄货上写的那个号（支持 7 / 7-9 / 7,9,11）；
+ *   同一个包号再录一行，表示「这一包还混了别的规格」，规格累加到同一张码单上；
+ * - 条码号（就是要打印贴包上的那张码）由系统生成，柜内连续、删号不复用；
+ * - 包号留空时：按「件数（=包数）」自动开这么多包，包号先跟条码号一致。
  */
 export function createBalesForItem({
   item,
@@ -235,29 +228,41 @@ export function createBalesForItem({
   )
   const created = []
 
-  for (let i = 0; i < bundles; i += 1) {
-    const baleNo = labels
-      ? normalizeBaleLabel(labels[i], containerNo)
-      : buildBaleNo(containerNo, inboundOrderNo, sequence)
-    if (!labels) sequence += 1
+  /** 取下一个没人用过的条码号 */
+  const takeBarcode = () => {
+    for (let guard = 0; guard < 1000; guard += 1) {
+      const candidate = buildBaleNo(containerNo, inboundOrderNo, sequence)
+      sequence += 1
+      if (!findBaleByBarcode.get(candidate)) return candidate
+    }
+    const error = new Error('条码号生成失败，请检查柜号 / 单号')
+    error.status = 400
+    throw error
+  }
 
-    let bale = findBaleByNo.get(baleNo)
+  for (let i = 0; i < bundles; i += 1) {
+    const label = labels ? labels[i] : ''
+
+    // 手填了包号：先看看是不是「同一包再录一个规格」
+    let bale = label ? findBaleByNo.get(label) : null
     if (bale) {
       if (bale.container_id !== (containerId ?? null)) {
-        const error = new Error(`包号 ${baleNo} 已经出现在别的柜里，请检查包号`)
+        const error = new Error(`包号 ${label} 已经出现在别的柜里，请检查包号`)
         error.status = 400
         throw error
       }
     } else {
+      const barcode = takeBarcode()
       const { lastInsertRowid } = db
         .prepare(
           `INSERT INTO bales
-             (bale_no, container_id, inbound_order_id, species, grade,
+             (bale_no, barcode, container_id, inbound_order_id, species, grade,
               thickness, width, length, pieces, cubic, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
         )
         .run(
-          baleNo,
+          label || barcode,
+          barcode,
           containerId ?? null,
           inboundOrderId,
           item.species,
@@ -269,7 +274,7 @@ export function createBalesForItem({
           cubicPerBale,
         )
       bale = { id: Number(lastInsertRowid) }
-      created.push(baleNo)
+      created.push(barcode)
     }
 
     // 规格行：一包可以有几个规格
@@ -284,7 +289,7 @@ export function createBalesForItem({
       cubic: cubicPerBale,
     })
 
-    if (labels) {
+    if (label) {
       // 同一包再录规格时，把这一包的总立方 / 总片数累加上去
       const totals = db
         .prepare(
@@ -528,6 +533,7 @@ router.get('/:id', (req, res) => {
   res.json({
     id: bale.id,
     bale_no: bale.bale_no,
+    barcode: bale.barcode ?? bale.bale_no ?? '',
     container_id: bale.container_id,
     inbound_order_id: bale.inbound_order_id,
     status: bale.status,

@@ -88,6 +88,8 @@ export type InboundDetail = {
   /** 这张单下面的码单（每包状态：在库 / 已出库） */
   bales: Array<{
     bale_no: string
+    /** 条码号：就是要打印贴包上的那张码 */
+    barcode: string
     species: string
     grade: string
     thickness: number
@@ -341,6 +343,7 @@ export type OutboundDetail = {
   /** 本次发走的码单 */
   bales: Array<{
     bale_no: string
+    barcode: string
     cubic: number
     pieces: number
     status: string
@@ -684,6 +687,8 @@ export type ContainerOption = {
 export type BaleRow = {
   id: number
   bale_no: string
+  /** 条码号：就是要打印贴包上的那张码 */
+  barcode: string
   container_id: number | null
   container_no: string
   shipment_id: number | null
@@ -790,6 +795,7 @@ export type BaleItemLine = {
 export type BaleDetail = {
   id: number
   bale_no: string
+  barcode: string
   container_id: number | null
   inbound_order_id: number | null
   status: 'in_stock' | 'shipped'
@@ -865,6 +871,37 @@ export type ContractOption = {
   contract_no: string
   title: string
   partner: string
+}
+
+/** 选合同大页面的一行：带上这个合同已经入了多少 */
+export type ContractPickerRow = {
+  id: number
+  contract_no: string
+  title: string
+  partner: string
+  sign_date: string
+  amount: number
+  in_orders: number
+  in_cubic: number
+  in_amount: number
+}
+
+export type ContractPickerQuery = {
+  keyword?: string
+  limit?: number
+  offset?: number
+}
+
+// 采购入库「关联采购合同」用的大列表
+export function fetchContractPicker(query: ContractPickerQuery = {}) {
+  const search = new URLSearchParams()
+  if (query.keyword) search.set('keyword', query.keyword)
+  if (query.limit) search.set('limit', String(query.limit))
+  if (query.offset) search.set('offset', String(query.offset))
+  const qs = search.toString()
+  return request<Paged<ContractPickerRow>>(
+    `/api/contracts/picker${qs ? `?${qs}` : ''}`,
+  )
 }
 
 export type ContractQuery = {

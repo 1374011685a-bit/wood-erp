@@ -730,6 +730,23 @@ function migrateOrderFields() {
   )
 }
 
+/**
+ * 码单上的「条码号」：和手填的包号分开。
+ *
+ * - 包号（bale_no）= 工人手打，对应货上写的那个包号；
+ * - 条码号（barcode）= 系统按柜内顺序生成，就是要打印出来贴包上的那张码。
+ *
+ * 老数据没有条码号，先用原来的包号补上，之后新录的都走生成规则。
+ */
+function migrateBaleBarcode() {
+  const added = addColumnIfMissing('bales', 'barcode', 'TEXT')
+  db.exec(
+    `UPDATE bales SET barcode = bale_no WHERE barcode IS NULL OR barcode = ''`,
+  )
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_barcode ON bales (barcode)`)
+  if (added) writeLog('[db] 迁移：码单新增列 barcode（条码号），老数据用包号补上')
+}
+
 // 首次初始化时建一个默认管理员（表非空则跳过）
 function seedDefaultAdmin() {
   const total = db.prepare(`SELECT COUNT(*) AS total FROM users`).get().total
@@ -894,6 +911,7 @@ export function initDB() {
   migrateMoneyToCents()
   migrateSoftDelete()
   migrateOrderFields()
+  migrateBaleBarcode()
   seedDefaultAdmin()
   seedDict()
   warnIfSuspiciouslyEmpty()

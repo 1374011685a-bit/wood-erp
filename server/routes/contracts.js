@@ -151,6 +151,75 @@ router.get('/options', (_req, res) => {
   )
 })
 
+/* ---------- 选合同大页面（采购入库「关联采购合同」用） ---------- */
+
+/**
+ * 一行一个合同，带上「这个合同已经入了多少」——光看合同号选不出来，
+ * 得知道哪张还没入完、哪张已经全入了。
+ */
+const pickerSql = (where) => `
+  SELECT ct.id, ct.contract_no, ct.title, ct.partner, ct.sign_date, ct.amount_cents,
+         (SELECT COUNT(*) FROM inbound_orders o
+           WHERE o.contract_no = ct.contract_no AND o.deleted_at IS NULL) AS in_orders,
+         (SELECT ROUND(COALESCE(SUM(i.cubic), 0), 4)
+            FROM order_items i
+            JOIN inbound_orders o2 ON o2.id = i.order_id
+           WHERE o2.contract_no = ct.contract_no AND o2.deleted_at IS NULL
+             AND i.deleted_at IS NULL AND i.order_type = 'in')            AS in_cubic,
+         (SELECT ROUND(COALESCE(SUM(COALESCE(i.amount_cents, ROUND(i.amount * 100))), 0) / 100.0, 2)
+            FROM order_items i
+            JOIN inbound_orders o3 ON o3.id = i.order_id
+           WHERE o3.contract_no = ct.contract_no AND o3.deleted_at IS NULL
+             AND i.deleted_at IS NULL AND i.order_type = 'in')            AS in_amount
+    FROM contracts ct
+   WHERE ct.deleted_at IS NULL ${where}
+   ORDER BY ct.sign_date DESC, ct.id DESC
+`
+
+router.get('/picker', (req, res) => {
+  const conditions = []
+  const params = []
+
+  const text = String(req.query.keyword ?? '').trim()
+  if (text) {
+    conditions.push(`AND (ct.contract_no LIKE ? OR ct.title LIKE ? OR ct.partner LIKE ?)`)
+    params.push(`%${text}%`, `%${text}%`, `%${text}%`)
+  }
+  const partner = String(req.query.partner ?? '').trim()
+  if (partner) {
+    conditions.push(`AND ct.partner LIKE ?`)
+    params.push(`%${partner}%`)
+  }
+
+  const where = conditions.join(' ')
+  const total = Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM contracts ct
+          WHERE ct.deleted_at IS NULL ${where}`,
+      )
+      .get(...params)?.total ?? 0,
+  )
+  const { limit, offset } = pageParams(req.query)
+
+  const rows = db
+    .prepare(`${pickerSql(where)} LIMIT ? OFFSET ?`)
+    .all(...params, limit, offset)
+    .map((row) => ({
+      id: row.id,
+      contract_no: row.contract_no,
+      title: row.title ?? '',
+      partner: row.partner ?? '',
+      sign_date: row.sign_date ?? '',
+      amount: fromCents(row.amount_cents),
+      in_orders: row.in_orders ?? 0,
+      in_cubic: roundTo(row.in_cubic ?? 0, 4),
+      in_amount: roundTo(row.in_amount ?? 0, 2),
+    }))
+
+  res.json({ total, limit, offset, rows })
+})
+
 /* ---------- 详情 ---------- */
 
 router.get('/:id', (req, res) => {

@@ -1914,6 +1914,11 @@ section > .toolbar .btn-primary {
   max-width: 900px;
 }
 
+/* 选合同这种「大页面」：列多，给宽一点（手机上仍然满屏） */
+.modal-xwide {
+  max-width: min(1240px, 96vw);
+}
+
 .modal-head {
   display: flex;
   align-items: center;
@@ -3071,5 +3076,126 @@ section > .toolbar .btn-primary {
 
   .dict-add .btn {
     width: 100%;
+  }
+}
+
+/* ============================================================
+   采购入库 —— 先选入库方式（直接入库 / 关联采购合同）
+   ============================================================ */
+
+.method-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.method-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 84px;
+  padding: 18px 20px;
+  border: 1px solid var(--border-panel);
+  border-radius: var(--r-card);
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: border-color var(--ease), box-shadow var(--ease), background-color var(--ease);
+}
+
+.method-option:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-1);
+}
+
+.method-option.is-active {
+  border-color: var(--blue);
+  background-color: #f5faff;
+  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+
+.method-option input[type='radio'] {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--blue);
+}
+
+.method-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.method-body strong {
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.method-body em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.method-picked {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+
+.method-picked b {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--blue);
+}
+
+.method-picked i {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.method-foot {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+/* 大页面里选中那一行的底色 */
+.table tbody tr.row-active {
+  background-color: #eef6ff;
+}
+
+/* 出库明细里：上面一行包号，下面一行条码号 */
+.cell-pick .bale-no {
+  display: block;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.cell-pick .bale-code {
+  display: block;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 767px) {
+  .method-options {
+    grid-template-columns: 1fr;
+  }
+
+  .method-picked {
+    display: none;
   }
 }

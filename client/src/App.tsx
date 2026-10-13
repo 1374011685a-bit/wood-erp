@@ -27,7 +27,8 @@ export default function App() {
           }
         >
           <Route index element={<Home />} />
-          <Route path="inbound" element={<Inbound />} />
+          <Route path="inbound" element={<Inbound defaultMode="method" />} />
+          <Route path="inbound/records" element={<Inbound defaultMode="list" />} />
           <Route path="outbound" element={<Outbound />} />
           <Route path="stock" element={<Stock />} />
           <Route path="count" element={<Count />} />

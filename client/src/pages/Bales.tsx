@@ -79,6 +79,7 @@ export default function Bales() {
   const [editOpen, setEditOpen] = useState(false)
   const [editId, setEditId] = useState(0)
   const [editNo, setEditNo] = useState('')
+  const [editBarcode, setEditBarcode] = useState('')
   const [editLines, setEditLines] = useState<BaleItemLine[]>([])
   const [editError, setEditError] = useState('')
   const [editSaving, setEditSaving] = useState(false)
@@ -127,6 +128,7 @@ export default function Bales() {
       const detail = await fetchBaleDetail(row.id)
       setEditId(detail.id)
       setEditNo(detail.bale_no)
+      setEditBarcode(detail.barcode)
       setEditLines(detail.items.length > 0 ? detail.items : [emptyLine()])
       setEditError('')
       setEditOpen(true)
@@ -369,8 +371,8 @@ export default function Bales() {
       </datalist>
 
       <PageHead
-        title="码单"
-        subtitle="一包一个码单：入库时按包数自动生成，出库时按码单发货"
+        title="采购入库明细"
+        subtitle="一包一张码单：包号是货上写的那个，条码号由系统生成（之后打印出来贴包上），出库按条码号发货"
         extra={
           <>
             <button className="btn" onClick={() => setBoxOpen(true)}>
@@ -614,7 +616,8 @@ export default function Bales() {
         <table className="table">
           <thead>
             <tr>
-              <th>包号 / 码单号</th>
+              <th>包号</th>
+              <th>条码号</th>
               <th>提单号</th>
               <th>柜号</th>
               <th>合同号</th>
@@ -631,7 +634,8 @@ export default function Bales() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.id}>
-                <td>{row.bale_no}</td>
+                <td>{row.bale_no || '—'}</td>
+                <td>{row.barcode || '—'}</td>
                 <td>{row.bl_no || '—'}</td>
                 <td>{row.container_no || '—'}</td>
                 <td>{row.contract_no || '—'}</td>
@@ -738,14 +742,20 @@ export default function Bales() {
               </button>
             </div>
 
-            <label className="field field-required">
-              <span>包号（也就是码单号）</span>
-              <input
-                className="input"
-                value={editNo}
-                onChange={(event) => setEditNo(event.target.value)}
-              />
-            </label>
+            <div className="field-row">
+              <label className="field field-required">
+                <span>包号（货上写的那个）</span>
+                <input
+                  className="input"
+                  value={editNo}
+                  onChange={(event) => setEditNo(event.target.value)}
+                />
+              </label>
+              <label className="field">
+                <span>条码号（系统生成，打印贴包上用）</span>
+                <input className="input" value={editBarcode} readOnly />
+              </label>
+            </div>
 
             <p className="hint" style={{ marginTop: 14 }}>
               这包里的规格（可以多个）；改完入库单明细会同步调整，库存跟着变。

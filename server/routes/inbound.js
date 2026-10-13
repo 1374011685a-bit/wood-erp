@@ -131,11 +131,11 @@ const createInbound = db.transaction(
     containerId ?? null,
   )
   const orderId = Number(lastInsertRowid)
-  const baleNos = []
+  const barcodes = []
   for (const item of items) {
     insertItem.run({ ...item, order_id: orderId })
     // 每一包生成一个码单（贴包上的那张）
-    baleNos.push(
+    barcodes.push(
       ...createBalesForItem({
         item,
         containerId,
@@ -146,7 +146,12 @@ const createInbound = db.transaction(
       }),
     )
   }
-  return { id: orderId, order_no: orderNo, bale_count: baleNos.length, bale_nos: baleNos }
+  return {
+    id: orderId,
+    order_no: orderNo,
+    bale_count: barcodes.length,
+    barcodes,
+  }
   },
 )
 
@@ -510,7 +515,7 @@ router.get('/:id', (req, res) => {
   // 这一单单下每包的状态（在库 / 已出库），入库后随时能看到哪包还没发
   const bales = db
     .prepare(
-      `SELECT b.bale_no, b.species, b.grade, b.thickness, b.width, b.length,
+      `SELECT b.bale_no, b.barcode, b.species, b.grade, b.thickness, b.width, b.length,
               b.pieces, b.cubic, b.status, b.shipped_at,
               o.order_no AS outbound_order_no
          FROM bales b
@@ -521,6 +526,7 @@ router.get('/:id', (req, res) => {
     .all(id)
     .map((row) => ({
       bale_no: row.bale_no,
+      barcode: row.barcode ?? row.bale_no ?? '',
       species: row.species ?? '',
       grade: row.grade ?? '',
       thickness: row.thickness,
