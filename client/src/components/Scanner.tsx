@@ -94,19 +94,27 @@ export default function Scanner({
       const instance = scannerRef.current
       scannerRef.current = null
       if (!instance) return
-      instance
-        .stop()
-        .then(() => instance.clear())
-        .catch(() => {
-          // 还没 start 成功就关了，忽略
-        })
+      /**
+       * 摄像头没起来（没摄像头 / 权限被拒）时，stop() 会「同步抛出」
+       * “Cannot stop, scanner is not running or paused.”。
+       * 这个异常发生在 effect 清理里，会一路冒到 window，把整个页面炸成白屏。
+       * 所以同步异常和 Promise 拒绝都要吞掉。
+       */
+      try {
+        const stopping = instance.stop()
+        if (stopping && typeof stopping.then === 'function') {
+          stopping.then(() => instance.clear()).catch(() => {})
+        }
+      } catch {
+        // 还没 start 成功就关了，忽略
+      }
     }
   }, [open])
 
   if (!open) return null
 
   return (
-    <div className="overlay" onClick={onClose}>
+    <div className="overlay overlay-scanner" onClick={onClose}>
       <div className="modal modal-narrow" onClick={(event) => event.stopPropagation()}>
         <div className="modal-head">
           <h2 className="modal-title">扫一扫</h2>

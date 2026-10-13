@@ -26,9 +26,10 @@ type LabelBale = {
 }
 
 const SIZES = {
-  '100x60': { w: 100, h: 60, label: '100 × 60mm' },
-  '60x40': { w: 60, h: 40, label: '60 × 40mm' },
-  '80x60': { w: 80, h: 60, label: '80 × 60mm' },
+  // qr / name / line / foot 都是 mm（24px ≈ 6.35mm，16px ≈ 4.23mm，12px ≈ 3.17mm）
+  '200x120': { w: 200, h: 120, qr: 60, name: 6.4, line: 4.2, foot: 3.2, label: '200 × 120mm' },
+  '150x90': { w: 150, h: 90, qr: 45, name: 4.8, line: 3.2, foot: 2.4, label: '150 × 90mm' },
+  '100x60': { w: 100, h: 60, qr: 30, name: 3.2, line: 2.1, foot: 1.6, label: '100 × 60mm' },
 } as const
 
 type SizeKey = keyof typeof SIZES
@@ -50,7 +51,7 @@ export default function LabelPrint() {
   )
 
   const [size, setSize] = useState<SizeKey>(
-    (params.get('size') ?? '100x60') as SizeKey,
+    (params.get('size') ?? '200x120') as SizeKey,
   )
   const [bales, setBales] = useState<LabelBale[]>([])
   const [loading, setLoading] = useState(true)
@@ -98,7 +99,17 @@ export default function LabelPrint() {
   const dim = SIZES[size]
 
   return (
-    <div className="label-page" style={{ ['--label-w' as string]: `${dim.w}mm`, ['--label-h' as string]: `${dim.h}mm` }}>
+    <div
+      className="label-page"
+      style={{
+        ['--label-w' as string]: `${dim.w}mm`,
+        ['--label-h' as string]: `${dim.h}mm`,
+        ['--label-qr' as string]: `${dim.qr}mm`,
+        ['--label-name' as string]: `${dim.name}mm`,
+        ['--label-line' as string]: `${dim.line}mm`,
+        ['--label-foot' as string]: `${dim.foot}mm`,
+      }}
+    >
       {/* 屏幕上才看的工具条：打印时整条不出现 */}
       <div className="label-toolbar no-print">
         <button className="btn btn-sm" onClick={() => navigate(-1)}>
@@ -133,23 +144,25 @@ export default function LabelPrint() {
       <div className="label-sheet">
         {bales.map((bale) => (
           <div className="label-card" key={bale.id}>
-            <div className="label-qr">
-              <QRCodeSVG value={qrOf(bale)} level="M" marginSize={2} />
-            </div>
-            <div className="label-info">
-              <div className="label-name">
-                {bale.species}
-                {bale.grade ? ` / ${bale.grade}` : ''}
+            <div className="label-main">
+              <div className="label-qr">
+                <QRCodeSVG value={qrOf(bale)} level="M" marginSize={2} />
               </div>
-              <div className="label-line">{bale.spec}</div>
-              <div className="label-line label-bale">
-                包号 {bale.baleNo || '—'}
+              <div className="label-info">
+                <div className="label-name">
+                  {bale.species}
+                  {bale.grade ? ` / ${bale.grade}` : ''}
+                </div>
+                <div className="label-line">{bale.spec}</div>
+                <div className="label-line label-bale">
+                  包号 {bale.baleNo || '—'}
+                </div>
+                <div className="label-line">提单号 {bale.blNo || '—'}</div>
+                <div className="label-line">
+                  {bale.pieces} 片 × {bale.bundles} 件
+                </div>
+                <div className="label-line">{formatCubic(bale.cubic)} m³</div>
               </div>
-              <div className="label-line">提单号 {bale.blNo || '—'}</div>
-              <div className="label-line">
-                {bale.pieces} 片 × {bale.bundles} 件
-              </div>
-              <div className="label-line">{formatCubic(bale.cubic)} m³</div>
             </div>
             <div className="label-foot">立川云提供支持</div>
           </div>

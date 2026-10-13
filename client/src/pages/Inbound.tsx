@@ -101,7 +101,8 @@ const createRow = (): FormRow => ({
 /** 表格里始终铺满 MIN_SHEET_ROWS 行空行，点进去就能填 */
 const padRows = (list: FormRow[]) => {
   const next = [...list]
-  while (next.length < MIN_SHEET_ROWS) next.push(createRow())
+  const floor = sheetRowFloor()
+  while (next.length < floor) next.push(createRow())
   return next
 }
 
@@ -228,6 +229,12 @@ const PAGE_SIZE = 20
 const PICKER_PAGE_SIZE = 20
 /** 表格里一直留这么多空行，点进去就能填（和千木云一样） */
 const MIN_SHEET_ROWS = 10
+/** 手机上卡片一行很高，少铺几行，要用「+」自己加 */
+const MIN_SHEET_ROWS_MOBILE = 4
+const sheetRowFloor = () =>
+  typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
+    ? MIN_SHEET_ROWS_MOBILE
+    : MIN_SHEET_ROWS
 
 /* ---------- 样式 ---------- */
 

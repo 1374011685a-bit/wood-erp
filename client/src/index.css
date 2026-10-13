@@ -299,6 +299,11 @@ input[inputmode='decimal'] {
   border-bottom: 1px solid var(--line);
 }
 
+/* 顶栏中间的页面标题：只有手机端才显示 */
+.topbar-title {
+  display: none;
+}
+
 /* ---------- 账号区（苹果右上角的账号菜单） ---------- */
 
 .account {
@@ -2696,6 +2701,9 @@ section > .toolbar .btn-primary {
   }
 
   .table-cards tbody tr {
+    display: flex;
+    flex-direction: column;
+    position: relative;
     border: 1px solid var(--border-panel);
     border-radius: 14px;
     background-color: #ffffff;
@@ -2741,6 +2749,7 @@ section > .toolbar .btn-primary {
   /* 第一格当卡片标题（单号 / 品名） */
   .table-cards td.cell-primary {
     display: block;
+    padding-right: 40px;
     padding-bottom: 8px;
     margin-bottom: 6px;
     border-bottom: 1px solid var(--line);
@@ -2754,8 +2763,32 @@ section > .toolbar .btn-primary {
     display: none;
   }
 
+  /* 勾选列：浮到卡片右上角，手指直接点得着 */
+  .table-cards td.cell-check {
+    order: -1;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+  }
+
+  .table-cards td.cell-check::before {
+    display: none;
+  }
+
+  .table-cards td.cell-check input {
+    width: 22px;
+    height: 22px;
+  }
+
   /* 操作放卡片底部靠右 */
   .table-cards td.cell-actions {
+    order: 99;
     justify-content: flex-end;
     gap: 8px;
     padding-top: 10px;
@@ -3440,6 +3473,345 @@ section > .toolbar .btn-primary {
   line-height: 1.5;
 }
 
+/* ============================================================
+   手机端：录入页（明细表 → 卡片、工具条换行、底部固定操作栏）
+   只动排版，不动任何一项业务规则
+   ============================================================ */
+@media (max-width: 767px) {
+  /* ---------- 卡片表格的表尾（合计行）：不要被拆成一格一行 ---------- */
+  .table-cards tfoot,
+  .table-detail tfoot,
+  .sheet-cards tfoot {
+    display: table;
+    width: 100%;
+  }
+
+  .table-cards tfoot tr,
+  .table-detail tfoot tr,
+  .sheet-cards tfoot tr {
+    display: table-row;
+  }
+
+  .table-cards tfoot th,
+  .table-cards tfoot td,
+  .table-detail tfoot th,
+  .table-detail tfoot td,
+  .sheet-cards tfoot th,
+  .sheet-cards tfoot td {
+    display: table-cell;
+    width: auto;
+    height: auto;
+    padding: 9px 4px;
+    border-top: 1px solid var(--line);
+    white-space: nowrap;
+    text-align: right;
+    font-size: 12.5px;
+  }
+
+  .table-cards tfoot th:first-child,
+  .table-cards tfoot td:first-child,
+  .table-detail tfoot th:first-child,
+  .table-detail tfoot td:first-child,
+  .sheet-cards tfoot th:first-child,
+  .sheet-cards tfoot td:first-child {
+    text-align: left;
+  }
+
+  /* ---------- 表单顶部：字段竖排，输入框加高 ---------- */
+  .sheet-top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .sheet-top .spacer {
+    display: none;
+  }
+
+  .sheet-field .input {
+    width: 100%;
+    height: 46px;
+    min-width: 0;
+    font-size: 15px;
+  }
+
+  /* ---------- 底部固定操作栏：保存（宽）+ 取消 ---------- */
+  .card.sheet {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+
+  .sheet-top .btn {
+    position: fixed;
+    bottom: calc(10px + env(safe-area-inset-bottom));
+    z-index: 45;
+    height: 48px;
+    border-radius: 14px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+  }
+
+  .sheet-top .btn-primary {
+    left: 12px;
+    right: 96px;
+    width: auto;
+  }
+
+  .sheet-top .btn:not(.btn-primary) {
+    right: 12px;
+    width: 72px;
+    background-color: #ffffff;
+  }
+
+  /* ---------- 明细工具条：按钮换成两列，不再被右边缘截断 ---------- */
+  .sheet-toolbar {
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .sheet-toolbar .spacer {
+    display: none;
+  }
+
+  .sheet-toolbar > .btn {
+    flex: 1 1 44%;
+    height: 42px;
+  }
+
+  .sheet-toolbar > .muted {
+    flex: 1 1 100%;
+    font-size: 12.5px;
+    line-height: 1.5;
+  }
+
+  .section-tag {
+    align-self: center;
+  }
+
+  /* ---------- 明细表：一行一张卡片 ---------- */
+  .sheet-scroll {
+    overflow-x: visible;
+    padding: 0 12px 6px;
+  }
+
+  .sheet-cards {
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .sheet-cards thead {
+    display: none;
+  }
+
+  .sheet-cards,
+  .sheet-cards tbody,
+  .sheet-cards tbody tr,
+  .sheet-cards tbody td {
+    display: block;
+    width: auto;
+  }
+
+  .sheet-cards tbody tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    position: relative;
+    margin-bottom: 12px;
+    padding: 12px;
+    border: 1px solid var(--border-panel);
+    border-radius: 14px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .sheet-cards tbody tr.is-error {
+    border-color: #f0c4c4;
+    background-color: #fffafa;
+  }
+
+  .sheet-cards tbody tr:hover td {
+    background-color: transparent;
+  }
+
+  .sheet-cards tbody td {
+    display: flex;
+    flex: 1 1 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 44px;
+    height: auto;
+    padding: 0;
+    border: none;
+  }
+
+  /* 字段名：从表头搬过来的 */
+  .sheet-cards tbody td::before {
+    content: attr(data-label);
+    flex: 0 0 4.4em;
+    font-size: 13px;
+    color: var(--text-3);
+  }
+
+  .sheet-cards tbody td:not([data-label])::before {
+    display: none;
+  }
+
+  /* 序号不进卡片 */
+  .sheet-cards tbody td.col-no {
+    display: none;
+  }
+
+  /* 勾选框：和「操作」一起排到卡片最后一行，勾选在左、按钮在右 */
+  .sheet-cards tbody td.col-check {
+    order: 98;
+    position: static;
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: center;
+    align-items: center;
+    min-height: 0;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    gap: 0;
+  }
+
+  .sheet-cards tbody td.col-check::before {
+    display: none;
+  }
+
+  .sheet-cards tbody td.col-check input {
+    width: 22px;
+    height: 22px;
+  }
+
+  /* 品名是最常看的一栏，值放大一点 */
+  .sheet-cards tbody td.col-name {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .sheet-cards tbody td.col-name .sheet-input {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  /* 条码号 / 当前库存：次要信息，缩小并淡化 */
+  .sheet-cards tbody td.col-code,
+  .sheet-cards tbody td.col-stock {
+    font-size: 12.5px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+
+  /* 输入框：整格加高、圆角、灰底，手指好点 */
+  .sheet-cards .sheet-input {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    height: 40px;
+    padding: 0 10px;
+    border-radius: 9px;
+    background-color: #f6f6f8;
+    text-align: left;
+  }
+
+  .sheet-cards .sheet-input.num {
+    text-align: right;
+  }
+
+  .sheet-cards .sheet-input:focus {
+    background-color: #ffffff;
+    box-shadow: inset 0 0 0 2px var(--blue);
+  }
+
+  .sheet-cards .sheet-input.input-locked {
+    background-color: #f1f1f4;
+    color: var(--text-3);
+  }
+
+  .sheet-cards .same-bale-cell {
+    flex: 1 1 auto;
+    justify-content: flex-end;
+  }
+
+  /* 行操作：卡片底部靠右，删除键在最后 */
+  .sheet-cards tbody td.col-op {
+    order: 99;
+    display: flex;
+    flex: 1 1 auto;
+    justify-content: flex-end;
+    gap: 8px;
+    width: auto;
+    min-height: 0;
+    height: 44px;
+  }
+
+  .sheet-cards tbody td.col-op::before {
+    display: none;
+  }
+
+  /* 最后一行的分隔线画在整行上（只有勾选和操作，别再各画一条） */
+  .sheet-cards tbody td.col-check,
+  .sheet-cards tbody td.col-op {
+    border-top: 1px solid var(--line);
+    margin-top: 4px;
+    padding-top: 8px;
+  }
+
+  /* 列宽必须交回去，否则基础样式里写死的 78px / 122px 会把卡片切碎 */
+  .sheet-cards tbody td.col-no,
+  .sheet-cards tbody td.col-code,
+  .sheet-cards tbody td.col-unit,
+  .sheet-cards tbody td.col-stock {
+    width: auto;
+    min-width: 0;
+  }
+
+  /* 选择器要带上 .sheet-cards：基础样式在后面，同权重会被它压回去 */
+  .sheet-cards .sheet-icon {
+    width: 52px;
+    height: 40px;
+    border-radius: 10px;
+    background-color: #f2f2f5;
+    color: var(--text);
+    font-size: 15px;
+  }
+
+  .sheet-cards .sheet-icon-danger {
+    background-color: #fff1f0;
+    color: var(--red);
+  }
+
+  /* 「同包」按下态、禁用态原样保留 */
+  .sheet-cards .sheet-icon.is-on {
+    background-color: #fff3e0;
+    color: #b26a00;
+  }
+
+  .sheet-cards .sheet-icon:disabled,
+  .sheet-cards .sheet-icon:disabled:hover {
+    background-color: #f7f7f9;
+    color: #c7c7cc;
+  }
+
+  /* 空状态 / 提示行 */
+  .sheet-cards tbody td.sheet-empty {
+    display: block;
+    padding: 18px 6px;
+    text-align: center;
+    color: var(--text-3);
+  }
+
+  /* 规格提示等整行提示（colSpan 行）也跟着卡片宽度走 */
+  .sheet-cards tbody tr.is-hint td {
+    display: block;
+    padding: 8px 10px;
+  }
+}
+
 /* ---------- 打印小标签（不干胶 60×40 / 80×60） ---------- */
 
 .label-page {
@@ -3483,25 +3855,31 @@ section > .toolbar .btn-primary {
 }
 
 .label-card {
-  position: relative;
   width: var(--label-w);
   height: var(--label-h);
   box-sizing: border-box;
-  /* 底部留出一行位置放「立川云提供支持」 */
-  padding: 3mm 3mm 7mm;
+  padding: calc(var(--label-h) * 0.04) calc(var(--label-w) * 0.03);
   display: flex;
-  align-items: center;
-  gap: 2mm;
+  flex-direction: column;
   overflow: hidden;
   /* 标签之间用细虚线分隔，方便剪开 */
   border-right: 1px dashed #d2d2d7;
   border-bottom: 1px dashed #d2d2d7;
 }
 
+/* 二维码 + 文字这一行：占满剩余高度、垂直居中 */
+.label-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--label-w) * 0.02);
+}
+
 .label-qr {
   flex: 0 0 auto;
-  width: 25mm;
-  height: 25mm;
+  width: var(--label-qr);
+  height: var(--label-qr);
 }
 
 .label-qr svg {
@@ -3516,7 +3894,7 @@ section > .toolbar .btn-primary {
 }
 
 .label-name {
-  font-size: 4.2mm;
+  font-size: var(--label-name);
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
@@ -3525,7 +3903,7 @@ section > .toolbar .btn-primary {
 }
 
 .label-line {
-  font-size: 3.1mm;
+  font-size: var(--label-line);
   color: #3a3a3c;
   line-height: 1.3;
   white-space: nowrap;
@@ -3538,14 +3916,12 @@ section > .toolbar .btn-primary {
 }
 
 .label-foot {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 1.6mm;
+  flex: 0 0 auto;
   text-align: center;
-  font-size: 2.4mm;
+  font-size: var(--label-foot);
   color: #a1a1a6;
   letter-spacing: 0.02em;
+  margin-top: calc(var(--label-foot) * 0.6);
 }
 
 /* 扫码弹窗里的取景框 */
@@ -3748,5 +4124,217 @@ section > .toolbar .btn-primary {
 
   .method-picked {
     display: none;
+  }
+}
+
+/* ============================================================
+   手机端（< 768px）—— 顶栏 / 弹窗 / 扫码 / 字号
+   放在最后：这些规则要压过上面同名的移动端规则
+   ============================================================ */
+@media (max-width: 767px) {
+  /* ---------- 顶栏：汉堡 + 页面标题 + 头像，吸顶 ---------- */
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: 56px;
+    padding: 0 12px;
+    margin: -12px -16px 14px;
+    gap: 8px;
+    background-color: rgba(255, 255, 255, 0.82);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .topbar .menu-toggle {
+    flex: none;
+    width: 40px;
+    height: 40px;
+  }
+
+  .topbar-title {
+    display: block;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    text-align: center;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: var(--track-title);
+    color: var(--text);
+  }
+
+  .topbar .account {
+    flex: none;
+  }
+
+  /* 头像菜单在手机上也当成底部弹层，别顶到屏幕外面 */
+  .account-menu {
+    position: fixed;
+    left: 12px;
+    right: 12px;
+    top: auto;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: auto;
+    border-radius: 16px;
+  }
+
+  /* ---------- 功能索引条：横向划得动 ---------- */
+  .tabbar {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ---------- 弹窗：从底部升起的 sheet ---------- */
+  .overlay {
+    align-items: flex-end;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .modal {
+    max-width: none;
+    width: 100%;
+    max-height: 92dvh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: none;
+    padding: 16px 16px calc(18px + env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+    animation: sheet-in 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* 关闭按钮固定在右上角 */
+  .modal-head {
+    position: sticky;
+    top: -16px;
+    z-index: 3;
+    padding-top: 6px;
+    background-color: #ffffff;
+  }
+
+  /* 顶部小把手 */
+  .modal::before {
+    content: '';
+    display: block;
+    width: 38px;
+    height: 5px;
+    margin: 0 auto 10px;
+    border-radius: 999px;
+    background-color: #d8d8dd;
+  }
+
+  /* 删除确认这种系统告警框，还是居中更像原生 */
+  .modal-alert {
+    max-width: none;
+    border-radius: 18px;
+    animation: modal-in 0.2s ease-out;
+  }
+
+  .modal-alert::before {
+    display: none;
+  }
+
+  .overlay:has(.modal-alert) {
+    align-items: center;
+    padding: 0 20px;
+  }
+
+  .modal-actions .btn {
+    height: 40px;
+  }
+
+  /* ---------- 扫码：全屏，摄像头占上半屏 ---------- */
+  .overlay-scanner {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .overlay-scanner .modal {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    padding: 14px 16px calc(18px + env(safe-area-inset-bottom));
+  }
+
+  .overlay-scanner .modal::before {
+    display: none;
+  }
+
+  .overlay-scanner .modal-head {
+    position: static;
+    margin-bottom: 12px;
+    padding-bottom: 12px;
+  }
+
+  .overlay-scanner .modal-head .btn {
+    height: 40px;
+    padding: 0 18px;
+  }
+
+  .overlay-scanner .scanner-box {
+    flex: 0 0 52%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 4px;
+    border-radius: 16px;
+  }
+
+  .overlay-scanner .scanner-view {
+    width: 100%;
+    height: 100%;
+  }
+
+  .overlay-scanner .scanner-view video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .overlay-scanner .hint,
+  .overlay-scanner .muted {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+
+  /* ---------- 字号与间距：手机上统一一档 ---------- */
+  body {
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .card {
+    margin-bottom: 14px;
+  }
+
+  .muted,
+  .hint,
+  .meta {
+    font-size: 13px;
+  }
+
+  .page-head h1 {
+    font-size: 20px;
+  }
+
+  .section-title,
+  .card-title {
+    font-size: 17px;
+  }
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }

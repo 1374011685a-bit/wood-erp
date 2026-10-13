@@ -10,6 +10,12 @@
  * 明细录入表（.table-detail）自带 data-label，这里跳过。
  */
 export function applyTableLabels(root: ParentNode = document) {
+  markListTables(root)
+  markSheetTables(root)
+}
+
+/** 列表页的普通表格：整行变成一张「字段名 + 值」的卡片 */
+function markListTables(root: ParentNode) {
   const tables = root.querySelectorAll<HTMLTableElement>('table.table')
 
   for (const table of tables) {
@@ -30,12 +36,64 @@ export function applyTableLabels(root: ParentNode = document) {
         if (label && cell.dataset.label !== label) cell.dataset.label = label
       })
 
-      cells[0].classList.add('cell-primary')
-
-      const actionCell = cells.find((cell) =>
-        cell.querySelector('.row-actions, button'),
+      /**
+       * 勾选列（整格只有一个复选框、没有文字）单独标出来：
+       * 它在卡片模式里要浮到右上角，不能当成卡片标题，
+       * 否则卡片顶上会出现一条只有方框的空白行。
+       */
+      const checkCell = cells.find(
+        (cell) =>
+          cell.querySelector('input[type="checkbox"]') !== null &&
+          (cell.textContent ?? '').trim() === '',
       )
+      if (checkCell) checkCell.classList.add('cell-check')
+
+      /**
+       * 操作列优先认 .row-actions（那才是「查看/编辑/删除」那一格）。
+       * 只看 button 的话，像「合同号」这种格子里带链接按钮的会被误认成操作列，
+       * 结果操作按钮被塞到卡片中间。
+       */
+      const actionCell =
+        cells.find((cell) => cell.querySelector('.row-actions')) ??
+        cells.find((cell) => cell.querySelector('button'))
       if (actionCell) actionCell.classList.add('cell-actions')
+
+      // 卡片标题：第一个有文字的格子（跳过勾选列和只有按钮的操作列）
+      const primary =
+        cells.find(
+          (cell) =>
+            !cell.classList.contains('cell-check') &&
+            !cell.classList.contains('cell-actions') &&
+            (cell.textContent ?? '').trim().length > 0,
+        ) ?? cells[0]
+      primary.classList.add('cell-primary')
+    }
+  }
+}
+
+/**
+ * 录入页的明细表（.sheet-table）：手机上也是一行一张卡片。
+ *
+ * 和列表页的区别：这里的格子多半是输入框，所以只搬字段名（data-label），
+ * 不标「标题格 / 操作格」——哪一列当标题、哪一列放删除按钮，CSS 里按
+ * col-code / col-name / col-op 这些已有的列类名来决定。
+ */
+function markSheetTables(root: ParentNode) {
+  for (const table of root.querySelectorAll<HTMLTableElement>('table.sheet-table')) {
+    const headers = [...table.querySelectorAll<HTMLTableCellElement>('thead th')]
+    if (headers.length === 0) continue
+
+    table.classList.add('sheet-cards')
+
+    for (const row of table.querySelectorAll<HTMLTableRowElement>('tbody tr')) {
+      const cells = [...row.children] as HTMLTableCellElement[]
+      // 行列数对不上（比如 colSpan 的提示行 / 空状态行）就跳过
+      if (cells.length !== headers.length) continue
+
+      cells.forEach((cell, index) => {
+        const label = headers[index]?.textContent?.trim() ?? ''
+        if (label && cell.dataset.label !== label) cell.dataset.label = label
+      })
     }
   }
 }

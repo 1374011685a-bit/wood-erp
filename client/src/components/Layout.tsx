@@ -501,6 +501,10 @@ export default function Layout() {
               <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
           </button>
+          {/* 手机上顶栏中间显示当前功能名（桌面端不显示） */}
+          <span className="topbar-title">
+            {location.pathname === '/' ? '首页' : labelOf(location.pathname)}
+          </span>
           <div className="account" ref={accountRef}>
             <button
               type="button"
