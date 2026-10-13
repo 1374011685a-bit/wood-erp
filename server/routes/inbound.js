@@ -313,6 +313,18 @@ const updateInbound = db.transaction(
     error.status = 404
     throw error
   }
+  // 改动前的这张单金额（用于回报「金额有没有变」）
+  const amountBefore = fromCents(
+    Number(
+      db
+        .prepare(
+          `SELECT COALESCE(SUM(COALESCE(unit_price_cents, ROUND(unit_price * 100)) * cubic), 0) AS c
+             FROM order_items
+            WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
+        )
+        .get(id)?.c ?? 0,
+    ),
+  )
 
   const deltas = new Map()
   for (const item of orderItemsStmt.all(id)) bumpGroups(deltas, item, -1)
@@ -354,6 +366,43 @@ const updateInbound = db.transaction(
   for (const item of items) {
     insertItem.run({ ...item, order_id: id })
   }
+
+  // ── 重建码单：把这张单原来的包整体替换掉（硬删旧包，再按新明细生成）──
+  const oldBales = db
+    .prepare(`SELECT id FROM bales WHERE inbound_order_id = ?`)
+    .all(id)
+  const beforeCents = Number(
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(COALESCE(unit_price_cents, ROUND(unit_price * 100)) * cubic), 0) AS c
+           FROM order_items
+          WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
+      )
+      .get(id)?.c // 新明细已写入，这里算的是重建后的金额
+    ?? 0,
+  )
+  for (const bale of oldBales) {
+    db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
+  }
+  db.prepare(`DELETE FROM bales WHERE inbound_order_id = ?`).run(id)
+
+  const container = order.shipment_id
+    ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(order.shipment_id)
+    : null
+  const barcodes = []
+  for (const item of items) {
+    barcodes.push(
+      ...createBalesForItem({
+        item,
+        shipmentId: order.shipment_id ?? null,
+        shipmentNo: container?.bl_no ?? null,
+        inboundOrderId: id,
+        inboundOrderNo: order.order_no,
+        baleLabels: item.bale_labels,
+        samePackage: item.same_package,
+      }),
+    )
+  }
   updateOrderStmt.run(
     supplier,
     orderDate,
@@ -366,7 +415,15 @@ const updateInbound = db.transaction(
     id,
   )
 
-  return { id, order_no: order.order_no }
+  return {
+    id,
+    order_no: order.order_no,
+    bale_count: barcodes.length,
+    barcodes,
+    amount_before: amountBefore,
+    amount_after: fromCents(beforeCents),
+    amount_changed: Math.abs(amountBefore - fromCents(beforeCents)) > 0.005,
+  }
   },
 )
 
@@ -402,6 +459,40 @@ router.put('/:id', (req, res) => {
   const problems = validateItems(items)
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
+  }
+
+  // ── 整单编辑的前置校验：全部在写库前做完，任何一条不过 → 400，数据一个字不动 ──
+  const existing = db
+    .prepare(
+      `SELECT id, order_no, bl_no, shipment_id FROM inbound_orders
+        WHERE id = ? AND deleted_at IS NULL`,
+    )
+    .get(id)
+  if (!existing) return res.status(404).json({ error: '入库单不存在' })
+
+  const shipped = Number(
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM bales
+          WHERE inbound_order_id = ? AND deleted_at IS NULL AND status <> 'in_stock'`,
+      )
+      .get(id)?.total ?? 0,
+  )
+  if (shipped > 0) {
+    return res.status(400).json({
+      error:
+        '这张单下有包已经出库了，不能整单编辑。要么先撤销出库，要么走『编辑这一包』',
+    })
+  }
+  try {
+    preflightBales({
+      shipmentId: existing.shipment_id,
+      inboundOrderId: id,
+      items,
+      excludeOrderId: id,
+    })
+  } catch (err) {
+    return res.status(err.status === 400 ? 400 : 500).json({ error: err.message })
   }
 
   try {
@@ -561,6 +652,29 @@ router.get('/:id', (req, res) => {
         ORDER BY id`,
     )
     .all(id)
+
+  // 每行明细对应的包号（编辑表单要能显示出来）：按「规格 + 片数」到这张单的包里反查
+  const orderBales = db
+    .prepare(
+      `SELECT bale_no, species, grade, thickness, width, length, pieces
+         FROM bales
+        WHERE inbound_order_id = ? AND deleted_at IS NULL
+        ORDER BY id`,
+    )
+    .all(id)
+  for (const item of items) {
+    item.bale_labels = orderBales
+      .filter(
+        (bale) =>
+          String(bale.species ?? '') === String(item.species ?? '') &&
+          String(bale.grade ?? '') === String(item.grade ?? '') &&
+          Number(bale.thickness) === Number(item.thickness) &&
+          Number(bale.width) === Number(item.width) &&
+          Number(bale.length) === Number(item.length) &&
+          Number(bale.pieces) === Number(item.pieces),
+      )
+      .map((bale) => bale.bale_no)
+  }
 
   // 这一单单下每包的状态（在库 / 已出库），入库后随时能看到哪包还没发
   const bales = db

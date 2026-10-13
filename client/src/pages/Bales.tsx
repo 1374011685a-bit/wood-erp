@@ -369,7 +369,7 @@ export default function Bales() {
               <th>包号</th>
               <th>条码号</th>
               <th>柜号</th>
-              <th>提单号</th>
+              <th>提单码</th>
               <th>合同号</th>
               <th>品名</th>
               <th>等级</th>

@@ -271,7 +271,7 @@ export function assertBoxOwner(boxNo, shipmentId, inboundOrderId) {
   throw error
 }
 
-export function preflightBales({ shipmentId, inboundOrderId, items }) {
+export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrderId }) {
   const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
   const where = shipmentId ? '这张提单' : '这张入库单'
   const seen = new Map() // 包号 -> 第一次出现的位置
@@ -312,7 +312,9 @@ export function preflightBales({ shipmentId, inboundOrderId, items }) {
         throw error
       }
       seen.set(key, index + 1)
-      if (scopeKey && findBaleInScope.get(scopeKey, key)) {
+      const hit = scopeKey ? findBaleInScope.get(scopeKey, key) : null
+      const ownBale = hit && excludeOrderId && Number(hit.inbound_order_id) === Number(excludeOrderId)
+      if (hit && !ownBale) {
         const error = new Error(`包号 ${key} 在${where}里已存在，请换一个包号`)
         error.status = 400
         throw error

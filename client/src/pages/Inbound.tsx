@@ -800,8 +800,8 @@ export default function Inbound({
         padRows(
           data.items.map((line) => ({
           key: (rowSeq += 1),
-          // 编辑老单据时包号留空，改完保存会按老单据原有码单处理
-          baleLabel: '',
+          // 包号从这张单的包里读回来（编辑会同步重建码单）
+          baleLabel: (line.bale_labels ?? []).join('、'),
           boxNo: line.box_no ?? '',
           species: line.species ?? '',
           grade: line.grade ?? '',
@@ -1651,6 +1651,12 @@ export default function Inbound({
             件数就是包数，单价必填。
             {editing ? ' 正在修改老单据：单号不变，库存按差异自动调整。' : ''}
           </p>
+          {editing && (
+            <p className="hint" style={{ color: '#b26a00' }}>
+              改动包号 / 柜号 / 规格会重建这张单的码单；保存后条码号会重新按提单顺序编号，
+              已打印的标签会失效。
+            </p>
+          )}
         </div>
       )}
 
