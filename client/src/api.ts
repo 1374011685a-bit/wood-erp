@@ -621,6 +621,8 @@ export type ShipmentOption = {
   supplier: string | null
   arrival_date: string | null
   bale_count: number
+  /** 这张提单里有几个柜（按柜号去重） */
+  box_count: number
   next_seq: number
 }
 

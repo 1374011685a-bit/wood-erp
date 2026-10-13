@@ -1574,7 +1574,7 @@ export default function Inbound({
                 {shipmentOptions.map((box) => (
                   <option key={box.id} value={box.id}>
                     {box.bl_no}
-                    {box.contract_no ? ` · 合同 ${box.contract_no}` : ''}
+                    {box.contract_no ? ` · 合同 ${box.contract_no}` : ''}{box.bale_count > 0 ? ` · ${box.bale_count} 包/${box.box_count} 个柜` : ''}
                   </option>
                 ))}
               </select>

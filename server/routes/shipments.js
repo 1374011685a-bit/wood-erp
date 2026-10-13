@@ -119,7 +119,12 @@ router.get('/options', (_req, res) => {
   res.json(
     rows.map((row) => {
       const info = shipmentBaleInfo(row.id)
-      return { ...row, bale_count: info.count, next_seq: info.next_seq }
+      return {
+        ...row,
+        bale_count: info.count,
+        box_count: info.box_count,
+        next_seq: info.next_seq,
+      }
     }),
   )
 })

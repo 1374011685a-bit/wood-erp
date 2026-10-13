@@ -185,10 +185,16 @@ export function nextBaleSequence(shipmentId, inboundOrderNo) {
 /** 这张提单已经贴了几张码单（给入库表单做「下一个条码号从几开始」的提示） */
 export function shipmentBaleInfo(shipmentId) {
   const rows = db
-    .prepare(`SELECT barcode FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`)
+    .prepare(
+      `SELECT barcode, box_no FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`,
+    )
     .all(shipmentId)
+  const boxes = new Set(
+    rows.map((row) => String(row.box_no ?? '').trim().toLowerCase()).filter(Boolean),
+  )
   return {
     count: rows.length,
+    box_count: boxes.size,
     next_seq: maxSequence(rows.map((row) => row.barcode)) + 1,
   }
 }
@@ -224,12 +230,61 @@ export const baleScopeKey = (shipmentId, inboundOrderId) =>
  * 触发的就是数据库约束报错（500），而且给用户看到的是一句 SQL 报错，
  * 不是中文提示。预检通过后，事务里只剩纯粹的写入，不会中途失败。
  */
+
+/** 这个柜号现在归谁（提单优先；散货归入库单） */
+const boxOwnerStmt = db.prepare(
+  `SELECT b.shipment_id, b.inbound_order_id,
+          COALESCE(s.bl_no, '入库单 ' || o.order_no) AS owner_no
+     FROM bales b
+     LEFT JOIN shipments s      ON s.id = b.shipment_id
+     LEFT JOIN inbound_orders o ON o.id = b.inbound_order_id
+    WHERE b.deleted_at IS NULL
+      AND b.box_no IS NOT NULL AND trim(b.box_no) <> ''
+      AND lower(trim(b.box_no)) = ?
+    LIMIT 1`,
+)
+
+/**
+ * 柜号跨提单唯一：一个柜只能属于一张提单（散货则属于一张入库单）。
+ * 同一个柜里多包填同一个柜号是正常的，不算冲突。
+ */
+export function assertBoxOwner(boxNo, shipmentId, inboundOrderId) {
+  const key = String(boxNo ?? '').trim().toLowerCase()
+  if (!key) return
+
+  const owner = boxOwnerStmt.get(key)
+  if (!owner) return
+
+  const sameShipment =
+    shipmentId && owner.shipment_id && Number(owner.shipment_id) === Number(shipmentId)
+  const sameOrder =
+    !shipmentId &&
+    !owner.shipment_id &&
+    inboundOrderId &&
+    Number(owner.inbound_order_id) === Number(inboundOrderId)
+  if (sameShipment || sameOrder) return
+
+  const error = new Error(
+    `柜号 ${String(boxNo).trim()} 已经属于提单 ${owner.owner_no}，不能用在别的提单里`,
+  )
+  error.status = 400
+  throw error
+}
+
 export function preflightBales({ shipmentId, inboundOrderId, items }) {
   const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
   const where = shipmentId ? '这张提单' : '这张入库单'
   const seen = new Map() // 包号 -> 第一次出现的位置
 
   items.forEach((item, index) => {
+    // 柜号：同一柜可以多包，但不能跨提单
+    try {
+      assertBoxOwner(item.box_no, shipmentId, inboundOrderId)
+    } catch (err) {
+      err.message = `第 ${index + 1} 行：${err.message}`
+      throw err
+    }
+
     const labels = Array.isArray(item.bale_labels) ? item.bale_labels : []
     if (labels.length === 0) return
 
@@ -801,6 +856,15 @@ router.put('/:id', (req, res) => {
   const { items, problems } = normalizeBaleItems(body.items)
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
+  }
+  // 改柜号也要守「一个柜只能属于一张提单」
+  const current = getBaleStmt.get(id)
+  if (current && boxNo) {
+    try {
+      assertBoxOwner(boxNo, current.shipment_id, current.inbound_order_id)
+    } catch (err) {
+      return res.status(400).json({ error: err.message })
+    }
   }
 
   // 前端把每一行原来的单价回传了：有（>0）就钉住它，没有就交给后端按原行/最近价兜底
