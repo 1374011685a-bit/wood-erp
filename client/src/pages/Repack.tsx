@@ -11,23 +11,9 @@ import {
   type RepackSums,
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 
 const PAGE_SIZE = 20
-
-const toNumber = (value: string) => {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : 0
-}
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-const formatCubic = (value: number) => String(roundTo(value, 4))
-const formatAmount = (value: number) => value.toFixed(2)
-
-const todayISO = () => {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
-}
 
 /** 改包后的一行（一包里的一个规格） */
 type AfterRow = {

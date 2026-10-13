@@ -185,7 +185,7 @@ const createShipment = db.transaction(({ blNo, contractNo, supplier, arrivalDate
     created.push(containerNo)
   }
 
-  return { id: shipmentId, bl_no: blNo, containers: created }
+  return { id: shipmentId, bl_no: blNo }
 })
 
 const findContainerByNo = db.prepare(

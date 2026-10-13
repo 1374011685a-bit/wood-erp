@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
@@ -9,7 +9,7 @@ import {
 } from '../api'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { applyTableLabels } from '../utils/tableLabels'
-import { ToastHost, type ToastItem } from './Ui'
+import { Loading, ToastHost, type ToastItem } from './Ui'
 
 type NavItem = {
   to: string
@@ -617,7 +617,10 @@ export default function Layout() {
         </nav>
         )}
 
-        <Outlet />
+        {/* 页面是按需加载的，切页面时先显示一个轻量加载态 */}
+        <Suspense fallback={<Loading />}>
+          <Outlet />
+        </Suspense>
       </main>
 
       {passwordOpen && (

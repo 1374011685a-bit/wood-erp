@@ -36,9 +36,10 @@ router.get('/', (req, res) => {
   const keyword = like(req.query.keyword)
   if (keyword) {
     conditions.push(
-      `AND (b.bale_no LIKE ? OR b.barcode LIKE ? OR s.bl_no LIKE ? OR s.contract_no LIKE ?)`,
+      `AND (b.bale_no LIKE ? OR b.barcode LIKE ? OR b.box_no LIKE ?
+            OR s.bl_no LIKE ? OR s.contract_no LIKE ?)`,
     )
-    params.push(keyword, keyword, keyword, keyword)
+    params.push(keyword, keyword, keyword, keyword, keyword)
   }
 
   const status = String(req.query.status ?? '').trim()

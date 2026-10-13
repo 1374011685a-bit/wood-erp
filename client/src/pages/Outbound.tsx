@@ -24,18 +24,12 @@ import {
   Pager,
   ToastHost,
 } from '../components/Ui'
+import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 
 /* ---------- 立方预览：与 server/utils/cubic.js 同一公式 ---------- */
 
 const CUBIC_DIVISOR = 1000000
 const EPSILON = 1e-9
-
-const toNumber = (value: string) => {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : 0
-}
-
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
 
 const previewCubic = (row: FormRow) =>
   roundTo(
@@ -50,16 +44,6 @@ const previewCubic = (row: FormRow) =>
 
 const previewAmount = (cubic: number, unitPrice: string) =>
   roundTo(cubic * toNumber(unitPrice), 2)
-
-const formatCubic = (value: number) => String(roundTo(value, 4))
-const formatAmount = (value: number) => value.toFixed(2)
-
-const todayISO = () => {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
-}
 
 /* ---------- 明细行 ---------- */
 

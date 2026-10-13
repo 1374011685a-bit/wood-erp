@@ -348,6 +348,10 @@ router.post('/', (req, res) => {
   if (rawItems.length === 0) {
     return res.status(400).json({ error: '至少需要一行明细' })
   }
+  // 出库一定要指明发的是哪几包：不然库存减了、包还是「在库」，两边对不上
+  if (rawBales.length === 0) {
+    return res.status(400).json({ error: '请先选择要出库的码单（包）' })
+  }
 
   // 码单校验：必须都是「在库」状态，别人发过的包不能再发一次
   const baleErrors = checkBales(rawBales)

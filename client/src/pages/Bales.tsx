@@ -12,11 +12,9 @@ import {
   type DictAll,
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import { roundTo, formatCubic } from '../utils/num'
 
 const PAGE_SIZE = 50
-
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-const formatCubic = (value: number) => String(roundTo(value, 4))
 
 const STATUS_TEXT: Record<BaleRow['status'], string> = {
   in_stock: '在库',

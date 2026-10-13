@@ -41,9 +41,16 @@ const { requireAuth } = await load('./middleware/auth.js', () =>
 const authRouter = await load('./routes/auth.js', async () =>
   (await import('./routes/auth.js')).default,
 )
-const exportRouter = await load('./routes/export.js', async () =>
-  (await import('./routes/export.js')).default,
-)
+/**
+ * 导出模块依赖 exceljs（很大，加载要 300ms 上下）。
+ * 它只在点「导出 Excel」时才用得上，所以不在启动时加载，
+ * 第一次导出再拉起来——启动更快、平时也少占内存。
+ */
+let exportRouterPromise = null
+const getExportRouter = () =>
+  (exportRouterPromise ??= load('./routes/export.js', async () =>
+    (await import('./routes/export.js')).default,
+  ))
 const homeRouter = await load('./routes/home.js', async () =>
   (await import('./routes/home.js')).default,
 )
@@ -70,9 +77,6 @@ const settlementRouter = await load('./routes/settlement.js', async () =>
 )
 const contractsRouter = await load('./routes/contracts.js', async () =>
   (await import('./routes/contracts.js')).default,
-)
-const containersRouter = await load('./routes/containers.js', async () =>
-  (await import('./routes/containers.js')).default,
 )
 const balesRouter = await load('./routes/bales.js', async () =>
   (await import('./routes/bales.js')).default,
@@ -129,6 +133,17 @@ startDailySnapshots()
 
 app.use(express.json())
 
+// 请求体不是合法 JSON 之类的错误：统一回 JSON，不要吐一整页报错栈
+app.use((err, _req, res, next) => {
+  if (err?.type === 'entity.parse.failed') {
+    return res.status(400).json({ error: '请求数据格式不对（不是合法的 JSON）' })
+  }
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: '请求体太大了' })
+  }
+  next(err)
+})
+
 // 认证接口：login 公开，me / change-password 在路由内部各自校验
 app.use('/api/auth', authRouter)
 
@@ -138,7 +153,12 @@ app.get('/api/ping', requireAuth, (_req, res) => {
 })
 
 // 业务路由：统一走登录校验
-app.use('/api/export', requireAuth, exportRouter)
+// 第一次请求导出时才加载 exceljs
+app.use('/api/export', requireAuth, (req, res, next) => {
+  getExportRouter()
+    .then((router) => router(req, res, next))
+    .catch(next)
+})
 app.use('/api/home', requireAuth, homeRouter)
 app.use('/api/inbound', requireAuth, inboundRouter)
 app.use('/api/outbound', requireAuth, outboundRouter)
@@ -148,7 +168,6 @@ app.use('/api/count', requireAuth, countRouter)
 app.use('/api/recycle', requireAuth, recycleRouter)
 app.use('/api/settlement', requireAuth, settlementRouter)
 app.use('/api/contracts', requireAuth, contractsRouter)
-app.use('/api/containers', requireAuth, containersRouter)
 app.use('/api/bales', requireAuth, balesRouter)
 app.use('/api/shipments', requireAuth, shipmentsRouter)
 app.use('/api/dict', requireAuth, dictRouter)
@@ -187,6 +206,13 @@ app.use((req, res, next) => {
       if (err) next()
     },
   )
+})
+
+// 兜底错误处理：路由里没接住的错误也只回 JSON，日志留全栈方便排查
+app.use((err, _req, res, _next) => {
+  writeLog(`[错误] ${err?.stack ?? err}`)
+  if (res.headersSent) return
+  res.status(500).json({ error: '服务器出错了，请稍后重试' })
 })
 
 const server = app.listen(PORT, HOST, () => {

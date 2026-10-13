@@ -626,15 +626,7 @@ export function fetchShipmentOptions() {
   return request<ShipmentOption[]>('/api/shipments/options')
 }
 
-export type ShipmentContainer = {
-  id: number
-  container_no: string
-  arrive_date: string | null
-  bale_total: number
-  bale_in_stock: number
-}
-
-// 提单列表（一张提单覆盖多个柜）
+// 提单列表（一票到货 = 一张提单，下面直接是包）
 export function fetchShipments(
   query: { keyword?: string; supplier?: string; limit?: number; offset?: number } = {},
 ) {
@@ -647,10 +639,6 @@ export function fetchShipments(
   return request<Paged<ShipmentRow>>(`/api/shipments${qs ? `?${qs}` : ''}`)
 }
 
-export function fetchShipmentContainers(id: number) {
-  return request<ShipmentContainer[]>(`/api/shipments/${id}/containers`)
-}
-
 // 新建提单：一张提单直接开始贴包（柜这一层已经去掉了）
 export function createShipment(payload: {
   bl_no: string
@@ -658,57 +646,16 @@ export function createShipment(payload: {
   supplier?: string
   arrival_date?: string
   remark?: string
-  /** 老字段，柜已下线，不用填 */
-  container_nos?: string
 }) {
-  return request<{ id: number; bl_no: string; containers: string[] }>('/api/shipments', {
+  return request<{ id: number; bl_no: string }>('/api/shipments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
 }
 
-export function addShipmentContainers(id: number, containerNos: string) {
-  return request<{ ok: boolean; containers: string[] }>(
-    `/api/shipments/${id}/containers`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ container_nos: containerNos }),
-    },
-  )
-}
-
 export function deleteShipment(id: number) {
   return request<{ ok: boolean }>(`/api/shipments/${id}`, { method: 'DELETE' })
-}
-
-export type ContainerRow = {
-  id: number
-  container_no: string
-  contract_no: string
-  bl_no: string
-  supplier: string
-  arrive_date: string
-  remark: string
-  bale_total: number
-  bale_in_stock: number
-  bale_shipped: number
-  cubic_in_stock: number
-  created_at: string
-}
-
-export type ContainerOption = {
-  id: number
-  container_no: string
-  contract_no: string | null
-  bl_no: string | null
-  supplier: string | null
-  arrive_date: string | null
-  /** 这柜已经贴了几张码单 */
-  bale_count: number
-  /** 下一个该用的包号流水（包号 = 码单号 = 柜号-流水） */
-  next_seq: number
 }
 
 export type BaleRow = {
@@ -740,72 +687,11 @@ export type BaleQuery = {
 
   keyword?: string
   status?: '' | 'in_stock' | 'shipped'
-  container_id?: number
   shipment_id?: number
+  box_no?: string
   species?: string
   limit?: number
   offset?: number
-}
-
-// 柜列表（带每柜的包数 / 在库 / 已出）
-export function fetchContainers(
-  query: {
-    keyword?: string
-    supplier?: string
-    date_from?: string
-    date_to?: string
-    limit?: number
-    offset?: number
-  } = {},
-) {
-  const search = new URLSearchParams()
-  if (query.keyword) search.set('keyword', query.keyword)
-  if (query.supplier) search.set('supplier', query.supplier)
-  if (query.date_from) search.set('date_from', query.date_from)
-  if (query.date_to) search.set('date_to', query.date_to)
-  if (query.limit) search.set('limit', String(query.limit))
-  if (query.offset) search.set('offset', String(query.offset))
-  const qs = search.toString()
-  return request<Paged<ContainerRow>>(`/api/containers${qs ? `?${qs}` : ''}`)
-}
-
-// 入库表单选柜 / 码单页筛柜用
-export function fetchContainerOptions() {
-  return request<ContainerOption[]>('/api/containers/options')
-}
-
-export type ContainerPayload = {
-  container_no: string
-  contract_no?: string
-  bl_no?: string
-  supplier?: string
-  arrive_date?: string
-  remark?: string
-}
-
-export function createContainer(payload: ContainerPayload) {
-  return request<{ ok: boolean; id: number; container_no: string }>('/api/containers', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-}
-
-export function updateContainer(id: number, payload: ContainerPayload) {
-  return request<{ ok: boolean }>(`/api/containers/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-}
-
-export function deleteContainer(id: number) {
-  return request<{
-    ok: boolean
-    container_no: string
-    bale_count: number
-    order_nos: string[]
-  }>(`/api/containers/${id}`, { method: 'DELETE' })
 }
 
 export type BaleItemLine = {
@@ -868,13 +754,13 @@ export function deleteBale(id: number) {
   })
 }
 
-// 码单列表（一包一条，带柜号/合同号/出库单号）
+// 包列表（一包一条，带条码号/箱号/提单号/合同号/出库单号）
 export function fetchBales(query: BaleQuery = {}) {
   const search = new URLSearchParams()
   if (query.keyword) search.set('keyword', query.keyword)
   if (query.status) search.set('status', query.status)
-  if (query.container_id) search.set('container_id', String(query.container_id))
   if (query.shipment_id) search.set('shipment_id', String(query.shipment_id))
+  if (query.box_no) search.set('box_no', query.box_no)
   if (query.species) search.set('species', query.species)
   if (query.limit) search.set('limit', String(query.limit))
   if (query.offset) search.set('offset', String(query.offset))

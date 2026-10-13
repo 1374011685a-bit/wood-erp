@@ -9,17 +9,9 @@ import {
   type ContractRow,
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import { toNumber, formatAmount, todayLocal } from '../utils/num'
 
 const PAGE_SIZE = 20
-
-const formatAmount = (value: number) => value.toFixed(2)
-
-function todayLocal() {
-  const now = new Date()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${now.getFullYear()}-${month}-${day}`
-}
 
 const emptyForm = () => ({
   contract_no: '',
@@ -53,11 +45,6 @@ const createItemRow = (): ItemRow => ({
 const itemAmount = (row: ItemRow) => toNumber(row.quantity) * toNumber(row.unitPrice)
 const isItemEmpty = (row: ItemRow) =>
   !row.brand.trim() && !row.species.trim() && !row.grade.trim() && !row.quantity.trim()
-
-const toNumber = (value: string) => {
-  const num = Number(value)
-  return Number.isFinite(num) ? num : 0
-}
 
 export default function Contracts() {
   const [rows, setRows] = useState<ContractRow[]>([])

@@ -7,12 +7,7 @@ import {
   Pager,
   ToastHost,
 } from '../components/Ui'
-
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-
-// 立方去掉末尾零（12.996），金额/单价固定两位
-const formatCubic = (value: number) => String(roundTo(value, 4))
-const formatAmount = (value: number) => value.toFixed(2)
+import { formatCubic, formatAmount } from '../utils/num'
 
 const typeLabel = (type: 'in' | 'out') => (type === 'in' ? '入库' : '出库')
 

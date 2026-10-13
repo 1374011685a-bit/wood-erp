@@ -1,25 +1,38 @@
+import { Suspense, lazy } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import RequireAuth from './components/RequireAuth'
-import Count from './pages/Count'
-import Contracts from './pages/Contracts'
-import Bales from './pages/Bales'
-import Dict from './pages/Dict'
-import Home from './pages/Home'
-import Inbound from './pages/Inbound'
-import Login from './pages/Login'
-import Outbound from './pages/Outbound'
-import Recycle from './pages/Recycle'
-import Repack from './pages/Repack'
-import Settlement from './pages/Settlement'
-import Stock from './pages/Stock'
-import Records from './pages/Records'
+
+/**
+ * 页面按需加载：首屏只下载登录页和外壳，
+ * 点到哪个功能才拉那个页面的代码（表单页最大，省下来的就是首屏时间）。
+ */
+const Login = lazy(() => import('./pages/Login'))
+const Home = lazy(() => import('./pages/Home'))
+const Inbound = lazy(() => import('./pages/Inbound'))
+const Outbound = lazy(() => import('./pages/Outbound'))
+const Stock = lazy(() => import('./pages/Stock'))
+const Count = lazy(() => import('./pages/Count'))
+const Repack = lazy(() => import('./pages/Repack'))
+const Contracts = lazy(() => import('./pages/Contracts'))
+const Bales = lazy(() => import('./pages/Bales'))
+const Records = lazy(() => import('./pages/Records'))
+const Recycle = lazy(() => import('./pages/Recycle'))
+const Settlement = lazy(() => import('./pages/Settlement'))
+const Dict = lazy(() => import('./pages/Dict'))
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/login" element={<Login />} />
+        <Route
+          path="/login"
+          element={
+            <Suspense fallback={null}>
+              <Login />
+            </Suspense>
+          }
+        />
         <Route
           element={
             <RequireAuth>

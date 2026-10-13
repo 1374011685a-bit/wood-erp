@@ -6,10 +6,8 @@ import {
   type RecycleRow,
 } from '../api'
 import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
+import { formatCubic, formatAmount } from '../utils/num'
 
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-const formatCubic = (value: number) => String(roundTo(value, 4))
-const formatAmount = (value: number) => value.toFixed(2)
 const typeLabel = (type: RecycleRow['type']) => (type === 'in' ? '入库' : '出库')
 
 export default function Recycle() {

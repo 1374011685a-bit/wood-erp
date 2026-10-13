@@ -6,9 +6,8 @@ import {
   type HomeSummary,
 } from '../api'
 import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
+import { formatCubic } from '../utils/num'
 
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-const formatCubic = (value: number) => String(roundTo(value, 4))
 const formatMoney = (value: number) =>
   value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const formatInt = (value: number) => Math.round(value).toLocaleString('zh-CN')

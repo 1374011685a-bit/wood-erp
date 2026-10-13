@@ -65,4 +65,27 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // 目标放到现代浏览器：少打一堆兼容转译代码
+    target: 'es2022',
+    cssCodeSplit: true,
+    reportCompressedSize: false,
+    rollupOptions: {
+      output: {
+        /**
+         * 第三方库单独打一个包：
+         * 1) 业务代码改动不会让 React / 路由这些包重新下载；
+         * 2) 每个页面自己一个 chunk，点到才加载。
+         */
+        manualChunks(id: string) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react-router')) return 'vendor-router'
+            if (id.includes('react')) return 'vendor-react'
+            return 'vendor'
+          }
+          return undefined
+        },
+      },
+    },
+  },
 })

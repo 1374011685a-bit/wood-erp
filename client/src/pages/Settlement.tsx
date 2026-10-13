@@ -14,19 +14,11 @@ import {
   type Statement,
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import { formatCubic, formatAmount, todayLocal } from '../utils/num'
 
 const PAGE_SIZE = 20
 
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-const formatAmount = (value: number) => value.toFixed(2)
-const formatCubic = (value: number) => String(roundTo(value, 4))
-
 const pad = (value: number) => String(value).padStart(2, '0')
-
-function todayLocal() {
-  const now = new Date()
-  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
-}
 
 /** 本月 1 号：对账默认看当月 */
 function monthStart() {

@@ -11,11 +11,8 @@ import {
   PageHead,
   ToastHost,
 } from '../components/Ui'
+import { roundTo, formatCubic } from '../utils/num'
 
-const roundTo = (value: number, digits: number) => Number(value.toFixed(digits))
-
-// 立方去掉无意义的末尾零：12.996 而不是 12.9960
-const formatCubic = (value: number) => String(roundTo(value, 4))
 const formatPrice = (value: number | null) =>
   value === null ? '—' : value.toFixed(2)
 
