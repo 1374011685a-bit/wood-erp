@@ -3190,6 +3190,281 @@ section > .toolbar .btn-primary {
   font-variant-numeric: tabular-nums;
 }
 
+/* ============================================================
+   单据录入：一张大表 + 一直留着的空行（照千木云的录单方式）
+   ============================================================ */
+
+.card.sheet {
+  padding: 0;
+  overflow: hidden;
+}
+
+.sheet-top {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sheet-field > span {
+  font-size: 12px;
+  color: var(--text-3);
+  letter-spacing: var(--track-small);
+}
+
+.sheet-field .req {
+  color: var(--red);
+  margin-left: 2px;
+  font-weight: 600;
+}
+
+.sheet-field .input {
+  height: 36px;
+  min-width: 170px;
+}
+
+.input-readonly,
+.input-readonly:hover {
+  background-color: var(--panel-soft);
+  color: var(--text-3);
+  cursor: default;
+}
+
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--line);
+  background-color: #fbfbfd;
+}
+
+.sheet-toolbar .muted {
+  font-size: 12.5px;
+}
+
+.sheet-scroll {
+  overflow-x: auto;
+}
+
+.sheet-table {
+  width: 100%;
+  min-width: 1180px;
+  border-collapse: collapse;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.sheet-table th {
+  height: 38px;
+  padding: 0 8px;
+  border: 1px solid #e6e6eb;
+  background-color: #f5f5f7;
+  color: var(--text-2);
+  font-weight: 500;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.sheet-table td {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #e6e6eb;
+  vertical-align: middle;
+}
+
+.sheet-table td.num,
+.sheet-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-table tbody tr:hover td {
+  background-color: #fafafc;
+}
+
+.sheet-table tr.is-error td {
+  background-color: #fff5f5;
+}
+
+.sheet-table td.col-no,
+.sheet-table th.col-no {
+  width: 44px;
+  text-align: center;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-table td.col-check,
+.sheet-table th.col-check {
+  width: 40px;
+  text-align: center;
+}
+
+.sheet-table td.col-op,
+.sheet-table th.col-op {
+  width: 78px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.sheet-table td.col-unit,
+.sheet-table th.col-unit {
+  width: 78px;
+}
+
+.sheet-table td.col-code,
+.sheet-table th.col-code {
+  width: 122px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.sheet-table td.col-stock,
+.sheet-table th.col-stock {
+  width: 160px;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+
+.sheet-table td.col-stock.is-short {
+  color: var(--red);
+  font-weight: 600;
+}
+
+/* 品名是最常看的一列，别被压扁 */
+.sheet-table th.col-name,
+.sheet-table td.col-name {
+  min-width: 104px;
+}
+
+/* 有输入框的格子给个下限宽度，别把数字截掉（3.985 不能显示成 3.98） */
+.sheet-table td:has(.sheet-input) {
+  min-width: 72px;
+}
+
+.sheet-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 3px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.sheet-input:focus {
+  background-color: #ffffff;
+  box-shadow: inset 0 0 0 2px var(--blue);
+}
+
+.sheet-icon {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--ease), color var(--ease);
+}
+
+.sheet-icon:hover {
+  background-color: #ececf1;
+  color: var(--text);
+}
+
+.sheet-icon-danger:hover {
+  background-color: #ffe9e7;
+  color: var(--red);
+}
+
+.sheet-table tfoot td {
+  height: 36px;
+  background-color: #fafafa;
+  font-weight: 600;
+}
+
+.sheet-total-label {
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.sheet-note {
+  display: block;
+  width: calc(100% - 40px);
+  min-height: 58px;
+  margin: 16px 20px 0;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.sheet-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px 20px 4px;
+}
+
+.card.sheet > .hint {
+  margin: 12px 20px 18px;
+}
+
+.sheet-table .row-error,
+.sheet-table .row-hint {
+  height: auto;
+  padding: 7px 12px;
+  font-size: 12.5px;
+}
+
+.sheet-table .row-error {
+  background-color: rgba(255, 59, 48, 0.05);
+  color: var(--red);
+}
+
+.sheet-table .row-hint {
+  background-color: #fbfbfd;
+  color: var(--text-2);
+}
+
+@media (max-width: 767px) {
+  .sheet-top,
+  .sheet-bottom {
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .sheet-field,
+  .sheet-field .input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .sheet-top .btn {
+    flex: 1;
+  }
+
+  .sheet-note {
+    width: calc(100% - 28px);
+    margin: 12px 14px 0;
+  }
+
+  .card.sheet > .hint {
+    margin: 12px 14px 16px;
+  }
+}
+
 @media (max-width: 767px) {
   .method-options {
     grid-template-columns: 1fr;

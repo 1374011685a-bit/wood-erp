@@ -100,10 +100,17 @@ const createRow = (): FormRow => ({
   thickness: '',
   width: '',
   length: '',
-  pieces: '1',
-  bundles: '1',
+  pieces: '',
+  bundles: '',
   unitPrice: '',
 })
+
+/** 表格里始终铺满 MIN_SHEET_ROWS 行空行，点进去就能填 */
+const padRows = (list: FormRow[]) => {
+  const next = [...list]
+  while (next.length < MIN_SHEET_ROWS) next.push(createRow())
+  return next
+}
 
 const isRowEmpty = (row: FormRow) =>
   !row.baleLabel.trim() &&
@@ -210,20 +217,21 @@ const emptyInput = {
 
 const PAGE_SIZE = 20
 const PICKER_PAGE_SIZE = 20
+/** 表格里一直留这么多空行，点进去就能填（和千木云一样） */
+const MIN_SHEET_ROWS = 10
 
 /* ---------- 样式 ---------- */
 
 
 const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'baleLabel', label: '包号' },
-  { field: 'species', label: '品名' },
+  { field: 'species', label: '品名 *' },
   { field: 'grade', label: '等级' },
-  { field: 'thickness', label: '厚度mm' },
-  { field: 'width', label: '宽度mm' },
-  { field: 'length', label: '长度m' },
+  { field: 'thickness', label: '厚度' },
+  { field: 'width', label: '宽度' },
+  { field: 'length', label: '长度' },
   { field: 'pieces', label: '片数' },
   { field: 'bundles', label: '件数' },
-  { field: 'unitPrice', label: '单价*' },
 ]
 
 export default function Inbound({
@@ -293,7 +301,9 @@ export default function Inbound({
     blNo: '',
     contractNo: '',
   })
-  const [rows, setRows] = useState<FormRow[]>(() => [createRow()])
+  const [rows, setRows] = useState<FormRow[]>(() => padRows([]))
+  // 表格左侧勾选的行（批量删除用）
+  const [pickedRows, setPickedRows] = useState<number[]>([])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [rowErrors, setRowErrors] = useState<Record<number, string[]>>({})
@@ -423,7 +433,8 @@ export default function Inbound({
     }
     setEditing(null)
     setContainerId(0)
-    setRows([createRow()])
+    setRows(padRows([]))
+    setPickedRows([])
     setRowErrors({})
     setFormError('')
     setForm({
@@ -521,8 +532,11 @@ export default function Inbound({
         (acc, row) => ({
           cubic: roundTo(acc.cubic + row.cubic, 4),
           amount: roundTo(acc.amount + row.amount, 2),
+          // 片数按「每片数 × 件数」累计，就是这批货一共多少片
+          pieces: acc.pieces + toNumber(row.pieces) * toNumber(row.bundles),
+          bundles: acc.bundles + toNumber(row.bundles),
         }),
-        { cubic: 0, amount: 0 },
+        { cubic: 0, amount: 0, pieces: 0, bundles: 0 },
       ),
     [computedRows],
   )
@@ -576,9 +590,22 @@ export default function Inbound({
     field: keyof Omit<FormRow, 'key'>,
     value: string,
   ) => {
-    setRows((prev) =>
-      prev.map((row) => (row.key === key ? { ...row, [field]: value } : row)),
-    )
+    setRows((prev) => {
+      const next = prev.map((row) => {
+        if (row.key !== key) return row
+        const patched = { ...row, [field]: value }
+        // 第一次往里填东西时，片数 / 件数给个 1 的默认值，省得每行都手打
+        if (field !== 'pieces' && field !== 'bundles') {
+          if (!patched.pieces.trim()) patched.pieces = '1'
+          if (!patched.bundles.trim()) patched.bundles = '1'
+        }
+        return patched
+      })
+      // 末尾永远留一行空的，接着往下填就行
+      const last = next[next.length - 1]
+      if (last && last.key === key && !isRowEmpty(last)) next.push(createRow())
+      return next
+    })
     // 改动后旧提示就过期了，清掉；行内标红由实时校验刷新
     if (formError) setFormError('')
   }
@@ -588,8 +615,29 @@ export default function Inbound({
     if (formError) setFormError('')
   }
 
+  /** 在指定行下面插一行 */
+  const insertRowAfter = (key: number) => {
+    setRows((prev) => {
+      const index = prev.findIndex((row) => row.key === key)
+      if (index < 0) return [...prev, createRow()]
+      const next = [...prev]
+      next.splice(index + 1, 0, createRow())
+      return next
+    })
+    if (formError) setFormError('')
+  }
+
   const removeRow = (key: number) => {
-    setRows((prev) => (prev.length > 1 ? prev.filter((row) => row.key !== key) : prev))
+    setRows((prev) => padRows(prev.filter((row) => row.key !== key)))
+    setPickedRows((prev) => prev.filter((item) => item !== key))
+    if (formError) setFormError('')
+  }
+
+  /** 删掉勾选的行 */
+  const removePickedRows = () => {
+    if (pickedRows.length === 0) return
+    setRows((prev) => padRows(prev.filter((row) => !pickedRows.includes(row.key))))
+    setPickedRows([])
     if (formError) setFormError('')
   }
 
@@ -663,7 +711,8 @@ export default function Inbound({
         contractNo: data.contract_no ?? '',
       })
       setRows(
-        data.items.map((line) => ({
+        padRows(
+          data.items.map((line) => ({
           key: (rowSeq += 1),
           // 编辑老单据时包号留空，改完保存会按老单据原有码单处理
           baleLabel: '',
@@ -678,8 +727,10 @@ export default function Inbound({
             line.unit_price === null || line.unit_price === undefined
               ? ''
               : String(line.unit_price),
-        })),
+          })),
+        ),
       )
+      setPickedRows([])
       setRowErrors({})
       setHasValidated(false)
       setEditing({ id: item.id, order_no: item.order_no })
@@ -794,7 +845,8 @@ export default function Inbound({
         blNo: '',
         contractNo: '',
       })
-      setRows([createRow()])
+      setRows(padRows([]))
+      setPickedRows([])
       // 入库后库存变了，清掉「已有库存」提醒缓存
       lookedUpSpecies.current.clear()
       setStockLookup({})
@@ -1140,10 +1192,31 @@ export default function Inbound({
         </div>
         </>
       ) : (
-        <div className="card">
-          <div className="field-row">
-            <label className="field field-required">
-              <span>供应商</span>
+        <div className="card sheet">
+          <datalist id="contract-options">
+            {contractOptions.map((option) => (
+              <option key={option.id} value={option.contract_no}>
+                {[option.title, option.partner].filter(Boolean).join(' · ')}
+              </option>
+            ))}
+          </datalist>
+          <datalist id="dict-species">
+            {dict.species.map((item) => (
+              <option key={item.id} value={item.name} />
+            ))}
+          </datalist>
+          <datalist id="dict-grade">
+            {dict.grade.map((item) => (
+              <option key={item.id} value={item.name} />
+            ))}
+          </datalist>
+
+          {/* 表头一行：供应商 / 入库日期 / 单号，右侧保存 */}
+          <div className="sheet-top">
+            <label className="sheet-field">
+              <span>
+                供应商<b className="req">*</b>
+              </span>
               <input
                 className="input"
                 value={form.supplier}
@@ -1152,7 +1225,7 @@ export default function Inbound({
                 }
               />
             </label>
-            <label className="field">
+            <label className="sheet-field">
               <span>入库日期</span>
               <input
                 className="input"
@@ -1163,37 +1236,217 @@ export default function Inbound({
                 }
               />
             </label>
-          </div>
-
-          {/* 第二行：操作员 + 仓库（仓库必填） */}
-          <div className="field-row">
-            <label className="field">
-              <span>操作员</span>
+            <label className="sheet-field">
+              <span>单号</span>
               <input
-                className="input"
-                placeholder="选填"
-                value={form.operator}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, operator: event.target.value }))
-                }
+                className="input input-readonly"
+                readOnly
+                value={editing ? editing.order_no : '默认系统生成'}
               />
             </label>
-            <label className="field field-required">
-              <span>仓库</span>
-              <input
-                className="input"
-                placeholder="例如：一号仓"
-                value={form.warehouse}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, warehouse: event.target.value }))
-                }
-              />
-            </label>
+            <span className="spacer" />
+            <button
+              className="btn btn-primary"
+              onClick={() => void handleSave()}
+              disabled={saving}
+            >
+              {saving ? '保存中…' : '保存'}
+            </button>
+            <button
+              className="btn"
+              onClick={() => {
+                setMode(defaultMode)
+                setEditing(null)
+              }}
+            >
+              取消
+            </button>
           </div>
 
-          {/* 第三行：提单号 + 合同号（合同号可以从已上传的合同里选） */}
-          <div className="field-row">
-            <label className="field">
+          <div className="sheet-toolbar">
+            <button
+              className="btn btn-sm btn-danger"
+              onClick={removePickedRows}
+              disabled={pickedRows.length === 0}
+            >
+              删除选中（{pickedRows.length}）
+            </button>
+            <button className="btn btn-sm" onClick={addRow}>
+              + 加一行
+            </button>
+            <span className="spacer" />
+            <span className="muted">
+              {activeContainer
+                ? `条码号自动生成：本柜已贴 ${activeContainer.bale_count} 张，下一个 ${activeContainer.container_no}-${padBaleSeq(activeContainer.next_seq)}`
+                : '条码号保存时按入库单号自动编'}
+              {barcodePlan ? `　本次将生成 ${barcodePlan.count} 个：${barcodePlan.text}` : ''}
+            </span>
+          </div>
+
+          <div className="sheet-scroll">
+            <table className="sheet-table">
+              <thead>
+                <tr>
+                  <th className="col-no">#</th>
+                  <th className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={
+                        computedRows.filter((row) => !isRowEmpty(row)).length > 0 &&
+                        pickedRows.length ===
+                          computedRows.filter((row) => !isRowEmpty(row)).length
+                      }
+                      onChange={(event) =>
+                        setPickedRows(
+                          event.target.checked
+                            ? computedRows.filter((row) => !isRowEmpty(row)).map((row) => row.key)
+                            : [],
+                        )
+                      }
+                    />
+                  </th>
+                  <th className="col-op">操作</th>
+                  {rowFields.map(({ field, label }) => (
+                    <th
+                      key={field}
+                      className={field === 'species' ? 'col-name' : undefined}
+                    >
+                      {label}
+                    </th>
+                  ))}
+                  <th className="col-unit">数量</th>
+                  <th className="col-unit">单位</th>
+                  <th>单价 *</th>
+                  <th>金额</th>
+                  <th className="col-code">条码号</th>
+                </tr>
+              </thead>
+              <tbody>
+                {computedRows.map((row, index) => {
+                  const reasons = rowErrors[row.key] ?? []
+                  const hint = row.specKey ? stockLookup[row.specKey] : undefined
+                  const filler = isRowEmpty(row)
+                  return (
+                    <Fragment key={row.key}>
+                      <tr className={reasons.length > 0 ? 'is-error' : undefined}>
+                        <td className="col-no">{index + 1}</td>
+                        <td className="col-check">
+                          <input
+                            type="checkbox"
+                            disabled={filler}
+                            checked={pickedRows.includes(row.key)}
+                            onChange={(event) =>
+                              setPickedRows((prev) =>
+                                event.target.checked
+                                  ? [...prev, row.key]
+                                  : prev.filter((item) => item !== row.key),
+                              )
+                            }
+                          />
+                        </td>
+                        <td className="col-op">
+                          <button
+                            type="button"
+                            className="sheet-icon"
+                            title="在下面插一行"
+                            onClick={() => insertRowAfter(row.key)}
+                          >
+                            +
+                          </button>
+                          <button
+                            type="button"
+                            className="sheet-icon sheet-icon-danger"
+                            title="删掉这一行"
+                            onClick={() => removeRow(row.key)}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                        {rowFields.map(({ field }) => (
+                          <td key={field}>
+                            <input
+                              className="sheet-input"
+                              type="text"
+                              inputMode={
+                                field === 'species' || field === 'grade'
+                                  ? undefined
+                                  : 'decimal'
+                              }
+                              list={
+                                field === 'species'
+                                  ? 'dict-species'
+                                  : field === 'grade'
+                                    ? 'dict-grade'
+                                    : undefined
+                              }
+                              value={row[field]}
+                              onChange={(event) =>
+                                updateRow(row.key, field, event.target.value)
+                              }
+                            />
+                          </td>
+                        ))}
+                        <td className="col-unit num">{filler ? '' : formatCubic(row.cubic)}</td>
+                        <td className="col-unit">{filler ? '' : 'm³'}</td>
+                        <td>
+                          <input
+                            className="sheet-input num"
+                            type="text"
+                            inputMode="decimal"
+                            value={row.unitPrice}
+                            onChange={(event) =>
+                              updateRow(row.key, 'unitPrice', event.target.value)
+                            }
+                          />
+                        </td>
+                        <td className="num">{filler ? '' : formatAmount(row.amount)}</td>
+                        <td className="col-code muted">{filler ? '' : '自动生成'}</td>
+                      </tr>
+                      {reasons.length > 0 && (
+                        <tr className="is-error">
+                          <td colSpan={16} className="row-error">
+                            {reasons.join('；')}
+                          </td>
+                        </tr>
+                      )}
+                      {hint && reasons.length === 0 && (
+                        <tr>
+                          <td colSpan={16} className="row-hint">
+                            该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={9} className="sheet-total-label">
+                    合计
+                  </td>
+                  <td className="num">{totals.pieces || ''}</td>
+                  <td className="num">{totals.bundles || ''}</td>
+                  <td className="num">{formatCubic(totals.cubic)}</td>
+                  <td>m³</td>
+                  <td />
+                  <td className="num">{formatAmount(totals.amount)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <textarea
+            className="input textarea sheet-note"
+            placeholder="备注（选填）"
+            value={form.remark}
+            onChange={(event) => setForm((prev) => ({ ...prev, remark: event.target.value }))}
+          />
+
+          {/* 表下方：柜 / 提单 / 合同 / 仓库 / 操作员 */}
+          <div className="sheet-bottom">
+            <label className="sheet-field">
               <span>柜（到货批次）</span>
               <select
                 className="input"
@@ -1209,7 +1462,7 @@ export default function Inbound({
                 ))}
               </select>
             </label>
-            <label className="field">
+            <label className="sheet-field">
               <span>提单号{containerId ? '（来自柜）' : ''}</span>
               <input
                 className="input"
@@ -1221,7 +1474,7 @@ export default function Inbound({
                 }
               />
             </label>
-            <label className="field">
+            <label className="sheet-field">
               <span>
                 合同号
                 {containerId
@@ -1245,161 +1498,37 @@ export default function Inbound({
                 }
               />
             </label>
-            <datalist id="contract-options">
-              {contractOptions.map((option) => (
-                <option key={option.id} value={option.contract_no}>
-                  {[option.title, option.partner].filter(Boolean).join(' · ')}
-                </option>
-              ))}
-            </datalist>
-            <datalist id="dict-species">
-              {dict.species.map((item) => (
-                <option key={item.id} value={item.name} />
-              ))}
-            </datalist>
-            <datalist id="dict-grade">
-              {dict.grade.map((item) => (
-                <option key={item.id} value={item.name} />
-              ))}
-            </datalist>
+            <label className="sheet-field">
+              <span>
+                仓库<b className="req">*</b>
+              </span>
+              <input
+                className="input"
+                placeholder="例如：一号仓"
+                value={form.warehouse}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, warehouse: event.target.value }))
+                }
+              />
+            </label>
+            <label className="sheet-field">
+              <span>操作员</span>
+              <input
+                className="input"
+                placeholder="选填"
+                value={form.operator}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, operator: event.target.value }))
+                }
+              />
+            </label>
           </div>
 
-          {/* 包号就是码单号：告诉工人这次会生成哪几个号，不用自己编 */}
-          <p className="hint" style={{ marginTop: 14 }}>
-            {activeContainer
-              ? `条码号（要打印贴包上的那张码）由系统生成，按柜内顺序排：本柜已贴 ${activeContainer.bale_count} 张，` +
-                `下一个从 ${activeContainer.container_no}-${padBaleSeq(activeContainer.next_seq)} 开始。`
-              : '未选柜：条码号保存时按入库单号自动编（如 RK202610130001-001）。'}
-          </p>
           <p className="hint">
-            包号照货上写的填（可以留空）；一包货混了几个规格时，把那几行的包号填成同一个号，系统会并成一张码单。
+            包号照货上写的填（可留空）；一包混了几个规格时，把那几行的包号填成同一个号，系统并成一张码单。
             件数就是包数，单价必填。
+            {editing ? ' 正在修改老单据：单号不变，库存按差异自动调整。' : ''}
           </p>
-          {barcodePlan && (
-            <p className="hint">
-              本次将生成 {barcodePlan.count} 个条码号：{barcodePlan.text}
-            </p>
-          )}
-
-          <table className="table table-detail">
-            <thead>
-              <tr>
-                {rowFields.map(({ field, label }) => (
-                  <th key={field}>
-                    {label}
-                  </th>
-                ))}
-                <th className="num">立方</th>
-                <th className="num">金额</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {computedRows.map((row) => {
-                const reasons = rowErrors[row.key] ?? []
-                const hint = row.specKey ? stockLookup[row.specKey] : undefined
-                return (
-                  <Fragment key={row.key}>
-                    <tr>
-                      {rowFields.map(({ field }) => (
-                        <td key={field} data-label={rowFields.find((f) => f.field === field)?.label}>
-                          <input
-                            className={
-                              reasons.length > 0
-                                ? 'input input-cell input-error'
-                                : 'input input-cell'
-                            }
-                            type="text"
-                            inputMode={
-                              field === 'species' || field === 'grade'
-                                ? undefined
-                                : 'decimal'
-                            }
-                            placeholder={field === 'baleLabel' ? '可手打' : undefined}
-                            list={
-                              field === 'species'
-                                ? 'dict-species'
-                                : field === 'grade'
-                                  ? 'dict-grade'
-                                  : undefined
-                            }
-                            value={row[field]}
-                            onChange={(event) =>
-                              updateRow(row.key, field, event.target.value)
-                            }
-                          />
-                        </td>
-                      ))}
-                      <td className="num" data-label="立方">
-                        {formatCubic(row.cubic)}
-                      </td>
-                      <td className="num amount" data-label="金额">
-                        {formatAmount(row.amount)}
-                      </td>
-                      <td className="cell-actions">
-                        <button
-                          className="btn btn-sm btn-danger"
-                          onClick={() => removeRow(row.key)}
-                          disabled={rows.length === 1}
-                        >
-                          删一行
-                        </button>
-                      </td>
-                    </tr>
-                    {hint && (
-                      <tr>
-                        <td colSpan={12} className="row-hint">
-                          该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
-                        </td>
-                      </tr>
-                    )}
-                    {reasons.length > 0 && (
-                      <tr>
-                        <td colSpan={12} className="row-error">
-                          {reasons.join('；')}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-
-          <div className="row-tools">
-            <button className="btn" onClick={addRow}>
-              + 加一行
-            </button>
-          </div>
-
-          <div className="totals">
-            <span>合计立方：{formatCubic(totals.cubic)}</span>
-            <span>合计金额：{formatAmount(totals.amount)}</span>
-          </div>
-
-          <div className="row-tools">
-            <button
-              className="btn btn-primary"
-              onClick={() => void handleSave()}
-              disabled={saving}
-            >
-              {saving ? '提交中…' : editing ? '确认修改' : '确认'}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setMode(defaultMode)
-                setEditing(null)
-              }}
-            >
-              取消
-            </button>
-            <span className="muted">
-              {editing
-                ? `正在修改入库单 ${editing.order_no}，单号不变，库存会按差异自动调整`
-                : '单号保存时自动生成（RK + 日期 + 流水）'}
-            </span>
-          </div>
         </div>
       )}
 

@@ -175,9 +175,9 @@ const PAGE_SIZE = 20
 const specFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'species', label: '品名' },
   { field: 'grade', label: '等级' },
-  { field: 'thickness', label: '厚度mm' },
-  { field: 'width', label: '宽度mm' },
-  { field: 'length', label: '长度m' },
+  { field: 'thickness', label: '厚度' },
+  { field: 'width', label: '宽度' },
+  { field: 'length', label: '长度' },
 ]
 
 // 需要用户自己填的字段
@@ -187,7 +187,8 @@ const numberFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'unitPrice', label: '单价*' },
 ]
 
-const SPEC_ROW_COLUMNS = 1 + specFields.length + numberFields.length + 4 // 选择规格 + 规格 + 数量 + 立方/库存/金额/操作
+// 表格总列数：序号 + 勾选 + 操作 + 条码号 + 包号 + 规格 + 数量列 + 立方/单位/金额/库存
+const SHEET_COLUMNS = 3 + 2 + specFields.length + numberFields.length + 4
 
 export default function Outbound() {
   const [mode, setMode] = useState<'list' | 'create'>('list')
@@ -198,6 +199,15 @@ export default function Outbound() {
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
+
+  // 客户候选：从已录过的单里取，录单时可以直接选
+  const customerOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(list.map((item) => (item.customer ?? '').trim()).filter(Boolean)),
+      ),
+    [list],
+  )
 
   const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<OutboundListFilters>(emptyFilters)
@@ -230,6 +240,8 @@ export default function Outbound() {
     operator: '',
   })
   const [rows, setRows] = useState<FormRow[]>(() => [createRow()])
+  // 表格左侧勾选的行（批量删除用）
+  const [pickedRows, setPickedRows] = useState<number[]>([])
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [rowErrors, setRowErrors] = useState<Record<number, string[]>>({})
@@ -350,8 +362,10 @@ export default function Outbound() {
         (acc, row) => ({
           cubic: roundTo(acc.cubic + row.cubic, 4),
           amount: roundTo(acc.amount + row.amount, 2),
+          pieces: acc.pieces + toNumber(row.pieces) * toNumber(row.bundles),
+          bundles: acc.bundles + toNumber(row.bundles),
         }),
-        { cubic: 0, amount: 0 },
+        { cubic: 0, amount: 0, pieces: 0, bundles: 0 },
       ),
     [computedRows],
   )
@@ -420,6 +434,18 @@ export default function Outbound() {
 
   const removeRow = (key: number) => {
     setRows((prev) => (prev.length > 1 ? prev.filter((row) => row.key !== key) : prev))
+    setPickedRows((prev) => prev.filter((item) => item !== key))
+    if (formError) setFormError('')
+  }
+
+  /** 删掉勾选的行 */
+  const removePickedRows = () => {
+    if (pickedRows.length === 0) return
+    setRows((prev) => {
+      const next = prev.filter((row) => !pickedRows.includes(row.key))
+      return next.length > 0 ? next : [createRow()]
+    })
+    setPickedRows([])
     if (formError) setFormError('')
   }
 
@@ -872,19 +898,23 @@ export default function Outbound() {
         </div>
         </>
       ) : (
-        <div className="card">
-          <div className="field-row">
-            <label className="field field-required">
-              <span>客户</span>
+        <div className="card sheet">
+          {/* 表头一行：客户 / 出库日期 / 单号，右侧保存 */}
+          <div className="sheet-top">
+            <label className="sheet-field">
+              <span>
+                客户<b className="req">*</b>
+              </span>
               <input
                 className="input"
+                list="customer-options"
                 value={form.customer}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, customer: event.target.value }))
                 }
               />
             </label>
-            <label className="field">
+            <label className="sheet-field">
               <span>出库日期</span>
               <input
                 className="input"
@@ -895,156 +925,21 @@ export default function Outbound() {
                 }
               />
             </label>
-          </div>
-
-          {/* 第二行：操作员 + 仓库（仓库必填） */}
-          <div className="field-row">
-            <label className="field">
-              <span>操作员</span>
+            <label className="sheet-field">
+              <span>单号</span>
               <input
-                className="input"
-                placeholder="选填"
-                value={form.operator}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, operator: event.target.value }))
-                }
+                className="input input-readonly"
+                readOnly
+                value={editing ? editing.order_no : '默认系统生成'}
               />
             </label>
-            <label className="field field-required">
-              <span>仓库</span>
-              <input
-                className="input"
-                placeholder="例如：一号仓"
-                value={form.warehouse}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, warehouse: event.target.value }))
-                }
-              />
-            </label>
-          </div>
-
-            <table className="table table-detail">
-            <thead>
-              <tr>
-                <th>规格</th>
-                {specFields.map(({ field, label }) => (
-                  <th key={field}>
-                    {label}
-                  </th>
-                ))}
-                {numberFields.map(({ field, label }) => (
-                  <th key={field}>
-                    {label}
-                  </th>
-                ))}
-                <th className="num">立方</th>
-                <th className="num">当前库存</th>
-                <th className="num">金额</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {computedRows.map((row) => {
-                const stock = row.specKey ? stockMap[row.specKey] : undefined
-                const short = stock ? row.cubic > stock.cubic + EPSILON : false
-                const reasons = rowErrors[row.key] ?? []
-                const inputClassName =
-                  reasons.length > 0
-                    ? 'input input-cell input-error'
-                    : 'input input-cell'
-                return (
-                  <Fragment key={row.key}>
-                    <tr>
-                      <td className="cell-pick" data-label="包号 / 条码号">
-                        <span className="bale-no">{row.baleNo || '未选码单'}</span>
-                        {row.baleBarcode && (
-                          <span className="bale-code">{row.baleBarcode}</span>
-                        )}
-                      </td>
-                      {specFields.map(({ field, label }) => (
-                        <td key={field} data-label={label}>
-                          <input
-                            className={`${inputClassName} input-locked`}
-                            type="text"
-                            readOnly
-                            placeholder="未选"
-                            value={row[field]}
-                          />
-                        </td>
-                      ))}
-                      {numberFields.map(({ field, label }) => (
-                        <td key={field} data-label={label}>
-                          <input
-                            className={inputClassName}
-                            type="text"
-                            inputMode="decimal"
-                            value={row[field]}
-                            onChange={(event) =>
-                              updateRow(row.key, field, event.target.value)
-                            }
-                          />
-                        </td>
-                      ))}
-                      <td className="num" data-label="立方">
-                        {formatCubic(row.cubic)}
-                      </td>
-                      <td
-                        className={short ? 'num is-short' : 'num'}
-                        data-label="当前库存"
-                      >
-                        {stock ? `${formatCubic(stock.cubic)} 立方 / ${stock.bundles} 件` : '—'}
-                        {short ? ' 不足' : ''}
-                      </td>
-                      <td className="num amount" data-label="金额">
-                        {formatAmount(row.amount)}
-                      </td>
-                      <td className="cell-actions">
-                        <div className="row-actions">
-                          <button
-                            className="btn btn-sm btn-danger"
-                            onClick={() => removeRow(row.key)}
-                            disabled={rows.length === 1}
-                          >
-                            删一行
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {reasons.length > 0 && (
-                      <tr>
-                        <td colSpan={SPEC_ROW_COLUMNS} className="row-error">
-                          {reasons.join('；')}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-
-          <div className="row-tools">
-            <button className="btn btn-primary" onClick={() => openPicker(0)}>
-              选择码单
-            </button>
-            <span className="muted">
-              一包一单：点「选择码单」挑要发的包（可多选），规格和立方由码单带出
-              {editing ? '；修改时会重新校验码单是否还在库' : ''}
-            </span>
-          </div>
-
-          <div className="totals">
-            <span>合计立方：{formatCubic(totals.cubic)}</span>
-            <span>合计金额：{formatAmount(totals.amount)}</span>
-          </div>
-
-          <div className="row-tools">
+            <span className="spacer" />
             <button
               className="btn btn-primary"
               onClick={() => void handleSave()}
               disabled={saving}
             >
-              {saving ? '提交中…' : editing ? '确认修改' : '确认'}
+              {saving ? '保存中…' : '保存'}
             </button>
             <button
               className="btn"
@@ -1055,12 +950,220 @@ export default function Outbound() {
             >
               取消
             </button>
+          </div>
+
+          <datalist id="customer-options">
+            {customerOptions.map((name) => (
+              <option key={name} value={name} />
+            ))}
+          </datalist>
+
+          <div className="sheet-toolbar">
+            <button className="btn btn-sm btn-primary" onClick={() => openPicker(0)}>
+              选择码单
+            </button>
+            <button
+              className="btn btn-sm btn-danger"
+              onClick={removePickedRows}
+              disabled={pickedRows.length === 0}
+            >
+              删除选中（{pickedRows.length}）
+            </button>
+            <span className="spacer" />
             <span className="muted">
-              {editing
-                ? `正在修改出库单 ${editing.order_no}，单号不变，保存时会重新校验库存`
-                : '单号保存时自动生成（CK + 日期 + 流水）'}
+              一包一单：点「选择码单」挑要发的包（可多选），规格和立方由码单带出
+              {editing ? '；修改时会重新校验码单是否还在库' : ''}
             </span>
           </div>
+
+          <div className="sheet-scroll">
+            <table className="sheet-table">
+              <thead>
+                <tr>
+                  <th className="col-no">#</th>
+                  <th className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={computedRows.length > 0 && pickedRows.length === computedRows.length}
+                      onChange={(event) =>
+                        setPickedRows(
+                          event.target.checked ? computedRows.map((row) => row.key) : [],
+                        )
+                      }
+                    />
+                  </th>
+                  <th className="col-op">操作</th>
+                  <th className="col-code">条码号</th>
+                  <th>包号</th>
+                  {specFields.map(({ field, label }) => (
+                    <th
+                      key={field}
+                      className={field === 'species' ? 'col-name' : undefined}
+                    >
+                      {label}
+                    </th>
+                  ))}
+                  {numberFields.slice(0, 2).map(({ field, label }) => (
+                    <th key={field}>{label}</th>
+                  ))}
+                  <th className="col-unit">数量</th>
+                  <th className="col-unit">单位</th>
+                  {numberFields.slice(2).map(({ field, label }) => (
+                    <th key={field}>{label}</th>
+                  ))}
+                  <th>金额</th>
+                  <th className="col-stock">当前库存</th>
+                </tr>
+              </thead>
+              <tbody>
+              {computedRows.map((row, index) => {
+                const stock = row.specKey ? stockMap[row.specKey] : undefined
+                const short = stock ? row.cubic > stock.cubic + EPSILON : false
+                const reasons = rowErrors[row.key] ?? []
+                return (
+                  <Fragment key={row.key}>
+                    <tr className={reasons.length > 0 ? 'is-error' : undefined}>
+                      <td className="col-no">{index + 1}</td>
+                      <td className="col-check">
+                        <input
+                          type="checkbox"
+                          disabled={!row.baleId}
+                          checked={pickedRows.includes(row.key)}
+                          onChange={(event) =>
+                            setPickedRows((prev) =>
+                              event.target.checked
+                                ? [...prev, row.key]
+                                : prev.filter((item) => item !== row.key),
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="col-op">
+                        <button
+                          type="button"
+                          className="sheet-icon sheet-icon-danger"
+                          title="删掉这一行"
+                          onClick={() => removeRow(row.key)}
+                          disabled={rows.length === 1}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                      <td className="col-code">{row.baleBarcode || '—'}</td>
+                      <td>{row.baleNo || '未选码单'}</td>
+                      {specFields.map(({ field }) => (
+                        <td key={field}>
+                          <input
+                            className="sheet-input input-locked"
+                            type="text"
+                            readOnly
+                            placeholder="未选"
+                            value={row[field]}
+                          />
+                        </td>
+                      ))}
+                      {numberFields.slice(0, 2).map(({ field }) => (
+                        <td key={field}>
+                          <input
+                            className="sheet-input"
+                            type="text"
+                            inputMode="decimal"
+                            value={row[field]}
+                            onChange={(event) =>
+                              updateRow(row.key, field, event.target.value)
+                            }
+                          />
+                        </td>
+                      ))}
+                      <td className="col-unit num">{formatCubic(row.cubic)}</td>
+                      <td className="col-unit">m³</td>
+                      {numberFields.slice(2).map(({ field }) => (
+                        <td key={field}>
+                          <input
+                            className="sheet-input"
+                            type="text"
+                            inputMode="decimal"
+                            value={row[field]}
+                            onChange={(event) =>
+                              updateRow(row.key, field, event.target.value)
+                            }
+                          />
+                        </td>
+                      ))}
+                      <td className="num">{formatAmount(row.amount)}</td>
+                      <td className={short ? 'col-stock num is-short' : 'col-stock num'}>
+                        {stock ? `${formatCubic(stock.cubic)} 立方 / ${stock.bundles} 件` : '—'}
+                        {short ? ' 不足' : ''}
+                      </td>
+                    </tr>
+                    {reasons.length > 0 && (
+                      <tr className="is-error">
+                        <td colSpan={SHEET_COLUMNS} className="row-error">
+                          {reasons.join('；')}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={10} className="sheet-total-label">
+                    合计
+                  </td>
+                  <td className="num">{totals.pieces || ''}</td>
+                  <td className="num">{totals.bundles || ''}</td>
+                  <td className="num">{formatCubic(totals.cubic)}</td>
+                  <td>m³</td>
+                  <td />
+                  <td className="num">{formatAmount(totals.amount)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+
+          <textarea
+            className="input textarea sheet-note"
+            placeholder="备注（选填）"
+            value={form.remark}
+            onChange={(event) => setForm((prev) => ({ ...prev, remark: event.target.value }))}
+          />
+
+          <div className="sheet-bottom">
+            <label className="sheet-field">
+              <span>
+                仓库<b className="req">*</b>
+              </span>
+              <input
+                className="input"
+                placeholder="例如：一号仓"
+                value={form.warehouse}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, warehouse: event.target.value }))
+                }
+              />
+            </label>
+            <label className="sheet-field">
+              <span>操作员</span>
+              <input
+                className="input"
+                placeholder="选填"
+                value={form.operator}
+                onChange={(event) =>
+                  setForm((prev) => ({ ...prev, operator: event.target.value }))
+                }
+              />
+            </label>
+          </div>
+
+          <p className="hint">
+            {editing
+              ? `正在修改出库单 ${editing.order_no}：单号不变，保存时会重新校验库存。`
+              : '单号保存时自动生成（CK + 日期 + 流水）。'}
+            单价必填；立方按规格和数量实时算。
+          </p>
         </div>
       )}
 
