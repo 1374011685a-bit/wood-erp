@@ -23,22 +23,20 @@ const findByNoStmt = db.prepare(
 )
 
 /**
- * 提单列表：带出这一票下面的柜数、包数、在库包数，
+ * 提单列表：带出这一票下面的包数、在库包数、立方、箱数，
  * 到货录入时一眼能看出哪一票还没录完。
  */
 const listSql = (where) => `
   SELECT s.*,
-         (SELECT COUNT(*) FROM containers c
-           WHERE c.shipment_id = s.id AND c.deleted_at IS NULL)      AS container_count,
          (SELECT COUNT(*) FROM bales b
-            JOIN containers c2 ON c2.id = b.container_id
-           WHERE c2.shipment_id = s.id)                              AS bale_total,
+           WHERE b.shipment_id = s.id)                               AS bale_total,
          (SELECT COUNT(*) FROM bales b
-            JOIN containers c3 ON c3.id = b.container_id
-           WHERE c3.shipment_id = s.id AND b.status = 'in_stock')    AS bale_in_stock,
+           WHERE b.shipment_id = s.id AND b.status = 'in_stock')     AS bale_in_stock,
          (SELECT ROUND(COALESCE(SUM(b.cubic), 0), 4) FROM bales b
-            JOIN containers c4 ON c4.id = b.container_id
-           WHERE c4.shipment_id = s.id)                              AS bale_cubic
+           WHERE b.shipment_id = s.id)                               AS bale_cubic,
+         (SELECT COUNT(DISTINCT b.box_no) FROM bales b
+           WHERE b.shipment_id = s.id
+             AND b.box_no IS NOT NULL AND TRIM(b.box_no) <> '')      AS box_count
     FROM shipments s
    WHERE s.deleted_at IS NULL ${where}
    ORDER BY s.arrival_date DESC, s.id DESC
@@ -93,10 +91,10 @@ router.get('/', (req, res) => {
       supplier: row.supplier ?? '',
       arrival_date: row.arrival_date ?? '',
       remark: row.remark ?? '',
-      container_count: row.container_count ?? 0,
       bale_total: row.bale_total ?? 0,
       bale_in_stock: row.bale_in_stock ?? 0,
       bale_cubic: roundTo(row.bale_cubic ?? 0, 4),
+      box_count: row.box_count ?? 0,
       created_at: row.created_at,
     }))
 

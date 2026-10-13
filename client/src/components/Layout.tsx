@@ -41,6 +41,17 @@ const navGroups: NavGroup[] = [
     hint: '向供应商进货',
     items: [
       {
+    to: '/contracts',
+    label: '采购合同',
+    icon: (
+      <>
+        <path d="M6.8 3.6h7.4l4.2 4.2v12.6H6.8z" />
+        <path d="M13.9 3.6v4.5h4.5" />
+        <path d="M9.6 13.4h5M9.6 16.4h5" />
+      </>
+    ),
+      },
+      {
     to: '/inbound',
     label: '采购入库',
     icon: (
@@ -50,17 +61,6 @@ const navGroups: NavGroup[] = [
         <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
       </>
     ),
-      },
-      {
-        to: '/contracts',
-    label: '采购合同',
-        icon: (
-          <>
-            <path d="M6.8 3.6h7.4l4.2 4.2v12.6H6.8z" />
-            <path d="M13.9 3.6v4.5h4.5" />
-            <path d="M9.6 13.4h5M9.6 16.4h5" />
-          </>
-        ),
       },
       {
     to: '/bales',

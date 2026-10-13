@@ -1011,13 +1011,13 @@ export default function Outbound() {
                   {numberFields.slice(0, 2).map(({ field, label }) => (
                     <th key={field}>{label}</th>
                   ))}
-                  <th className="col-unit">数量</th>
+                  <th className="col-unit">数量 (m³)</th>
                   <th className="col-unit">单位</th>
-                  {numberFields.slice(2).map(({ field, label }) => (
-                    <th key={field}>{label}</th>
+                  {numberFields.slice(2).map(({ field }) => (
+                    <th key={field}>{field === 'unitPrice' ? '单价 (元) *' : field}</th>
                   ))}
-                  <th>金额</th>
-                  <th className="col-stock">当前库存</th>
+                  <th>金额 (元)</th>
+                  <th className="col-stock">当前库存 (m³ / 件)</th>
                 </tr>
               </thead>
               <tbody>

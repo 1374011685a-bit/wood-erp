@@ -587,7 +587,7 @@ router.get('/:id', (req, res) => {
  * 在库的包才能改；改完把入库单明细同步过去（旧的扣掉、新的挂上），
  * 这样库存汇总和码单永远对得上。已经出库的包不让改，避免动到已发出的货。
  */
-const updateBale = db.transaction((id, baleNo, items) => {
+const updateBale = db.transaction((id, baleNo, boxNo, items) => {
   const bale = getBaleStmt.get(id)
   if (!bale) {
     const error = new Error('码单不存在')
@@ -610,9 +610,13 @@ const updateBale = db.transaction((id, baleNo, items) => {
   }
 
   replaceBaleItems(bale, items)
-  db.prepare(`UPDATE bales SET bale_no = ? WHERE id = ?`).run(baleNo, id)
+  db.prepare(`UPDATE bales SET bale_no = ?, box_no = ? WHERE id = ?`).run(
+    baleNo,
+    boxNo || null,
+    id,
+  )
 
-  return { id, bale_no: baleNo }
+  return { id, bale_no: baleNo, box_no: boxNo }
 })
 
 router.put('/:id', (req, res) => {
@@ -624,6 +628,7 @@ router.put('/:id', (req, res) => {
   const body = req.body ?? {}
   const baleNo = String(body.bale_no ?? '').trim()
   if (!baleNo) return res.status(400).json({ error: '包号不能为空' })
+  const boxNo = String(body.box_no ?? '').trim()
 
   const { items, problems } = normalizeBaleItems(body.items)
   if (problems.length > 0) {
@@ -631,7 +636,7 @@ router.put('/:id', (req, res) => {
   }
 
   try {
-    res.json(updateBale(id, baleNo, items))
+    res.json(updateBale(id, baleNo, boxNo, items))
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })

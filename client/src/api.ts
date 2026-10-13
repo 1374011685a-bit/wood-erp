@@ -823,6 +823,7 @@ export type BaleDetail = {
   id: number
   bale_no: string
   barcode: string
+  box_no: string
   shipment_id: number | null
   inbound_order_id: number | null
   status: 'in_stock' | 'shipped'
@@ -841,6 +842,8 @@ export function updateBale(
   id: number,
   payload: {
     bale_no: string
+    /** 箱号（可空） */
+    box_no?: string
     items: Array<{
       species: string
       grade: string
@@ -919,6 +922,8 @@ export type ContractPickerRow = {
   in_amount: number
   /** 未发货（件）= 总数量 − 已入库 */
   left_qty: number
+  /** 未到货方数 = 合同总立方 − 已入库立方 */
+  left_cubic: number
   /** 未发货 / 部分发货 / 全部发货 */
   status: string
   /** 这张合同已经开过的入库单，点一下能跳过去改 */

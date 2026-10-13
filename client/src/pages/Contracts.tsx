@@ -396,7 +396,7 @@ export default function Contracts() {
       {sheetOpen && (
         <div className="overlay" onClick={() => setSheetOpen(false)}>
           <div
-            className="modal modal-narrow modal-sheet"
+            className="modal modal-xwide modal-sheet"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-head">
@@ -501,9 +501,9 @@ export default function Contracts() {
                   <th>品牌</th>
                   <th>品名 *</th>
                   <th>等级</th>
-                  <th>数量</th>
-                  <th>单价</th>
-                  <th>金额</th>
+                  <th>数量 (m³)</th>
+                  <th>单价 (元/m³)</th>
+                  <th>金额 (元)</th>
                 </tr>
               </thead>
               <tbody>

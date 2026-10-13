@@ -811,6 +811,32 @@ function migrateBoxNo() {
  * 按单号补挂一次，「采购入库明细」里才对得上。
  */
 function relinkBalesToShipment() {
+  // 先补：入库单填了提单号、但系统里还没有这张提单的，按单上的信息建一张
+  const created = db
+    .prepare(
+      `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
+       SELECT o.bl_no,
+              (SELECT o2.contract_no FROM inbound_orders o2
+                WHERE o2.bl_no = o.bl_no AND o2.deleted_at IS NULL
+                ORDER BY o2.id DESC LIMIT 1),
+              (SELECT o3.supplier FROM inbound_orders o3
+                WHERE o3.bl_no = o.bl_no AND o3.deleted_at IS NULL
+                ORDER BY o3.id DESC LIMIT 1),
+              (SELECT o4.order_date FROM inbound_orders o4
+                WHERE o4.bl_no = o.bl_no AND o4.deleted_at IS NULL
+                ORDER BY o4.id DESC LIMIT 1),
+              '按入库单上的提单号自动补建'
+         FROM inbound_orders o
+        WHERE o.deleted_at IS NULL
+          AND o.bl_no IS NOT NULL AND TRIM(o.bl_no) <> ''
+          AND NOT EXISTS (SELECT 1 FROM shipments s WHERE s.bl_no = o.bl_no)
+        GROUP BY o.bl_no`,
+    )
+    .run()
+  if (created.changes > 0) {
+    writeLog(`[db] 修复：按入库单上的提单号补建了 ${created.changes} 张提单`)
+  }
+
   const result = db
     .prepare(
       `UPDATE bales

@@ -324,17 +324,23 @@ router.get('/picker', (req, res) => {
       in_orders: row.in_orders ?? 0,
       in_cubic: roundTo(row.in_cubic ?? 0, 4),
       in_amount: roundTo(row.in_amount ?? 0, 2),
-      // 未发货 = 合同总数量 − 已经入库的件数；状态按这个判断
+      /** 未到货方数 = 合同总立方 − 已经入库的立方；状态按这个判断 */
       left_qty: roundTo(
-        Math.max(0, (row.total_qty ?? 0) - (row.in_bundles ?? 0)),
+        Math.max(0, (row.total_qty ?? 0) - (row.in_cubic ?? 0)),
         3,
       ),
+      left_cubic: roundTo(
+        Math.max(0, (row.total_qty ?? 0) - (row.in_cubic ?? 0)),
+        4,
+      ),
       status:
-        (row.in_bundles ?? 0) <= 0
-          ? '未发货'
-          : (row.total_qty ?? 0) > 0 && (row.in_bundles ?? 0) >= (row.total_qty ?? 0)
-            ? '全部发货'
-            : '部分发货',
+        (row.total_qty ?? 0) <= 0
+          ? '未填明细'
+          : (row.in_cubic ?? 0) <= 0
+            ? '未发货'
+            : (row.in_cubic ?? 0) >= (row.total_qty ?? 0)
+              ? '全部发货'
+              : '部分发货',
       // 关联单号：这张合同已经开过哪几张入库单，点一下能跳过去改
       orders: db
         .prepare(

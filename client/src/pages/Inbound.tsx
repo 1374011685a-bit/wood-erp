@@ -232,11 +232,11 @@ const rowFields: { field: keyof Omit<FormRow, 'key'>; label: string }[] = [
   { field: 'boxNo', label: '箱号' },
   { field: 'species', label: '品名 *' },
   { field: 'grade', label: '等级' },
-  { field: 'thickness', label: '厚度' },
-  { field: 'width', label: '宽度' },
-  { field: 'length', label: '长度' },
-  { field: 'pieces', label: '片数' },
-  { field: 'bundles', label: '件数' },
+  { field: 'thickness', label: '厚度 (mm)' },
+  { field: 'width', label: '宽度 (mm)' },
+  { field: 'length', label: '长度 (m)' },
+  { field: 'pieces', label: '片数 (片)' },
+  { field: 'bundles', label: '件数 (件)' },
 ]
 
 export default function Inbound({
@@ -1339,10 +1339,10 @@ export default function Inbound({
                       {label}
                     </th>
                   ))}
-                  <th className="col-unit">数量</th>
+                  <th className="col-unit">数量 (m³)</th>
                   <th className="col-unit">单位</th>
-                  <th>单价 *</th>
-                  <th>金额</th>
+                  <th>单价 (元) *</th>
+                  <th>金额 (元)</th>
                   <th className="col-code">条码号</th>
                 </tr>
               </thead>
@@ -1809,8 +1809,9 @@ export default function Inbound({
                   <th>供应商</th>
                   <th>品名</th>
                   <th>品牌</th>
-                  <th className="num">总数量</th>
-                  <th className="num">入库</th>
+                  <th className="num">合同立方 (m³)</th>
+                  <th className="num">已入库 (m³)</th>
+                  <th className="num">未到货 (m³)</th>
                   <th className="num">未发货</th>
                   <th>单据状态</th>
                   <th>关联单号</th>
@@ -1835,9 +1836,9 @@ export default function Inbound({
                     <td>{row.partner || '—'}</td>
                     <td>{row.species_text || '—'}</td>
                     <td>{row.brand_text || '—'}</td>
-                    <td className="num">{row.total_qty || '—'}</td>
-                    <td className="num">{row.in_bundles}</td>
-                    <td className="num">{row.left_qty}</td>
+                    <td className="num">{formatCubic(row.total_qty)}</td>
+                    <td className="num">{formatCubic(row.in_cubic)}</td>
+                    <td className="num">{formatCubic(row.left_cubic)}</td>
                     <td>
                       <span className={row.status === '全部发货' ? 'tag tag-in' : 'tag tag-out'}>
                         {row.status}
