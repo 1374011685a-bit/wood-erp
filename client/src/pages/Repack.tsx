@@ -90,6 +90,8 @@ export default function Repack() {
     contractNo: '',
   })
   const [saving, setSaving] = useState(false)
+  // 默认进来看改包记录，点「新增改包」才进录入界面
+  const [formOpen, setFormOpen] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -286,6 +288,7 @@ export default function Repack() {
       setBaleId(0)
       setRows([createRow()])
       setForm((prev) => ({ ...prev, summary: '', remark: '', blNo: '', contractNo: '' }))
+      setFormOpen(false)
       setReloadToken((n) => n + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : '改包失败')
@@ -313,7 +316,22 @@ export default function Repack() {
     <section>
       <PageHead
         title="改包"
-        subtitle="一包货换了品名 / 等级 / 规格就在这里登记，改前改后和损耗都留痕，库存跟着自动同步"
+        subtitle={
+          formOpen
+            ? '选一包，改成品名 / 等级 / 规格，改前改后和损耗都留痕，库存跟着自动同步'
+            : '一包货换了品名 / 等级 / 规格都记在这里，可查可撤销'
+        }
+        extra={
+          formOpen ? (
+            <button className="btn" onClick={() => setFormOpen(false)}>
+              返回改包记录
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={() => setFormOpen(true)}>
+              新增改包
+            </button>
+          )
+        }
       />
 
       <ToastHost
@@ -348,7 +366,9 @@ export default function Repack() {
         ))}
       </datalist>
 
-      <div className="card sheet">
+      {/* 录入界面：点「新增改包」才出现 */}
+      {formOpen && (
+        <div className="card sheet">
         <div className="sheet-top">
           <label className="sheet-field">
             <span>日期</span>
@@ -402,7 +422,7 @@ export default function Repack() {
           <span className="spacer" />
           <span className="muted">
             {bale
-              ? `柜 ${bale.container_no || '—'}　合同 ${bale.contract_no || '—'}`
+              ? `提单 ${bale.bl_no || '—'}　合同 ${bale.contract_no || '—'}`
               : `在库可改包的码单 ${bales.length} 张`}
           </span>
         </div>
@@ -621,10 +641,12 @@ export default function Repack() {
         <p className="hint">
           提单号 / 合同号留空时跟着改前那一包走；填了就按你填的记进改包记录。
         </p>
-      </div>
+        </div>
+      )}
 
-      {/* 改包记录 */}
-      <div className="card">
+      {/* 改包记录：进来先看这个 */}
+      {!formOpen && (
+        <div className="card">
         <h2 className="section-title">改包记录</h2>
 
         <div className="toolbar">
@@ -679,7 +701,7 @@ export default function Repack() {
               <th>单号</th>
               <th>包号</th>
               <th>条码号</th>
-              <th>柜号</th>
+              <th>提单号</th>
               <th>改前</th>
               <th>改后</th>
               <th className="num">改前立方</th>
@@ -697,7 +719,7 @@ export default function Repack() {
                 <td>{row.repack_no}</td>
                 <td>{row.bale_no || '—'}</td>
                 <td>{row.barcode || '—'}</td>
-                <td>{row.container_no || '—'}</td>
+                <td>{row.bl_no || '—'}</td>
                 <td>
                   {row.before_items
                     .map((line) => `${line.species}${line.grade ? `/${line.grade}` : ''}`)
@@ -746,7 +768,8 @@ export default function Repack() {
           onChange={setOffset}
           unit="条改包记录"
         />
-      </div>
+        </div>
+      )}
 
       {undoTarget && (
         <div className="overlay" onClick={() => setUndoTarget(null)}>

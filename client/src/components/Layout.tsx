@@ -63,17 +63,6 @@ const navGroups: NavGroup[] = [
         ),
       },
       {
-    to: '/inbound/records',
-    label: '采购入库记录',
-    icon: (
-      <>
-        <path d="M4.5 5.5h15v14h-15z" />
-        <path d="M8 3.5v4M16 3.5v4" />
-        <path d="M8.5 11h7M8.5 14.5h4.5" />
-      </>
-    ),
-      },
-      {
     to: '/bales',
     label: '采购入库明细',
     icon: (

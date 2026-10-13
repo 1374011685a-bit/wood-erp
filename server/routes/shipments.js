@@ -2,6 +2,7 @@ import express from 'express'
 import { db } from '../db.js'
 import { pageParams } from '../utils/paging.js'
 import { contractError } from '../utils/contractGate.js'
+import { shipmentBaleInfo } from './bales.js'
 
 const router = express.Router()
 
@@ -102,7 +103,30 @@ router.get('/', (req, res) => {
   res.json({ total, limit, offset, rows })
 })
 
-/** 提单下的柜（录包时选柜用） */
+/**
+ * 提单选项（入库表单选提单用）。
+ * 带上「这票已经贴了几张码单、下一个条码号从几开始」，和提单卡片上的数一致。
+ */
+router.get('/options', (_req, res) => {
+  const rows = db
+    .prepare(
+      `SELECT id, bl_no, contract_no, supplier, arrival_date
+         FROM shipments
+        WHERE deleted_at IS NULL
+        ORDER BY arrival_date DESC, id DESC
+        LIMIT 200`,
+    )
+    .all()
+
+  res.json(
+    rows.map((row) => {
+      const info = shipmentBaleInfo(row.id)
+      return { ...row, bale_count: info.count, next_seq: info.next_seq }
+    }),
+  )
+})
+
+/** 提单下的柜（柜已下线，仅老接口保留） */
 router.get('/:id/containers', (req, res) => {
   const id = Number(req.params.id)
   if (!findShipmentStmt.get(id)) {
@@ -178,7 +202,7 @@ router.post('/', (req, res) => {
   const arrivalDate = body.arrival_date ? String(body.arrival_date) : todayLocal()
   const remark = String(body.remark ?? '').trim()
 
-  // 柜号：支持多行文本 / 逗号 / 空格分隔，一次把这一票的柜都建出来
+  // 柜号：已经不作为一层了，这里只保留给老数据用（新流程不填）
   const rawContainers = Array.isArray(body.container_nos)
     ? body.container_nos
     : String(body.container_nos ?? '').split(/[\s,，、;；]+/)
@@ -223,10 +247,6 @@ router.post('/:id/containers', (req, res) => {
     ? req.body.container_nos
     : String(req.body?.container_nos ?? '').split(/[\s,，、;；]+/)
   const containerNos = raw.map((item) => String(item).trim()).filter(Boolean)
-  if (containerNos.length === 0) {
-    return res.status(400).json({ error: '请填写柜号' })
-  }
-
   const created = []
   try {
     for (const containerNo of containerNos) {
@@ -249,27 +269,34 @@ router.post('/:id/containers', (req, res) => {
   }
 })
 
-/** 删除提单：下面还有柜就不让删 */
+/**
+ * 删除提单：柜已经不是一层了，只看还有没有在库的包。
+ * 有在库的包就不让删（货还在），全出完了才允许，连带把老柜记录一起软删掉。
+ */
 router.delete('/:id', (req, res) => {
   const id = Number(req.params.id)
   if (!findShipmentStmt.get(id)) {
     return res.status(404).json({ error: '提单不存在' })
   }
 
-  const count = Number(
+  const inStock = Number(
     db
       .prepare(
-        `SELECT COUNT(*) AS total FROM containers
-          WHERE shipment_id = ? AND deleted_at IS NULL`,
+        `SELECT COUNT(*) AS total FROM bales
+          WHERE shipment_id = ? AND status = 'in_stock'`,
       )
       .get(id)?.total ?? 0,
   )
-  if (count > 0) {
+  if (inStock > 0) {
     return res.status(400).json({
-      error: `这张提单下面还有 ${count} 个柜，先处理完再删提单`,
+      error: `这张提单下面还有 ${inStock} 包货在库，先出完或删掉再删提单`,
     })
   }
 
+  db.prepare(
+    `UPDATE containers SET deleted_at = datetime('now', 'localtime')
+      WHERE shipment_id = ? AND deleted_at IS NULL`,
+  ).run(id)
   db.prepare(
     `UPDATE shipments SET deleted_at = datetime('now', 'localtime')
       WHERE id = ? AND deleted_at IS NULL`,

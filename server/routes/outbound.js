@@ -687,9 +687,9 @@ router.get('/:id', (req, res) => {
   const bales = db
     .prepare(
       `SELECT b.bale_no, b.barcode, b.cubic, b.pieces, b.status,
-              c.container_no, c.contract_no
+              s.bl_no, s.contract_no
          FROM bales b
-         LEFT JOIN containers c ON c.id = b.container_id
+         LEFT JOIN shipments s ON s.id = b.shipment_id
         WHERE b.outbound_order_id = ?
         ORDER BY b.bale_no`,
     )
@@ -700,7 +700,7 @@ router.get('/:id', (req, res) => {
       cubic: roundTo(row.cubic ?? 0, 4),
       pieces: row.pieces ?? 0,
       status: row.status,
-      container_no: row.container_no ?? '',
+      bl_no: row.bl_no ?? '',
       contract_no: row.contract_no ?? '',
     }))
 

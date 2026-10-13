@@ -1286,7 +1286,7 @@ export default function Outbound() {
                         <tr>
                           <th>包号</th>
                           <th>条码号</th>
-                          <th>柜号</th>
+                          <th>提单号</th>
                           <th>合同号</th>
                           <th className="num">片数</th>
                           <th className="num">立方</th>
@@ -1297,7 +1297,7 @@ export default function Outbound() {
                           <tr key={bale.barcode || bale.bale_no}>
                             <td>{bale.bale_no || '—'}</td>
                             <td>{bale.barcode || '—'}</td>
-                            <td>{bale.container_no || '—'}</td>
+                            <td>{bale.bl_no || '—'}</td>
                             <td>{bale.contract_no || '—'}</td>
                             <td className="num">{bale.pieces}</td>
                             <td className="num">{formatCubic(bale.cubic)}</td>
@@ -1332,7 +1332,7 @@ export default function Outbound() {
             <div className="toolbar">
               <input
                 className="input"
-                placeholder="码单号 / 柜号 / 合同号 / 品名"
+                placeholder="包号 / 条码号 / 提单号 / 合同号 / 品名"
                 value={pickerKeyword}
                 onChange={(event) => setPickerKeyword(event.target.value)}
                 onKeyDown={(event) => {
@@ -1360,7 +1360,7 @@ export default function Outbound() {
                   <th>选择</th>
                   <th>包号</th>
                   <th>条码号</th>
-                  <th>柜号</th>
+                  <th>提单号</th>
                   <th>合同号</th>
                   <th>品名</th>
                   <th>等级</th>
@@ -1387,7 +1387,7 @@ export default function Outbound() {
                     </td>
                     <td>{row.bale_no || '—'}</td>
                     <td>{row.barcode || '—'}</td>
-                    <td>{row.container_no || '—'}</td>
+                    <td>{row.bl_no || '—'}</td>
                     <td>{row.contract_no || '—'}</td>
                     <td>{row.species}</td>
                     <td>{row.grade || '—'}</td>

@@ -15,7 +15,7 @@ import {
   fetchInboundList,
   fetchContractOptions,
   fetchContractPicker,
-  fetchContainerOptions,
+  fetchShipmentOptions,
   fetchDict,
   openContractFile,
   fetchStockList,
@@ -23,7 +23,7 @@ import {
   updateInbound,
   type ContractOption,
   type ContractPickerRow,
-  type ContainerOption,
+  type ShipmentOption,
   type DictAll,
   type InboundDetail,
   type InboundItemPayload,
@@ -181,7 +181,7 @@ const emptyFilters: InboundListFilters = {}
  * - 单个：`7`
  * - 连续范围：`7-9` → 7、8、9
  * - 多个：`7,9,11`
- * 留空则由系统按柜内顺序自动编号。
+ * 留空则由系统按提单内顺序自动编号。
  */
 function parseBaleLabels(text: string): string[] {
   const value = text.trim()
@@ -269,11 +269,11 @@ export default function Inbound({
   const [reloadToken, setReloadToken] = useState(0)
   // 合同下拉选项（填合同号时给提示，不强制）
   const [contractOptions, setContractOptions] = useState<ContractOption[]>([])
-  // 柜（一批到货）：选了柜，合同号/提单号直接从柜上带出来
-  const [containerOptions, setContainerOptions] = useState<ContainerOption[]>([])
+  // 提单（这批到货）：选了提单，合同号/提单号直接从提单上带出来
+  const [shipmentOptions, setShipmentOptions] = useState<ShipmentOption[]>([])
   // 常用品名 / 等级，录明细时当候选
   const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
-  const [containerId, setContainerId] = useState(0)
+  const [shipmentId, setShipmentId] = useState(0)
 
   const [detail, setDetail] = useState<InboundDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -359,11 +359,11 @@ export default function Inbound({
   useEffect(() => {
     if (mode !== 'create') return
     let cancelled = false
-    void Promise.all([fetchContractOptions(), fetchContainerOptions(), fetchDict()])
+    void Promise.all([fetchContractOptions(), fetchShipmentOptions(), fetchDict()])
       .then(([contracts, boxes, dictData]) => {
         if (cancelled) return
         setContractOptions(contracts)
-        setContainerOptions(boxes)
+        setShipmentOptions(boxes)
         setDict(dictData)
       })
       .catch(() => {
@@ -374,10 +374,10 @@ export default function Inbound({
     }
   }, [mode, editing])
 
-  // 选了柜：合同号、提单号从柜上带出来，不用在这张单上重复填
-  const handlePickContainer = (id: number) => {
-    setContainerId(id)
-    const box = containerOptions.find((item) => item.id === id)
+  // 选了提单：合同号、提单号从提单上带出来，不用在这张单上重复填
+  const handlePickShipment = (id: number) => {
+    setShipmentId(id)
+    const box = shipmentOptions.find((item) => item.id === id)
     if (!box) return
     setForm((prev) => ({
       ...prev,
@@ -433,7 +433,7 @@ export default function Inbound({
       return
     }
     setEditing(null)
-    setContainerId(0)
+    setShipmentId(0)
     setRows(padRows([]))
     setPickedRows([])
     setRowErrors({})
@@ -543,10 +543,10 @@ export default function Inbound({
     [computedRows],
   )
 
-  // 当前选中的柜（包号 / 码单号都按柜内顺序排）
-  const activeContainer = useMemo(
-    () => containerOptions.find((item) => item.id === containerId) ?? null,
-    [containerOptions, containerId],
+  // 当前选中的提单（条码号按这票提单的顺序排）
+  const activeShipment = useMemo(
+    () => shipmentOptions.find((item) => item.id === shipmentId) ?? null,
+    [shipmentOptions, shipmentId],
   )
 
   /**
@@ -555,7 +555,7 @@ export default function Inbound({
    * 没填包号的行：按件数（=包数）算。
    */
   const barcodePlan = useMemo(() => {
-    if (!activeContainer) return null
+    if (!activeShipment) return null
 
     const labels = new Set<string>()
     let count = 0
@@ -575,9 +575,9 @@ export default function Inbound({
     }
 
     if (count <= 0) return null
-    const from = activeContainer.next_seq
+    const from = activeShipment.next_seq
     const to = from + count - 1
-    const prefix = activeContainer.container_no
+    const prefix = activeShipment.bl_no
     return {
       count,
       text:
@@ -585,7 +585,7 @@ export default function Inbound({
           ? `${prefix}-${padBaleSeq(from)}`
           : `${prefix}-${padBaleSeq(from)} ~ ${prefix}-${padBaleSeq(to)}`,
     }
-  }, [computedRows, activeContainer])
+  }, [computedRows, activeShipment])
 
   const updateRow = (
     key: number,
@@ -831,7 +831,7 @@ export default function Inbound({
         bl_no: form.blNo.trim(),
         vehicle_no: form.vehicleNo.trim(),
         contract_no: form.contractNo.trim(),
-        container_id: containerId || undefined,
+        shipment_id: shipmentId || undefined,
         items,
       }
       const result = editing
@@ -875,19 +875,24 @@ export default function Inbound({
   return (
     <section>
       <PageHead
-        title={mode === 'create' ? '采购入库' : mode === 'method' ? '采购入库' : '采购入库记录'}
+        title="采购入库"
         subtitle={
           mode === 'method'
-            ? '先选入库方式：整柜到货就挂采购合同，零散到货直接入库'
+            ? '先选入库方式：整票到货就挂采购合同，零散到货直接入库'
             : mode === 'create'
               ? '包号照货上写的填，条码号由系统生成（就是之后要打印贴包上的那张码）'
-              : '按供应商、日期、仓库查询已录入的入库单，可查看明细、编辑或删除'
+              : '按供应商、日期、仓库查询已录入的入库单，可查看明细、编辑或删除；点「新增采购」开始录新单'
         }
         extra={
           mode === 'list' ? (
-            <button className="btn" onClick={handleExport} disabled={exporting}>
-              {exporting ? '导出中…' : '导出 Excel'}
-            </button>
+            <>
+              <button className="btn" onClick={handleExport} disabled={exporting}>
+                {exporting ? '导出中…' : '导出 Excel'}
+              </button>
+              <button className="btn btn-primary" onClick={openCreate}>
+                新增采购
+              </button>
+            </>
           ) : null
         }
       />
@@ -974,7 +979,7 @@ export default function Inbound({
               />
               <span className="method-body">
                 <strong>关联采购合同</strong>
-                <em>整柜到货挂到采购合同上，方便对账和查这单入了多少</em>
+                <em>整票到货挂到采购合同上，方便对账和查这单入了多少</em>
               </span>
               {method === 'contract' && (
                 pickedContract ? (
@@ -1085,7 +1090,7 @@ export default function Inbound({
             </button>
             <span className="spacer" />
             <button className="btn btn-primary" onClick={openCreate}>
-              新增入库
+              新增采购
             </button>
           </div>
 
@@ -1184,7 +1189,7 @@ export default function Inbound({
             </tbody>
           </table>
           {!listLoading && list.length === 0 && (
-            <EmptyState text="暂无入库单，点右上角「新增入库」录入" />
+            <EmptyState text="暂无入库单，点右上角「新增采购」开始" />
           )}
           {listLoading && <Loading />}
           <Pager
@@ -1281,8 +1286,8 @@ export default function Inbound({
             </button>
             <span className="spacer" />
             <span className="muted">
-              {activeContainer
-                ? `条码号自动生成：本柜已贴 ${activeContainer.bale_count} 张，下一个 ${activeContainer.container_no}-${padBaleSeq(activeContainer.next_seq)}`
+              {activeShipment
+                ? `条码号自动生成：这票提单已贴 ${activeShipment.bale_count} 张，下一个 ${activeShipment.bl_no}-${padBaleSeq(activeShipment.next_seq)}`
                 : '条码号保存时按入库单号自动编'}
               {barcodePlan ? `　本次将生成 ${barcodePlan.count} 个：${barcodePlan.text}` : ''}
             </span>
@@ -1449,31 +1454,31 @@ export default function Inbound({
             onChange={(event) => setForm((prev) => ({ ...prev, remark: event.target.value }))}
           />
 
-          {/* 表下方：柜 / 提单 / 合同 / 仓库 / 操作员 */}
+          {/* 表下方：提单 / 合同 / 仓库 / 操作员 / 车号 */}
           <div className="sheet-bottom">
             <label className="sheet-field">
-              <span>柜（到货批次）</span>
+              <span>提单（这批到货）</span>
               <select
                 className="input"
-                value={containerId}
-                onChange={(event) => handlePickContainer(Number(event.target.value))}
+                value={shipmentId}
+                onChange={(event) => handlePickShipment(Number(event.target.value))}
               >
-                <option value={0}>不选柜（零散到货）</option>
-                {containerOptions.map((box) => (
+                <option value={0}>不选提单（零散到货）</option>
+                {shipmentOptions.map((box) => (
                   <option key={box.id} value={box.id}>
-                    {box.container_no}
+                    {box.bl_no}
                     {box.contract_no ? ` · 合同 ${box.contract_no}` : ''}
                   </option>
                 ))}
               </select>
             </label>
             <label className="sheet-field">
-              <span>提单号{containerId ? '（来自柜）' : ''}</span>
+              <span>提单号{shipmentId ? '（来自提单）' : ''}</span>
               <input
                 className="input"
                 placeholder="例如：BL-2026-0001"
                 value={form.blNo}
-                readOnly={Boolean(containerId)}
+                readOnly={Boolean(shipmentId)}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, blNo: event.target.value }))
                 }
@@ -1482,8 +1487,8 @@ export default function Inbound({
             <label className="sheet-field">
               <span>
                 合同号
-                {containerId
-                  ? '（来自柜）'
+                {shipmentId
+                  ? '（来自提单）'
                   : method === 'contract' && pickedContract
                     ? '（来自所选采购合同）'
                     : ''}
@@ -1491,13 +1496,13 @@ export default function Inbound({
               <input
                 className="input"
                 list={
-                  containerId || (method === 'contract' && pickedContract)
+                  shipmentId || (method === 'contract' && pickedContract)
                     ? undefined
                     : 'contract-options'
                 }
                 placeholder="可从已有合同里选，也可手填"
                 value={form.contractNo}
-                readOnly={Boolean(containerId) || (method === 'contract' && !!pickedContract)}
+                readOnly={Boolean(shipmentId) || (method === 'contract' && !!pickedContract)}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, contractNo: event.target.value }))
                 }

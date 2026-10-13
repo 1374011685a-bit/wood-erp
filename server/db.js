@@ -782,6 +782,73 @@ function migrateVehicleNo() {
   if (added.length > 0) writeLog('[db] 迁移：单据新增列 vehicle_no（车号）')
 }
 
+/**
+ * 去掉「柜」这一层：码单（包）直接挂在提单下。
+ *
+ * 老数据里包是挂在柜上的，这里把柜上的提单号搬到包上；
+ * 柜没挂提单的（当年用「单独加柜」建的），照柜上的提单号 / 柜号补一张提单出来。
+ * containers 表保留不动，只是界面不再出现「柜」。
+ */
+function migrateDropContainerLayer() {
+  addColumnIfMissing('bales', 'shipment_id', 'INTEGER')
+  addColumnIfMissing('inbound_orders', 'shipment_id', 'INTEGER')
+
+  // 没挂提单的柜：按柜上的提单号补一张提单（没有提单号就拿柜号当提单号）
+  const orphans = db
+    .prepare(
+      `SELECT * FROM containers
+        WHERE deleted_at IS NULL AND (shipment_id IS NULL OR shipment_id = 0)`,
+    )
+    .all()
+  for (const box of orphans) {
+    const blNo = String(box.bl_no ?? '').trim() || box.container_no
+    const exists = db
+      .prepare(`SELECT id FROM shipments WHERE bl_no = ? AND deleted_at IS NULL`)
+      .get(blNo)
+    let shipmentId = exists?.id
+    if (!shipmentId) {
+      const { lastInsertRowid } = db
+        .prepare(
+          `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
+           VALUES (?, ?, ?, ?, ?)`,
+        )
+        .run(
+          blNo,
+          box.contract_no ?? null,
+          box.supplier ?? null,
+          box.arrive_date ?? null,
+          '由柜迁移生成',
+        )
+      shipmentId = Number(lastInsertRowid)
+    }
+    db.prepare(`UPDATE containers SET shipment_id = ? WHERE id = ?`).run(
+      shipmentId,
+      box.id,
+    )
+  }
+
+  // 包挂到柜所属的提单上
+  db.exec(`
+    UPDATE bales
+       SET shipment_id = (
+             SELECT c.shipment_id FROM containers c WHERE c.id = bales.container_id
+           )
+     WHERE shipment_id IS NULL AND container_id IS NOT NULL
+  `)
+
+  // 入库单也挂到提单上
+  db.exec(`
+    UPDATE inbound_orders
+       SET shipment_id = (
+             SELECT c.shipment_id FROM containers c WHERE c.id = inbound_orders.container_id
+           )
+     WHERE shipment_id IS NULL AND container_id IS NOT NULL
+  `)
+
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_shipment ON bales (shipment_id)`)
+  writeLog('[db] 迁移：码单与入库单增加 shipment_id，去掉「柜」这一层（提单直接挂包）')
+}
+
 // 首次初始化时建一个默认管理员（表非空则跳过）
 function seedDefaultAdmin() {
   const total = db.prepare(`SELECT COUNT(*) AS total FROM users`).get().total
@@ -948,6 +1015,7 @@ export function initDB() {
   migrateOrderFields()
   migrateBaleBarcode()
   migrateVehicleNo()
+  migrateDropContainerLayer()
   seedDefaultAdmin()
   seedDict()
   warnIfSuspiciouslyEmpty()

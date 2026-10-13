@@ -87,12 +87,12 @@ function normalizeItems(items) {
 const insertOrder = db.prepare(
   `INSERT INTO inbound_orders
      (order_no, supplier, order_date, remark, warehouse, operator,
-      bl_no, contract_no, vehicle_no, container_id)
+      bl_no, contract_no, vehicle_no, shipment_id)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 )
 
-const findContainerStmt = db.prepare(
-  `SELECT * FROM containers WHERE id = ? AND deleted_at IS NULL`,
+const findShipmentStmt = db.prepare(
+  `SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL`,
 )
 
 const insertItem = db.prepare(
@@ -116,8 +116,8 @@ const createInbound = db.transaction(
     blNo,
     contractNo,
     vehicleNo,
-    containerId,
-    containerNo,
+    shipmentId,
+    shipmentNo,
     items,
   }) => {
   const { lastInsertRowid } = insertOrder.run(
@@ -130,7 +130,7 @@ const createInbound = db.transaction(
     blNo || null,
     contractNo || null,
     vehicleNo || null,
-    containerId ?? null,
+    shipmentId ?? null,
   )
   const orderId = Number(lastInsertRowid)
   const barcodes = []
@@ -140,8 +140,8 @@ const createInbound = db.transaction(
     barcodes.push(
       ...createBalesForItem({
         item,
-        containerId,
-        containerNo,
+        shipmentId,
+        shipmentNo,
         inboundOrderId: orderId,
         inboundOrderNo: orderNo,
         baleLabels: item.bale_labels,
@@ -168,7 +168,8 @@ router.post('/', (req, res) => {
   const blNo = String(body.bl_no ?? '').trim()
   const contractNo = String(body.contract_no ?? '').trim()
   const vehicleNo = String(body.vehicle_no ?? '').trim()
-  const containerId = Number(body.container_id) || null
+  // 可以选一张提单（整票到货），合同号 / 提单号从提单上带出来
+  const shipmentId = Number(body.shipment_id) || null
   const rawItems = Array.isArray(body.items) ? body.items : []
 
   if (!supplier) {
@@ -178,12 +179,11 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: '仓库不能为空' })
   }
 
-  // 选了柜就从柜上继承合同号 / 提单号，不用在这张单上再填一遍
-  let container = null
-  if (containerId) {
-    container = findContainerStmt.get(containerId)
-    if (!container) {
-      return res.status(400).json({ error: '选中的柜不存在' })
+  let shipment = null
+  if (shipmentId) {
+    shipment = findShipmentStmt.get(shipmentId)
+    if (!shipment) {
+      return res.status(400).json({ error: '选中的提单不存在' })
     }
   }
   if (rawItems.length === 0) {
@@ -205,11 +205,11 @@ router.post('/', (req, res) => {
       remark,
       warehouse,
       operator,
-      blNo: container ? container.bl_no : blNo,
-      contractNo: container ? container.contract_no : contractNo,
+      blNo: shipment ? shipment.bl_no : blNo,
+      contractNo: shipment ? shipment.contract_no : contractNo,
       vehicleNo,
-      containerId: container ? container.id : null,
-      containerNo: container ? container.container_no : null,
+      shipmentId: shipment ? shipment.id : null,
+      shipmentNo: shipment ? shipment.bl_no : null,
       items,
     })
     res.json(result)
@@ -465,10 +465,10 @@ router.get('/', (req, res) => {
               o.bl_no,
               o.contract_no,
               o.vehicle_no,
-              o.container_id,
+              o.shipment_id,
               c.id                                 AS contract_id,
-              (SELECT ct.container_no FROM containers ct
-                WHERE ct.id = o.container_id)      AS container_no,
+              (SELECT s.bl_no FROM shipments s
+                WHERE s.id = o.shipment_id)        AS bl_no_of_shipment,
               (SELECT COUNT(*) FROM bales b
                 WHERE b.inbound_order_id = o.id)   AS bale_total,
               (SELECT COUNT(*) FROM bales b

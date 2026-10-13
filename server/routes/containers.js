@@ -2,7 +2,7 @@ import express from 'express'
 import { db } from '../db.js'
 import { pageParams } from '../utils/paging.js'
 import { contractError } from '../utils/contractGate.js'
-import { containerBaleInfo } from './bales.js'
+import { shipmentBaleInfo } from './bales.js'
 
 const router = express.Router()
 
@@ -107,10 +107,12 @@ router.get('/options', (_req, res) => {
     )
     .all()
 
-  // 带上「这柜已经贴了几张码单、下一张从几号开始」，入库表单可以直接给工人提示
+  // 带上「这柜已经贴了几张码单、下一张从几号开始」（柜已下线，仅老接口兼容）
   res.json(
     rows.map((row) => {
-      const info = containerBaleInfo(row.id)
+      const info = row.shipment_id
+        ? shipmentBaleInfo(row.shipment_id)
+        : { count: 0, next_seq: 1 }
       return { ...row, bale_count: info.count, next_seq: info.next_seq }
     }),
   )

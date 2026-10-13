@@ -14,13 +14,11 @@ const roundTo = (value, digits) => Number((value ?? 0).toFixed(digits))
  */
 const listSql = (where) => `
   SELECT b.*,
-         c.container_no,
-         c.shipment_id,
-         c.bl_no,
-         c.contract_no,
+         s.bl_no,
+         s.contract_no,
          o.order_no AS outbound_order_no
     FROM bales b
-    LEFT JOIN containers c      ON c.id = b.container_id
+    LEFT JOIN shipments s       ON s.id = b.shipment_id
     LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
    WHERE 1 = 1 ${where}
    ORDER BY b.status = 'in_stock' DESC, b.id DESC
@@ -38,9 +36,9 @@ router.get('/', (req, res) => {
   const keyword = like(req.query.keyword)
   if (keyword) {
     conditions.push(
-      `AND (b.bale_no LIKE ? OR c.container_no LIKE ? OR c.contract_no LIKE ?)`,
+      `AND (b.bale_no LIKE ? OR b.barcode LIKE ? OR s.bl_no LIKE ? OR s.contract_no LIKE ?)`,
     )
-    params.push(keyword, keyword, keyword)
+    params.push(keyword, keyword, keyword, keyword)
   }
 
   const status = String(req.query.status ?? '').trim()
@@ -49,15 +47,9 @@ router.get('/', (req, res) => {
     params.push(status)
   }
 
-  const containerId = Number(req.query.container_id)
-  if (Number.isInteger(containerId) && containerId > 0) {
-    conditions.push(`AND b.container_id = ?`)
-    params.push(containerId)
-  }
-
   const shipmentId = Number(req.query.shipment_id)
   if (Number.isInteger(shipmentId) && shipmentId > 0) {
-    conditions.push(`AND c.shipment_id = ?`)
+    conditions.push(`AND b.shipment_id = ?`)
     params.push(shipmentId)
   }
 
@@ -71,7 +63,7 @@ router.get('/', (req, res) => {
   const countSql = `
     SELECT COUNT(*) AS total
       FROM bales b
-      LEFT JOIN containers c ON c.id = b.container_id
+      LEFT JOIN shipments s ON s.id = b.shipment_id
      WHERE 1 = 1 ${where}
   `
   const total = Number(
@@ -86,8 +78,6 @@ router.get('/', (req, res) => {
       id: row.id,
       bale_no: row.bale_no,
       barcode: row.barcode ?? row.bale_no ?? '',
-      container_id: row.container_id,
-      container_no: row.container_no ?? '',
       shipment_id: row.shipment_id ?? null,
       bl_no: row.bl_no ?? '',
       contract_no: row.contract_no ?? '',
@@ -112,12 +102,12 @@ router.get('/', (req, res) => {
 /* ---------- 给入库单生成码单 ---------- */
 
 /**
- * 码单号规则：<柜号>-<3 位流水>，例如 WH2026-01-001。
- * 没有柜的老流程就退化成 <入库单号>-<3 位>，保证唯一。
+ * 条码号（码单）规则：<提单号>-<3 位流水>，例如 WH-001。
+ * 没挂提单的散货就退化成 <入库单号>-<3 位>，保证唯一。
  * 二维码后一版再加，这里先把号生成好。
  */
-export function buildBaleNo(containerNo, inboundOrderNo, sequence) {
-  const prefix = containerNo || inboundOrderNo
+export function buildBaleNo(shipmentNo, inboundOrderNo, sequence) {
+  const prefix = shipmentNo || inboundOrderNo
   return `${prefix}-${String(sequence).padStart(3, '0')}`
 }
 
@@ -136,35 +126,35 @@ function maxSequence(barcodes) {
 }
 
 /**
- * 这一柜（或这张入库单）下一个该用的条码号流水。
+ * 这张提单（或这张入库单）下一个该用的条码号流水。
  *
  * 注意不能按 COUNT(*) 算：删掉中间某包之后 COUNT 会变小，
  * 再生成的号就会和已经在用的号撞上。
  * 所以按「已有号里的最大流水 + 1」，删过号也不会重复。
  */
-export function nextBaleSequence(containerId, inboundOrderNo) {
-  if (containerId) {
+export function nextBaleSequence(shipmentId, inboundOrderNo) {
+  if (shipmentId) {
     const rows = db
-      .prepare(`SELECT barcode FROM bales WHERE container_id = ?`)
-      .all(containerId)
+      .prepare(`SELECT barcode FROM bales WHERE shipment_id = ?`)
+      .all(shipmentId)
     return maxSequence(rows.map((row) => row.barcode)) + 1
   }
 
   const rows = db
     .prepare(
       `SELECT barcode FROM bales
-        WHERE container_id IS NULL AND inbound_order_id IN
+        WHERE shipment_id IS NULL AND inbound_order_id IN
               (SELECT id FROM inbound_orders WHERE order_no = ?)`,
     )
     .all(inboundOrderNo)
   return maxSequence(rows.map((row) => row.barcode)) + 1
 }
 
-/** 这一柜已经贴了几张码单（给入库表单做「下一个条码号从几开始」的提示） */
-export function containerBaleInfo(containerId) {
+/** 这张提单已经贴了几张码单（给入库表单做「下一个条码号从几开始」的提示） */
+export function shipmentBaleInfo(shipmentId) {
   const rows = db
-    .prepare(`SELECT barcode FROM bales WHERE container_id = ?`)
-    .all(containerId)
+    .prepare(`SELECT barcode FROM bales WHERE shipment_id = ?`)
+    .all(shipmentId)
   return {
     count: rows.length,
     next_seq: maxSequence(rows.map((row) => row.barcode)) + 1,
@@ -173,10 +163,10 @@ export function containerBaleInfo(containerId) {
 
 const insertBale = db.prepare(
   `INSERT INTO bales
-     (bale_no, container_id, inbound_order_id, species, grade,
+     (bale_no, shipment_id, inbound_order_id, species, grade,
       thickness, width, length, pieces, cubic, status)
    VALUES
-     (@bale_no, @container_id, @inbound_order_id, @species, @grade,
+     (@bale_no, @shipment_id, @inbound_order_id, @species, @grade,
       @thickness, @width, @length, @pieces, @cubic, 'in_stock')`,
 )
 
@@ -208,8 +198,8 @@ const updateBaleSummary = db.prepare(
  */
 export function createBalesForItem({
   item,
-  containerId,
-  containerNo,
+  shipmentId,
+  shipmentNo,
   inboundOrderId,
   inboundOrderNo,
   baleLabels,
@@ -221,7 +211,7 @@ export function createBalesForItem({
   const bundles = labels ? labels.length : Math.round(Number(item.bundles ?? 0))
   if (!(bundles > 0)) return []
 
-  let sequence = nextBaleSequence(containerId, inboundOrderNo)
+  let sequence = nextBaleSequence(shipmentId, inboundOrderNo)
   const cubicPerBale = roundTo(
     calcCubic(item.thickness, item.width, item.length, item.pieces, 1),
     4,
@@ -231,11 +221,11 @@ export function createBalesForItem({
   /** 取下一个没人用过的条码号 */
   const takeBarcode = () => {
     for (let guard = 0; guard < 1000; guard += 1) {
-      const candidate = buildBaleNo(containerNo, inboundOrderNo, sequence)
+      const candidate = buildBaleNo(shipmentNo, inboundOrderNo, sequence)
       sequence += 1
       if (!findBaleByBarcode.get(candidate)) return candidate
     }
-    const error = new Error('条码号生成失败，请检查柜号 / 单号')
+    const error = new Error('条码号生成失败，请检查提单号 / 单号')
     error.status = 400
     throw error
   }
@@ -246,8 +236,8 @@ export function createBalesForItem({
     // 手填了包号：先看看是不是「同一包再录一个规格」
     let bale = label ? findBaleByNo.get(label) : null
     if (bale) {
-      if (bale.container_id !== (containerId ?? null)) {
-        const error = new Error(`包号 ${label} 已经出现在别的柜里，请检查包号`)
+      if (bale.shipment_id !== (shipmentId ?? null)) {
+        const error = new Error(`包号 ${label} 已经出现在别的提单里，请检查包号`)
         error.status = 400
         throw error
       }
@@ -256,14 +246,14 @@ export function createBalesForItem({
       const { lastInsertRowid } = db
         .prepare(
           `INSERT INTO bales
-             (bale_no, barcode, container_id, inbound_order_id, species, grade,
+             (bale_no, barcode, shipment_id, inbound_order_id, species, grade,
               thickness, width, length, pieces, cubic, status)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
         )
         .run(
           label || barcode,
           barcode,
-          containerId ?? null,
+          shipmentId ?? null,
           inboundOrderId,
           item.species,
           item.grade,
@@ -565,7 +555,7 @@ router.get('/:id', (req, res) => {
     id: bale.id,
     bale_no: bale.bale_no,
     barcode: bale.barcode ?? bale.bale_no ?? '',
-    container_id: bale.container_id,
+    shipment_id: bale.shipment_id ?? null,
     inbound_order_id: bale.inbound_order_id,
     status: bale.status,
     cubic: roundTo(bale.cubic ?? 0, 4),

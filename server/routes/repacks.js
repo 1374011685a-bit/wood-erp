@@ -106,7 +106,6 @@ const toApi = (row) => ({
   bale_id: row.bale_id,
   barcode: row.barcode ?? '',
   bale_no: row.bale_no ?? '',
-  container_no: row.container_no ?? '',
   summary: row.summary ?? '',
   remark: row.remark ?? '',
   before_cubic: roundTo(row.before_cubic ?? 0, 4),
@@ -120,7 +119,7 @@ const toApi = (row) => ({
   price_pinned: Boolean(row.price_pinned),
   before_items: parseSnapshot(row.before_json),
   after_items: parseSnapshot(row.after_json),
-  bl_no: row.bl_no ?? '',
+  bl_no: row.container_no ?? '',
   contract_no: row.contract_no ?? '',
   created_at: row.created_at,
 })
@@ -202,9 +201,9 @@ router.get('/bales', (_req, res) => {
   const rows = db
     .prepare(
       `SELECT b.id, b.bale_no, b.barcode, b.cubic, b.pieces, b.status,
-              c.container_no, c.contract_no, c.bl_no
+              s.bl_no, s.contract_no
          FROM bales b
-         LEFT JOIN containers c ON c.id = b.container_id
+         LEFT JOIN shipments s ON s.id = b.shipment_id
         WHERE b.status = 'in_stock'
         ORDER BY b.id DESC
         LIMIT 500`,
@@ -216,9 +215,8 @@ router.get('/bales', (_req, res) => {
       barcode: row.barcode ?? row.bale_no ?? '',
       cubic: roundTo(row.cubic ?? 0, 4),
       pieces: row.pieces ?? 0,
-      container_no: row.container_no ?? '',
-      contract_no: row.contract_no ?? '',
       bl_no: row.bl_no ?? '',
+      contract_no: row.contract_no ?? '',
       items: baleItemsStmt.all(row.id).map((item) => ({
         species: item.species ?? '',
         grade: item.grade ?? '',
@@ -291,10 +289,9 @@ const createRepack = db.transaction((payload) => {
     return sum + calcAmountCents(item.cubic, cents)
   }, 0)
 
-  const container = bale.container_id
-    ? db
-        .prepare(`SELECT container_no FROM containers WHERE id = ?`)
-        .get(bale.container_id)
+  // 提单号：柜已经不要了，直接从提单上取
+  const shipment = bale.shipment_id
+    ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(bale.shipment_id)
     : null
 
   const { lastInsertRowid } = insertRepack.run({
@@ -303,7 +300,7 @@ const createRepack = db.transaction((payload) => {
     bale_id: bale.id,
     barcode: bale.barcode ?? bale.bale_no ?? '',
     bale_no: bale.bale_no ?? '',
-    container_no: container?.container_no ?? null,
+    container_no: shipment?.bl_no ?? null,
     summary: payload.summary || null,
     remark: payload.remark || null,
     before_cubic: beforeCubic,

@@ -31,8 +31,8 @@ export type CreateInboundPayload = {
   contract_no?: string
   /** 车号，选填 */
   vehicle_no?: string
-  /** 整柜到货时选柜，合同号/提单号从柜上继承 */
-  container_id?: number
+  /** 整票到货时选提单，合同号/提单号从提单上继承 */
+  shipment_id?: number
   items: InboundItemPayload[]
 }
 
@@ -354,7 +354,7 @@ export type OutboundDetail = {
     cubic: number
     pieces: number
     status: string
-    container_no: string
+    bl_no: string
     contract_no: string
   }>
 }
@@ -600,11 +600,25 @@ export type ShipmentRow = {
   supplier: string
   arrival_date: string
   remark: string
-  container_count: number
   bale_total: number
   bale_in_stock: number
   bale_cubic: number
   created_at: string
+}
+
+/** 入库表单选的提单：带上已经贴了几张码单、下一个条码号从几开始 */
+export type ShipmentOption = {
+  id: number
+  bl_no: string
+  contract_no: string | null
+  supplier: string | null
+  arrival_date: string | null
+  bale_count: number
+  next_seq: number
+}
+
+export function fetchShipmentOptions() {
+  return request<ShipmentOption[]>('/api/shipments/options')
 }
 
 export type ShipmentContainer = {
@@ -632,14 +646,15 @@ export function fetchShipmentContainers(id: number) {
   return request<ShipmentContainer[]>(`/api/shipments/${id}/containers`)
 }
 
-// 新建提单：可以一次把这一票的柜号都填上（多行/逗号/空格分隔）
+// 新建提单：一张提单直接开始贴包（柜这一层已经去掉了）
 export function createShipment(payload: {
   bl_no: string
   contract_no?: string
   supplier?: string
   arrival_date?: string
   remark?: string
-  container_nos: string
+  /** 老字段，柜已下线，不用填 */
+  container_nos?: string
 }) {
   return request<{ id: number; bl_no: string; containers: string[] }>('/api/shipments', {
     method: 'POST',
@@ -696,8 +711,6 @@ export type BaleRow = {
   bale_no: string
   /** 条码号：就是要打印贴包上的那张码 */
   barcode: string
-  container_id: number | null
-  container_no: string
   shipment_id: number | null
   bl_no: string
   contract_no: string
@@ -803,7 +816,7 @@ export type BaleDetail = {
   id: number
   bale_no: string
   barcode: string
-  container_id: number | null
+  shipment_id: number | null
   inbound_order_id: number | null
   status: 'in_stock' | 'shipped'
   cubic: number
@@ -1002,7 +1015,6 @@ export type RepackRow = {
   bale_id: number | null
   barcode: string
   bale_no: string
-  container_no: string
   summary: string
   remark: string
   before_cubic: number
@@ -1045,7 +1057,6 @@ export type RepackBale = {
   barcode: string
   cubic: number
   pieces: number
-  container_no: string
   contract_no: string
   bl_no: string
   items: RepackLine[]
