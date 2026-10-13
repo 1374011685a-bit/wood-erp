@@ -2537,9 +2537,105 @@ section > .toolbar .btn-primary {
     font-size: 12.5px;
   }
 
-  /* 弹窗里的表格照样横滑 */
-  .modal .table {
-    min-width: 560px;
+  /* ---------- 列表表格：手机改成卡片，不再左右滑 ---------- */
+
+  .table-cards,
+  .table-cards thead,
+  .table-cards tbody,
+  .table-cards tr,
+  .table-cards td {
+    display: block;
+    width: auto;
+  }
+
+  .table-cards {
+    min-width: 0;
+  }
+
+  .table-cards thead {
+    display: none;
+  }
+
+  .table-cards tbody tr {
+    border: 1px solid var(--border-panel);
+    border-radius: 14px;
+    background-color: #ffffff;
+    padding: 14px 14px 10px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .table-cards tbody tr:hover td {
+    background-color: transparent;
+  }
+
+  .table-cards td {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    height: auto;
+    padding: 3px 0;
+    border-bottom: none;
+    white-space: normal;
+    font-size: 13.5px;
+  }
+
+  /* 字段名：从表头搬过来的 */
+  .table-cards td::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--text-3);
+    font-size: 12.5px;
+  }
+
+  /* 桌面端的列分隔线是同样的伪元素，卡片模式里把它改成显示字段名 */
+  .table-cards td + td::before {
+    content: attr(data-label);
+    position: static;
+    width: auto;
+    height: auto;
+    transform: none;
+    background-color: transparent;
+  }
+
+  /* 第一格当卡片标题（单号 / 品名） */
+  .table-cards td.cell-primary {
+    display: block;
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--line);
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+
+  .table-cards td.cell-primary::before {
+    display: none;
+  }
+
+  /* 操作放卡片底部靠右 */
+  .table-cards td.cell-actions {
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 10px;
+    margin-top: 6px;
+    border-top: 1px solid var(--line);
+  }
+
+  .table-cards td.cell-actions::before {
+    display: none;
+  }
+
+  .table-cards .row-actions {
+    opacity: 1;
+  }
+
+  /* 合计行、分页条在卡片流里单独排 */
+  .table-cards + .empty,
+  .table-cards + .loading {
+    padding: 24px 8px;
   }
 
   /* ---------- 分页 ---------- */

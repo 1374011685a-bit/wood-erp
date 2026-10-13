@@ -8,6 +8,7 @@ import {
   resetPassword,
 } from '../api'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { applyTableLabels } from '../utils/tableLabels'
 import { ToastHost, type ToastItem } from './Ui'
 
 type NavItem = {
@@ -210,6 +211,31 @@ export default function Layout() {
     setDrawerOpen(false)
   }, [location.pathname])
 
+  /**
+   * 手机上表格要变成卡片，需要知道每一格对应哪个表头。
+   * 这里在内容区挂一个观察器，页面一变就把表头文字同步到格子上——
+   * 页面组件不用为手机端写任何额外代码。
+   */
+  useEffect(() => {
+    const target = document.querySelector('.content')
+    if (!target) return
+
+    let frame = 0
+    const sync = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => applyTableLabels(target))
+    }
+
+    sync()
+    const observer = new MutationObserver(sync)
+    observer.observe(target, { childList: true, subtree: true })
+
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+
   // 切到没打开过的功能就补一个标签（首页不做索引）
   useEffect(() => {
     if (location.pathname === '/') return
@@ -323,6 +349,7 @@ export default function Layout() {
           <NavLink
             to={homeItem.to}
             end={homeItem.end}
+            onClick={() => setDrawerOpen(false)}
             className={({ isActive }) =>
               isActive ? 'nav-item nav-item-active' : 'nav-item'
             }
@@ -375,6 +402,7 @@ export default function Layout() {
                         key={item.to}
                         to={item.to}
                         end={item.end}
+                        onClick={() => setDrawerOpen(false)}
                         className={({ isActive }) =>
                           isActive ? 'nav-item nav-item-active' : 'nav-item'
                         }
