@@ -2,7 +2,8 @@ import express from 'express'
 import { db } from '../db.js'
 import { calcCubic } from '../utils/cubic.js'
 import { pageParams } from '../utils/paging.js'
-import { calcAmountCents, fromCents } from '../utils/cubic.js'
+import { calcAmountCents, fromCents, toCents } from '../utils/cubic.js'
+import { writeLog } from '../boot-log.js'
 
 const router = express.Router()
 
@@ -217,8 +218,10 @@ export const baleScopeKey = (shipmentId, inboundOrderId) =>
       : ''
 const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ?`)
 const insertBaleItem = db.prepare(
-  `INSERT INTO bale_items (bale_id, species, grade, thickness, width, length, pieces, cubic)
-   VALUES (@bale_id, @species, @grade, @thickness, @width, @length, @pieces, @cubic)`,
+  `INSERT INTO bale_items
+     (bale_id, species, grade, thickness, width, length, pieces, cubic, unit_price_cents)
+   VALUES
+     (@bale_id, @species, @grade, @thickness, @width, @length, @pieces, @cubic, @unit_price_cents)`,
 )
 const updateBaleSummary = db.prepare(
   `UPDATE bales
@@ -339,6 +342,7 @@ export function createBalesForItem({
       length: item.length,
       pieces: item.pieces,
       cubic: cubicPerBale,
+      unit_price_cents: item.unit_price_cents ?? null,
     })
 
     if (label) {
@@ -529,11 +533,47 @@ function attachBaleToOrder(bale, items) {
 /**
  * 把一包的规格行整体换掉，并同步入库单明细（库存跟着变）。
  * 码单编辑和「改包」都走这里，保证两条路的库存口径一致。
+ *
+ * 单价处理（财务口径，必须稳）：
+ *   1. 调用方给了 unit_price_cents → 直接用它；
+ *   2. 没给 → 找这一包「原来的那一行」（规格 + 片数）原价搬过来；
+ *   3. 还找不到（就是新加的行）→ 交给 addOneBundleToOrder 用最近入库价兜底。
+ * 全程记一笔日志：重建前后金额不一致就打印警告，方便追。
  */
 export function replaceBaleItems(bale, items) {
+  const amountOf = (list) =>
+    list.reduce(
+      (sum, line) =>
+        sum + calcAmountCents(roundTo(line.cubic ?? 0, 4), Number(line.unit_price_cents ?? 0)),
+      0,
+    )
+
+  const before = baleItemsStmt.all(bale.id)
+  const beforeCents = amountOf(before)
+
   detachBaleFromOrder(bale)
   db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
-  for (const item of items) {
+
+  // 每一行最终用哪个单价
+  const priced = items.map((item) => {
+    const given = Number(item.unit_price_cents)
+    if (Number.isFinite(given)) return { ...item, unit_price_cents: given }
+
+    const old = before.find(
+      (line) =>
+        String(line.species ?? '') === String(item.species ?? '') &&
+        String(line.grade ?? '') === String(item.grade ?? '') &&
+        Number(line.thickness) === Number(item.thickness) &&
+        Number(line.width) === Number(item.width) &&
+        Number(line.length) === Number(item.length) &&
+        Number(line.pieces) === Number(item.pieces),
+    )
+    return old?.unit_price_cents === null || old?.unit_price_cents === undefined
+      ? item
+      : { ...item, unit_price_cents: Number(old.unit_price_cents) }
+  })
+
+  for (const item of priced) {
     insertBaleItem.run({
       bale_id: bale.id,
       species: item.species,
@@ -543,10 +583,21 @@ export function replaceBaleItems(bale, items) {
       length: item.length,
       pieces: item.pieces,
       cubic: item.cubic,
+      unit_price_cents: item.unit_price_cents ?? null,
     })
   }
   refreshBaleSummary(bale.id)
-  attachBaleToOrder(bale, items)
+  attachBaleToOrder(bale, priced)
+
+  const afterCents = amountOf(priced)
+  if (beforeCents !== afterCents) {
+    writeLog(
+      `[警告] 码单 ${bale.bale_no || bale.barcode || bale.id} 重建后金额变了：` +
+        `${fromCents(beforeCents)} → ${fromCents(afterCents)}（立方没变的话请检查单价）`,
+    )
+  }
+
+  return { amountBefore: fromCents(beforeCents), amountAfter: fromCents(afterCents) }
 }
 
 /** 重算码单的汇总列（总立方、总片数、主规格） */
@@ -638,6 +689,7 @@ router.get('/:id', (req, res) => {
       length: item.length,
       pieces: item.pieces,
       cubic: roundTo(item.cubic ?? 0, 4),
+      unit_price: fromCents(item.unit_price_cents ?? 0),
     })),
   })
 })
@@ -672,14 +724,22 @@ const updateBale = db.transaction((id, baleNo, boxNo, items) => {
     throw error
   }
 
-  replaceBaleItems(bale, items)
+  const amounts = replaceBaleItems(bale, items)
   db.prepare(`UPDATE bales SET bale_no = ?, box_no = ? WHERE id = ?`).run(
     baleNo,
     boxNo || null,
     id,
   )
 
-  return { id, bale_no: baleNo, box_no: boxNo }
+  return {
+    id,
+    bale_no: baleNo,
+    box_no: boxNo,
+    // 重建前后金额：前端拿它提示「金额有没有变」
+    amount_before: amounts.amountBefore,
+    amount_after: amounts.amountAfter,
+    amount_changed: amounts.amountBefore !== amounts.amountAfter,
+  }
 })
 
 router.put('/:id', (req, res) => {
@@ -698,8 +758,17 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: problems.join('\n') })
   }
 
+  // 前端把每一行原来的单价回传了：有（>0）就钉住它，没有就交给后端按原行/最近价兜底
+  const rawItems = Array.isArray(body.items) ? body.items : []
+  const pricedItems = items.map((item, index) => {
+    const price = Number(rawItems[index]?.unit_price)
+    return Number.isFinite(price) && price > 0
+      ? { ...item, unit_price_cents: toCents(price) }
+      : item
+  })
+
   try {
-    res.json(updateBale(id, baleNo, boxNo, items))
+    res.json(updateBale(id, baleNo, boxNo, pricedItems))
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })

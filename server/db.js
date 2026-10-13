@@ -807,6 +807,45 @@ function migrateBoxNo() {
 }
 
 /**
+ * 规格行记住自己那一行的成本单价。
+ *
+ * 为什么必须存：改包 / 编辑码单时，入库明细是「扣掉再挂回」重建的。
+ * 如果单价靠「该规格最近入库价」重新猜，同一单里同规格、不同片数的行就会串价，
+ * 金额会在用户不知情的情况下变——财务字段不能这样。
+ * 老数据按「规格 + 片数」去入库明细里把当时的价格补上。
+ */
+function migrateBaleItemPrice() {
+  const added = addColumnIfMissing('bale_items', 'unit_price_cents', 'INTEGER')
+  if (!added) return
+
+  const filled = db
+    .prepare(
+      `UPDATE bale_items
+          SET unit_price_cents = (
+                SELECT COALESCE(oi.unit_price_cents, ROUND(oi.unit_price * 100))
+                  FROM bales b
+                  JOIN order_items oi
+                    ON oi.order_type = 'in'
+                   AND oi.order_id = b.inbound_order_id
+                   AND oi.deleted_at IS NULL
+                   AND COALESCE(oi.species, '') = COALESCE(bale_items.species, '')
+                   AND COALESCE(oi.grade, '') = COALESCE(bale_items.grade, '')
+                   AND oi.thickness = bale_items.thickness
+                   AND oi.width = bale_items.width
+                   AND oi.length = bale_items.length
+                   AND oi.pieces = bale_items.pieces
+                 WHERE b.id = bale_items.bale_id
+                 LIMIT 1
+              )
+        WHERE unit_price_cents IS NULL`,
+    )
+    .run()
+  writeLog(
+    `[db] 迁移：规格行新增列 unit_price_cents（每行记住自己的单价），回填 ${filled.changes} 行`,
+  )
+}
+
+/**
  * 包号的唯一范围改一下：
  *
  * - 以前建表时写的是 UNIQUE(bale_no) —— 全局唯一，两票货不能有同名包号；
@@ -1205,6 +1244,7 @@ export function initDB() {
   migrateVehicleNo()
   migrateDropContainerLayer()
   migrateBoxNo()
+  migrateBaleItemPrice()
   relinkBalesToShipment()
   // 注意顺序：补挂提单会改 shipment_id，范围键必须在它之后再算
   migrateBaleScope()

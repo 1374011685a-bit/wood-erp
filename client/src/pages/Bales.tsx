@@ -161,7 +161,7 @@ export default function Bales() {
     setEditSaving(true)
     setEditError('')
     try {
-      await updateBale(editId, {
+      const result = await updateBale(editId, {
         bale_no: editNo.trim(),
         box_no: editBoxNo.trim(),
         items: items.map((line) => ({
@@ -171,10 +171,20 @@ export default function Bales() {
           width: Number(line.width),
           length: Number(line.length),
           pieces: Number(line.pieces),
+          // 原样把这一行原来的单价带回去，后端就不会拿「最近入库价」重算金额
+          unit_price: line.unit_price ?? 0,
         })),
       })
       setEditOpen(false)
-      setNotice(`已保存包号 ${editNo.trim()}，库存已同步`)
+      if (result.amount_changed) {
+        // 财务字段变了就必须让用户看见
+        setError(
+          `注意：这次保存后这一包对应的入库金额变了：${result.amount_before} → ${result.amount_after} 元，` +
+            `请核对是不是自己改了单价（立方和单价都没动的话不会变）。`,
+        )
+      } else {
+        setNotice(`已保存包号 ${editNo.trim()}，库存与金额都没变`)
+      }
       setReloadToken((n) => n + 1)
     } catch (err) {
       setEditError(err instanceof Error ? err.message : '保存失败')

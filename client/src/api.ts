@@ -705,6 +705,8 @@ export type BaleItemLine = {
   length: number
   pieces: number
   cubic: number
+  /** 这一行自己的单价（原样带回，后端就不会用「最近入库价」重算） */
+  unit_price?: number
 }
 
 export type BaleDetail = {
@@ -739,10 +741,18 @@ export function updateBale(
       width: number
       length: number
       pieces: number
+      /** 原样带回的单价（0/不传 = 让后端按原行兜底） */
+      unit_price?: number
     }>
   },
 ) {
-  return request<{ id: number; bale_no: string }>(`/api/bales/${id}`, {
+  return request<{
+    id: number
+    bale_no: string
+    amount_before: number
+    amount_after: number
+    amount_changed: boolean
+  }>(`/api/bales/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
