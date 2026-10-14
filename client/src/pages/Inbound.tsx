@@ -6,14 +6,16 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
   createInbound,
   deleteInbound,
   downloadFile,
   fetchInboundDetail,
+  fetchInboundByBlNo,
   fetchInboundList,
+  isBlHasOrderError,
   fetchContractOptions,
   fetchContractPicker,
   checkBaleNo,
@@ -382,10 +384,14 @@ const mergeItemsByBale = (items: InboundDetailItem[]) => {
 export default function Inbound({
   defaultMode = 'list',
 }: {
-  /** /inbound 走「先选入库方式」，/inbound/records 直接看记录 */
-  defaultMode?: 'method' | 'list'
+  /**
+   * /inbound 走「先选入库方式」，/inbound/records 直接看记录，
+   * /inbound/edit/:id 直接把那张单打开成编辑状态。
+   */
+  defaultMode?: 'method' | 'list' | 'edit'
 }) {
   const navigate = useNavigate()
+  const { id: editIdParam } = useParams()
   /**
    * 看不到金额的角色（业务员 / 仓管）：
    *   - 明细表的「金额(元)」列、合计里的金额、详情弹窗的单价/金额都不显示；
@@ -397,7 +403,13 @@ export default function Inbound({
   /** 只读角色不给「新增 / 编辑 / 删除」的入口：后端也会 403，但按钮摆着点了必然失败 */
   const canWrite = can(useRole(), 'inbound.write')
 
-  const [mode, setMode] = useState<'method' | 'list' | 'create'>(defaultMode)
+  /**
+   * 'edit' 只是"从 /inbound/edit/:id 进来"的标记：初始显示列表，
+   * 挂载后由 useEffect 把那张单拉出来打开成编辑态（所以初始化成 'list'）。
+   */
+  const [mode, setMode] = useState<'method' | 'list' | 'create'>(
+    defaultMode === 'edit' ? 'list' : defaultMode,
+  )
   // 入库方式：直接入库 / 关联采购合同
   const [method, setMethod] = useState<'direct' | 'contract'>('direct')
   const [pickedContract, setPickedContract] = useState<ContractPickerRow | null>(null)
@@ -412,6 +424,11 @@ export default function Inbound({
   const [pickerPick, setPickerPick] = useState<ContractPickerRow | null>(null)
   // 非空 = 正在修改这张单（单号不变，只替换明细）
   const [editing, setEditing] = useState<{ id: number; order_no: string } | null>(null)
+  /** 保存时后端回「这个提单号已经有活单」→ 弹窗让用户选追加还是仍要新建 */
+  const [blConflict, setBlConflict] = useState<{
+    message: string
+    order: { id: number; order_no: string; cubic: number } | null
+  } | null>(null)
   /**
    * 老单据标记：这张单入库时提单号还不是必填，库里存的就是空。
    * 这种单允许继续空着保存（新建仍然必填），不然它就永远改不了了。
@@ -537,6 +554,18 @@ export default function Inbound({
   }, [mode, editing])
 
   /**
+   * 从 `/inbound/edit/:id` 直接进来：挂载时把那张单拉出来填进表单。
+   * （列表/详情里的「编辑」按钮现在都是跳到这个地址，入口只有一个。）
+   */
+  useEffect(() => {
+    if (defaultMode !== 'edit') return
+    const id = Number(editIdParam)
+    if (!Number.isInteger(id) || id <= 0) return
+    void openEdit({ id })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultMode, editIdParam])
+
+  /**
    * 提单号只手输，但失焦时解析一次：填的号如果已经是系统里的某张提单，
    * 就把 shipmentId 挂上——用于「同提单包号查重」和「条码号按这票顺序编号」。
    * 匹配规则跟后端一致：去空格 + 不区分大小写。
@@ -546,6 +575,42 @@ export default function Inbound({
     if (!key) return 0
     const hit = shipmentOptions.find((item) => item.bl_no.trim().toLowerCase() === key)
     return hit ? hit.id : 0
+  }
+
+  /**
+   * 提单号失焦时问一下后端：这个号下面还有没有活着的入库单？
+   * 有就地提示「已经有入库单 RK…（已入 X 方）」+「去编辑那张单」，
+   * 免得同一票货不知不觉录成两张。
+   *
+   * - 300ms 防抖：连着改几次号只查最后一次
+   * - 竞态保护：只认最后一次请求的响应（`blCheckSeq`），慢响应回来不会覆盖新结果
+   * - 编辑时排除自己（`exclude_id`）
+   */
+  const blCheckTimer = useRef<number | null>(null)
+  const blCheckSeq = useRef(0)
+  const [blHint, setBlHint] = useState<{ id: number; order_no: string; cubic: number } | null>(null)
+
+  const checkBlNo = async (value: string, excludeId?: number) => {
+    const key = value.trim()
+    const seq = (blCheckSeq.current += 1)
+    if (!key) {
+      setBlHint(null)
+      return
+    }
+    try {
+      const res = await fetchInboundByBlNo({ blNo: key, excludeId })
+      if (seq !== blCheckSeq.current) return
+      setBlHint(res.order ?? null)
+    } catch {
+      // 查不动就不打扰用户（保存时后端还会再拦一次）
+      if (seq === blCheckSeq.current) setBlHint(null)
+    }
+  }
+
+  /** 防抖 300ms 再查 */
+  const scheduleBlCheck = (value: string, excludeId?: number) => {
+    if (blCheckTimer.current) window.clearTimeout(blCheckTimer.current)
+    blCheckTimer.current = window.setTimeout(() => void checkBlNo(value, excludeId), 300)
   }
 
   /* ---------- 关联采购合同：弹一个大页面按合同明细挑 ---------- */
@@ -983,7 +1048,7 @@ export default function Inbound({
   }
 
   // 修改：拉出原单明细填进同一套表单，保存时走 PUT，单号保持不变
-  const openEdit = async (item: { id: number; order_no: string }) => {
+  const openEdit = async (item: { id: number; order_no?: string }) => {
     setNotice('')
     setFormError('')
     setActionError('')
@@ -1026,7 +1091,8 @@ export default function Inbound({
       setPickedRows([])
       setRowErrors({})
       setHasValidated(false)
-      setEditing({ id: item.id, order_no: item.order_no })
+      // 单号以拉回来的详情为准（从 /inbound/edit/:id 进来时只有 id）
+      setEditing({ id: item.id, order_no: data.order_no ?? item.order_no ?? '' })
       // 原单本来就没提单号 → 这张是老单据，允许留空保存
       setLegacyNoBl(!String(data.bl_no ?? '').trim())
       setMode('create')
@@ -1069,7 +1135,12 @@ export default function Inbound({
     }
   }
 
-  const handleSave = async () => {
+  /**
+   * 保存入库单。
+   * `force = true` 表示用户已经确认过「这个提单号已经有活单，仍要新建」，
+   * 重发时带上 `force:true` 让后端跳过那条校验（其余校验照旧）。
+   */
+  const handleSave = async (force = false) => {
     const supplier = form.supplier.trim()
 
     setHasValidated(true)
@@ -1137,6 +1208,8 @@ export default function Inbound({
         contract_no: form.contractNo.trim(),
         shipment_id: shipmentId || undefined,
         items,
+        // 用户已经确认过「仍要新建」→ 让后端跳过"这个提单号已有活单"那条校验
+        ...(force ? { force: true } : {}),
       }
       const result = editing
         ? await updateInbound(editing.id, payload)
@@ -1171,6 +1244,15 @@ export default function Inbound({
           : `已保存入库单 ${result.order_no}`,
       )
     } catch (err) {
+      /**
+       * 这个提单号已经有一张活单（后端 409 + BL_HAS_ORDER）：
+       * 弹三按钮让用户选「去编辑那张单 / 仍要新建 / 取消」，
+       * 而不是当成一句普通报错吞掉。
+       */
+      if (isBlHasOrderError(err)) {
+        setBlConflict({ message: err.message, order: err.payload?.order ?? null })
+        return
+      }
       setFormError(err instanceof Error ? err.message : '保存失败')
     } finally {
       setSaving(false)
@@ -1471,9 +1553,7 @@ export default function Inbound({
                         <>
                           <button
                             className="btn btn-sm"
-                            onClick={() =>
-                              void openEdit({ id: order.id, order_no: order.order_no })
-                            }
+                            onClick={() => navigate(`/inbound/edit/${order.id}`)}
                           >
                             编辑
                           </button>
@@ -1573,8 +1653,10 @@ export default function Inbound({
             <button
               className="btn"
               onClick={() => {
-                setMode(defaultMode)
+                // 「取消」回到进来时的那个列表（/inbound/edit/:id 进来就是 /inbound）
+                setMode(defaultMode === 'edit' ? 'list' : defaultMode)
                 setEditing(null)
+                if (defaultMode === 'edit') navigate('/inbound')
               }}
             >
               取消
@@ -1827,8 +1909,13 @@ export default function Inbound({
                   setForm((prev) => ({ ...prev, blNo: value }))
                   // 手输时不打断输入；失焦（下面 onBlur）再解析是不是已有提单
                   if (shipmentId) setShipmentId(0)
+                  // 号改了，上一个号的提示立刻作废（别挂着别人的单号）
+                  if (blHint) setBlHint(null)
                 }}
-                onBlur={() => setShipmentId(matchShipmentId(form.blNo))}
+                onBlur={() => {
+                  setShipmentId(matchShipmentId(form.blNo))
+                  scheduleBlCheck(form.blNo, editing?.id)
+                }}
               />
               <datalist id="shipment-options">
                 {shipmentOptions.map((box) => (
@@ -1840,6 +1927,22 @@ export default function Inbound({
                   ? '这张老单据入库时没填提单号，可以继续留空保存（新建单据必填）'
                   : '填过的提单号下次会自动带出；填了就归到那张提单下'}
               </small>
+              {/* 这个号下已经有活单 → 就地提示 + 一键去那张单追加 */}
+              {blHint && (
+                <small className="bl-hint">
+                  这个提单号已经有入库单 <b>{blHint.order_no}</b>
+                  （已入 {formatCubic(blHint.cubic)} 方）。
+                  {canWrite && (
+                    <button
+                      type="button"
+                      className="link-btn"
+                      onClick={() => navigate(`/inbound/edit/${blHint.id}`)}
+                    >
+                      去编辑那张单
+                    </button>
+                  )}
+                </small>
+              )}
             </label>
             <label className="sheet-field">
               <span>
@@ -1916,9 +2019,10 @@ export default function Inbound({
                       <>
                         <button
                           className="btn btn-sm"
-                          onClick={() =>
-                            void openEdit({ id: detail.id, order_no: detail.order_no })
-                          }
+                          onClick={() => {
+                            closeDetail()
+                            navigate(`/inbound/edit/${detail.id}`)
+                          }}
                         >
                           编辑
                         </button>
@@ -2116,6 +2220,46 @@ export default function Inbound({
         </div>
       )}
 
+      {/* 这个提单号已经有活单：让用户选「去那张单追加」「仍要新建」「取消」 */}
+      {blConflict && (
+        <div className="overlay" onClick={() => setBlConflict(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="modal-title">这个提单号已经有入库单</h2>
+            <p className="confirm-text">{blConflict.message}</p>
+            <div className="confirm-actions">
+              {blConflict.order && (
+                <button
+                  className="btn"
+                  onClick={() => {
+                    const id = blConflict.order?.id
+                    setBlConflict(null)
+                    if (id) navigate(`/inbound/edit/${id}`)
+                  }}
+                >
+                  去编辑那张单
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setBlConflict(null)
+                  // 带 force 重发同一份表单
+                  void handleSave(true)
+                }}
+              >
+                仍要新建
+              </button>
+              <button className="btn" onClick={() => setBlConflict(null)}>
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {deleteTarget && (
         <div className="overlay" onClick={() => setDeleteTarget(null)}>
           <div
@@ -2258,7 +2402,7 @@ export default function Inbound({
                               onClick={(event) => {
                                 event.stopPropagation()
                                 setPickerOpen(false)
-                                void openEdit({ id: order.id, order_no: order.order_no })
+                                navigate(`/inbound/edit/${order.id}`)
                               }}
                             >
                               {order.order_no}

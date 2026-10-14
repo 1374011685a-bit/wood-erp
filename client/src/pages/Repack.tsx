@@ -34,6 +34,11 @@ type AfterRow = {
    * 「一键拆包」出来的三行（包号都空）就是三包 —— 跟手动一行一行填的结果完全一致。
    */
   baleNo: string
+  /**
+   * 这一行是从哪个源包搬过来的（「复制改包前数据」「一键拆包」自动带上，
+   * 手填的行没有）。保存时发给后端，用来把这一行的账落回原本那张入库单。
+   */
+  srcBaleId?: number
   /** 品牌（选填）：只记不参与匹配 */
   brand: string
   species: string
@@ -144,7 +149,10 @@ export default function Repack() {
   const money = seesMoney(useRole())
 
   const [bales, setBales] = useState<RepackBale[]>([])
-  const [baleId, setBaleId] = useState(0)
+  /** 选中的源包（多选）*/
+  const [baleIds, setBaleIds] = useState<number[]>([])
+  /** 弹窗里勾了几个（确认之前只是本地状态）*/
+  const [pickerPicked, setPickerPicked] = useState<number[]>([])
   // 选货弹窗
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState({
@@ -193,9 +201,29 @@ export default function Repack() {
     grade: [],
   })
 
-  const bale = useMemo(
-    () => bales.find((item) => item.id === baleId) ?? null,
-    [bales, baleId],
+  /**
+   * 这次改包选中的源包（多选：1 个就是改这一包，多个就是合并 / 重排）。
+   * `bales` 只是详情缓存；顺序按用户选的顺序来（第一个当"主包"）。
+   */
+  const pickedBales = useMemo(
+    () => baleIds.map((id) => bales.find((item) => item.id === id)).filter((one): one is RepackBale => Boolean(one)),
+    [baleIds, bales],
+  )
+  /** 兼容旧代码里的 `bale`：单选时就是那一包，多选时是第一个（只用于"要不要提示"这类判断） */
+  const bale = pickedBales[0] ?? null
+
+  /** 改包前的行：所有源包的行摊平，每行标上它来自哪个源包 */
+  const beforeLines = useMemo(
+    () =>
+      pickedBales.flatMap((one) =>
+        one.items.map((line) => ({
+          ...line,
+          srcBaleId: one.id,
+          srcBaleNo: one.bale_no ?? '',
+          srcBarcode: one.barcode ?? '',
+        })),
+      ),
+    [pickedBales],
   )
 
   const loadBales = useCallback(async () => {
@@ -261,39 +289,32 @@ export default function Repack() {
   }
 
   /** 还有几行「匹配到多个成本价」但用户没选（没选就不让保存） */
-  const ambiguousCount = (bale?.items ?? []).filter(
+  const ambiguousCount = beforeLines.filter(
     (line) => line.id !== undefined && isPriceAmbiguous(line) && !beforePrices[line.id],
   ).length
 
   /** 改前总成本 = 每一行 立方 × 那一行的入库单价 */
-  // 「改包前」那一行的长度 / 片数斜杠串（混装包 1.8/2.1/2.4、17/30/247）
-  const beforeLengthText = (bale?.items ?? []).map((line) => line.length).join('/')
-  const beforePiecesText = (bale?.items ?? []).map((line) => line.pieces).join('/')
   /** 成本价有歧义的行 —— 这些行还是要让用户逐行选，所以单独列在下面 */
-  const ambiguousLines = (bale?.items ?? []).filter(
+  const ambiguousLines = beforeLines.filter(
     (line) => line.id !== undefined && isPriceAmbiguous(line),
   )
 
   const beforeCubic = useMemo(
-    () =>
-      roundTo(
-        (bale?.items ?? []).reduce((sum, line) => sum + lineCubic(line), 0),
-        4,
-      ),
-    [bale],
+    () => roundTo(beforeLines.reduce((sum, line) => sum + lineCubic(line), 0), 4),
+    [beforeLines],
   )
   const beforeAmount = useMemo(
     () =>
       roundTo(
-        (bale?.items ?? []).reduce(
-          (sum, line) => sum + lineCubic(line) * beforePriceOf(line),
-          0,
-        ),
+        beforeLines.reduce((sum, line) => sum + lineCubic(line) * beforePriceOf(line), 0),
         2,
       ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [bale, beforePrices],
+    [beforeLines, beforePrices],
   )
+
+  /** 只要有一个源包是混装（多段）就允许「一键拆包」 */
+  const isMixedBale = pickedBales.some((one) => one.items.length > 1)
 
   const afterCubic = useMemo(
     () => roundTo(rows.reduce((sum, row) => sum + rowCubic(row), 0), 4),
@@ -315,10 +336,22 @@ export default function Repack() {
     [rows, derivedPrice],
   )
 
-  /** 选货弹窗里选中一包：拉它的规格明细填进表单 */
-  const pickFromPicker = async (row: BaleRow) => {
+  /**
+   * 选货弹窗里勾中的包【追加】到源包列表（不清空已经选过的）。
+   * 一包拉一次详情，并把 /api/repacks/bales 里的成本价候选并进来。
+   */
+  const addPickedBales = async (list: BaleRow[]) => {
+    const fresh = list.filter((row) => !baleIds.includes(row.id))
+    setPickerOpen(false)
+    setPickerPicked([])
+    if (fresh.length === 0) return
     try {
-      const full = await fetchBaleDetail(row.id)
+      const details = await Promise.all(
+        fresh.map((row) => fetchBaleDetail(row.id).then((full) => ({ row, full }))),
+      )
+      const added: RepackBale[] = []
+      const ambiguous: Record<number, string> = {}
+      for (const { row, full } of details) {
       /**
        * 成本价候选只有 /api/repacks/bales 会返回（它有「匹配到多个价」的判断），
        * 这里按规格从已加载的列表里把候选并进来；找不到就当没有歧义。
@@ -365,26 +398,35 @@ export default function Repack() {
        * 早期版本那里缺 inbound_order_id，单价会算成 0。
        */
       setBales((prev) => [...prev.filter((b) => b.id !== asBale.id), asBale])
-      setBaleId(full.id)
+        added.push(asBale)
+        for (const line of merged) {
+          if (line.price_ambiguous && line.id !== undefined) ambiguous[line.id] = ''
+        }
+      }
+      setBaleIds((prev) => [...prev, ...added.map((one) => one.id)])
       /**
        * 「改包后」默认留空 —— 系统不自作主张复制、也不自动拆。
        * 仓管自己选：复制改包前数据 / 一键拆包 / 手动加行。
        */
       setRows(blankRows())
-      // 匹配到多个成本价的行先留空，等用户选
-      setBeforePrices(
-        Object.fromEntries(
-          merged
-            .filter((item) => item.price_ambiguous)
-            .map((item) => [item.id as number, '']),
-        ),
-      )
-      setForm((prev) => ({ ...prev, blNo: row.bl_no ?? '', contractNo: row.contract_no ?? '' }))
+      // 匹配到多个成本价的行先留空，等用户选（已经选过的保持原样）
+      setBeforePrices((prev) => ({ ...prev, ...ambiguous }))
+      // 提单号 / 合同号：多选时不预填（各包可能不同），留空交给后端按来源判断
+      setForm((prev) => ({
+        ...prev,
+        blNo: added.length === 1 ? (fresh[0].bl_no ?? '') : '',
+        contractNo: added.length === 1 ? (fresh[0].contract_no ?? '') : '',
+      }))
       setError('')
-      setPickerOpen(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : '读取这一包失败')
     }
+  }
+
+  /** 从这次改包里移除一个源包 */
+  const removePickedBale = (id: number) => {
+    setBaleIds((prev) => prev.filter((one) => one !== id))
+    setRows(blankRows())
   }
 
   const loadPickerRows = useCallback(
@@ -417,29 +459,31 @@ export default function Repack() {
   }, [pickerOpen, pickerQuery, pickerOffset, loadPickerRows])
 
   /**
-   * 复制改包前数据 = 把「改包前」那**一行**原样搬过来：不拆、不改。
+   * 复制改包前数据 = **每个源包一行**，原样搬过来：不拆、不改。
    *
    * 混装包搬过来仍然是斜杠串的一行（长度 1.8/2.1/2.4 配片数 17/30/247），
-   * 包号留空 —— 这一行就是这一包，保存下去还是同一个包、同样的规格。
-   * （要按长度拆成几包，用旁边那个「一键拆包（按长度）」。）
+   * 新包号预填该源包的原包号 —— 源包马上要被删掉，可以沿用；保存下去就是"原样不动"。
+   * （要按长度摊开成几包，用旁边那个「一键拆包（按长度）」。）
    */
   const copyBefore = () => {
-    if (!bale) return
-    const items = bale.items
-    if (items.length === 0) return
-    const first = items[0]
-    setRows([
-      {
-        ...createRow(),
-        brand: first.brand ?? '',
-        species: first.species ?? '',
-        grade: first.grade ?? '',
-        thickness: String(first.thickness ?? ''),
-        width: String(first.width ?? ''),
-        length: items.map((line) => line.length).join('/'),
-        pieces: items.map((line) => line.pieces).join('/'),
-      },
-    ])
+    const next = pickedBales
+      .filter((one) => one.items.length > 0)
+      .map((one) => {
+        const first = one.items[0]
+        return {
+          ...createRow(),
+          baleNo: one.bale_no ?? '',
+          srcBaleId: one.id,
+          brand: first.brand ?? '',
+          species: first.species ?? '',
+          grade: first.grade ?? '',
+          thickness: String(first.thickness ?? ''),
+          width: String(first.width ?? ''),
+          length: one.items.map((line) => line.length).join('/'),
+          pieces: one.items.map((line) => line.pieces).join('/'),
+        }
+      })
+    if (next.length > 0) setRows(next)
   }
 
   const updateRow = (key: number, field: keyof AfterRow, value: string) => {
@@ -473,6 +517,8 @@ export default function Repack() {
       const next = [...prev]
       next.splice(index + 1, 0, {
         ...createRow(),
+        // 复制本行 = 还是同一包来的货，来源跟着走
+        srcBaleId: row.srcBaleId,
         brand: row.brand,
         species: row.species,
         grade: row.grade,
@@ -491,23 +537,26 @@ export default function Repack() {
     )
   }
 
-  /** 这一包是不是混装包（多行规格、长度不同）——「一键拆包」只在这是真的时才给点 */
-  const isMixedBale = (bale?.items.length ?? 0) > 1
-
   /**
-   * 一键拆包（按长度）：把「改包前」的每一行规格提成一行，按长度各分一个新包号。
+   * 一键拆包（按长度）：把**所有源包**的每一段规格各提成一行，包号留空。
    *
    * 手动触发，绝不自动跑；跑完结果摆在表里，用户可以改、可以删、可以再合并，
    * 不点保存什么都不算数。
    */
   const splitByLength = () => {
-    if (!bale) return
     /**
-     * 一行规格 = 一包，每行给新的 groupKey、**包号一律留空**。
-     * 不自动生成 P1/P2/P3 —— 包号是仓管从货上抄的，系统不替他编
-     * （groupKey 保证它们各自成包，不会被合并）。
+     * 一段规格 = 一行（包号留空 = 各自成包）；`srcBaleId` 记住它从哪一包来，
+     * 保存时后端按这个把账落回原本那张入库单。
+     * 不自动生成 P1/P2/P3 —— 包号是仓管从货上抄的，系统不替他编。
      */
-    setRows(bale.items.map((line) => ({ ...rowFromLine(line), baleNo: '' })))
+    const next = pickedBales.flatMap((one) =>
+      one.items.map((line) => ({
+        ...rowFromLine(line),
+        baleNo: '',
+        srcBaleId: one.id,
+      })),
+    )
+    if (next.length > 0) setRows(next)
   }
 
   /**
@@ -543,7 +592,7 @@ export default function Repack() {
 
   const handleSave = async () => {
     setError('')
-    if (!bale) {
+    if (baleIds.length === 0) {
       setError('请先选择要改的那一包')
       return
     }
@@ -601,7 +650,7 @@ export default function Repack() {
     try {
       const result = await createRepack({
         repack_date: form.repackDate,
-        bale_id: bale.id,
+        bale_ids: baleIds,
         summary: form.summary.trim(),
         remark: form.remark.trim(),
         bl_no: form.blNo.trim(),
@@ -628,16 +677,21 @@ export default function Repack() {
             length: row.length.trim(),
             pieces: row.pieces.trim(),
             unit_price: toNumber(row.unitPrice),
+            // 这一行从哪一包搬来的（手填的行没有）→ 后端据此把账落回原单
+            ...(row.srcBaleId ? { srcBaleId: row.srcBaleId } : {}),
           })),
         })),
       })
       const split = (result.bale_count ?? 1) > 1
+      const merged = baleIds.length > 1
       setNotice(
         split
-          ? `已拆包 ${result.repack_no}：原包消失，拆成 ${result.bale_count} 个新包`
+          ? merged
+            ? `已拆包 ${result.repack_no}：${baleIds.length} 个源包消失，重排成 ${result.bale_count} 个新包`
+            : `已拆包 ${result.repack_no}：原包消失，拆成 ${result.bale_count} 个新包`
           : `已改包 ${result.repack_no}，库存已按新规格同步`,
       )
-      setBaleId(0)
+      setBaleIds([])
       setRows(blankRows())
       setBeforePrices({})
       setForm((prev) => ({ ...prev, summary: '', remark: '', blNo: '', contractNo: '' }))
@@ -677,31 +731,40 @@ export default function Repack() {
   const editRepack = async (row: RepackRow) => {
     setError('')
     try {
-      await deleteRepack(row.id)
-      setNotice(`已撤销 ${row.repack_no}，下面按这次的结果重新拆一次，保存后会生成新记录`)
+      const undone = await deleteRepack(row.id)
+      setNotice(`已撤销 ${row.repack_no}，下面按这次的结果重新改一次，保存后会生成新记录`)
       setReloadToken((n) => n + 1)
 
-      // 撤销之后原包回来了，拉它的详情当「改包前」
-      if (!row.bale_id) {
+      /**
+       * 撤销之后源包回来了（多选改包可能有几个）。
+       * 用撤销接口返回的 `restored_bales`（新 id）把它们重新选回来；
+       * 老记录没有这个字段就退回用 `bale_id`。
+       */
+      const restoredIds = (undone.restored_bales ?? []).map((one) => one.id)
+      const ids = restoredIds.length > 0 ? restoredIds : row.bale_id ? [row.bale_id] : []
+      if (ids.length === 0) {
         setError('这条记录没有关联的包，无法编辑')
         return
       }
-      const full = await fetchBaleDetail(row.bale_id)
-      const asBale: RepackBale = {
-        id: full.id,
-        bale_no: full.bale_no,
-        barcode: full.barcode,
-        cubic: full.cubic,
-        pieces: full.pieces,
-        bl_no: row.bl_no,
-        contract_no: row.contract_no,
-        items: full.items.map((item) => ({
-          ...item,
-          price_ambiguous: false,
-        })) as RepackBale['items'],
-      }
-      setBales((prev) => [...prev.filter((b) => b.id !== asBale.id), asBale])
-      setBaleId(full.id)
+      const details = await Promise.all(ids.map((id) => fetchBaleDetail(id)))
+      const asBales: RepackBale[] = details.map((full) => ({
+          id: full.id,
+          bale_no: full.bale_no,
+          barcode: full.barcode,
+          cubic: full.cubic,
+          pieces: full.pieces,
+          bl_no: row.bl_no,
+          contract_no: row.contract_no,
+          items: full.items.map((item) => ({
+            ...item,
+            price_ambiguous: false,
+          })) as RepackBale['items'],
+        }))
+      setBales((prev) => [
+        ...prev.filter((one) => !asBales.some((b) => b.id === one.id)),
+        ...asBales,
+      ])
+      setBaleIds(asBales.map((one) => one.id))
       setBeforePrices({})
 
       // 把「改后」恢复出来：拆包的按包分组，改规格的就是一组
@@ -748,9 +811,10 @@ export default function Repack() {
     /**
      * 同一个包里的混装行（品名 / 等级 / 厚度 / 宽度一样，只有长度不同）合成一行：
      * 长度 / 片数写斜杠串 —— 和列表、改包页一个口径。
+     * 合并范围限**同一个源包**（`src_bale_no`），否则多选改包时会把不同包的货串成一行。
      */
     const specKeyOf = (line: RepackLine) =>
-      [line.species, line.grade ?? '', line.thickness, line.width].join('|')
+      [line.src_bale_no ?? '', line.species, line.grade ?? '', line.thickness, line.width].join('|')
     const merged: RepackLine[] = []
     for (const line of items) {
       const key = specKeyOf(line)
@@ -894,18 +958,28 @@ export default function Repack() {
         {/* 改包前：只读 */}
         <div className="sheet-toolbar">
           <span className="section-tag">改包前</span>
-          <button className="btn btn-sm btn-primary" onClick={() => setPickerOpen(true)}>
+          <button
+            className="btn btn-sm btn-primary"
+            onClick={() => {
+              setPickerPicked([])
+              setPickerOpen(true)
+            }}
+          >
             选择货物
           </button>
           <span className="muted">
-            {bale
-              ? `已选 ${bale.barcode || bale.bale_no} · 包号 ${bale.bale_no || '—'}`
+            {pickedBales.length > 0
+              ? `已选 ${pickedBales.length} 包 · 合计 ${formatCubic(beforeCubic)} m³`
               : '还没选货'}
           </span>
           <span className="spacer" />
           <span className="muted">
-            {bale
-              ? `提单 ${bale.bl_no || '—'}　合同 ${bale.contract_no || '—'}`
+            {pickedBales.length > 0
+              ? `提单 ${
+                  [...new Set(pickedBales.map((one) => one.bl_no || '—'))].join(' / ')
+                }　合同 ${
+                  [...new Set(pickedBales.map((one) => one.contract_no || '—'))].join(' / ')
+                }`
               : `在库可改包的码单 ${bales.length} 张`}
           </span>
         </div>
@@ -922,7 +996,8 @@ export default function Repack() {
             <thead>
               <tr>
                 <th className="col-no">#</th>
-                <th>包号</th>
+                {/* 多选改包：这一行是从哪一包搬来的（同一包的行相邻排） */}
+                <th>源包号</th>
                 <th>品牌</th>
                 <th className="col-name">品名</th>
                 <th>等级</th>
@@ -939,42 +1014,53 @@ export default function Repack() {
               </tr>
             </thead>
             <tbody>
-              {bale ? (
+              {pickedBales.length > 0 ? (
                 <>
-                {/* 混装包在这里是**一行**，不是摊成几行：长度片数写斜杠串（1.8/2.1/2.4、17/30/247），
-                    立方是这包的合计。要拆成几包是下面「改包后」的事，由仓管点「一键拆包」手动触发 */}
-                <tr>
-                  <td className="col-no">1</td>
-                  <td>{bale.bale_no || '—'}</td>
-                  <td>{bale.items[0]?.brand || '—'}</td>
-                  <td>{bale.items[0]?.species || '—'}</td>
-                  <td>{bale.items[0]?.grade || '—'}</td>
-                  <td>{bale.items[0]?.thickness ?? '—'}</td>
-                  <td>{bale.items[0]?.width ?? '—'}</td>
-                  <td>{beforeLengthText}</td>
-                  <td>{beforePiecesText}</td>
-                  <td className="col-unit num">{formatCubic(beforeCubic)}</td>
-                  <td className="col-unit">m³</td>
-                  {money && (
-                    <td className="num">
-                      {ambiguousCount > 0 ? (
-                        <select
-                          className="sheet-input is-attention"
-                          value=""
-                          onChange={() => {}}
-                        >
-                          <option value="">
-                            有 {ambiguousCount} 行要选成本价（在下面明细里选）
-                          </option>
-                        </select>
-                      ) : (
-                        formatAmount(beforeCubic > 0 ? beforeAmount / beforeCubic : 0)
+                {/*
+                  多选时所有源包的规格行**平铺**：每行标「源包号」，同一包的行相邻排。
+                  第一行旁边有个「移除」，把这一包从这次改包里拿掉。
+                  长度 / 片数保持单值（一段一行）—— 混装包在库里本来就是一段一行，
+                  要合成斜杠串是「改包后」那边的事。
+                */}
+                {beforeLines.map((line, index) => {
+                  const isFirstOfBale =
+                    index === 0 || beforeLines[index - 1].srcBaleId !== line.srcBaleId
+                  return (
+                    <tr key={`before-${line.srcBaleId}-${line.id ?? index}`}>
+                      <td className="col-no">{index + 1}</td>
+                      <td>
+                        <span>{line.srcBaleNo || '—'}</span>
+                        {isFirstOfBale && (
+                          <button
+                            type="button"
+                            className="sheet-act sheet-act-danger"
+                            style={{ marginLeft: 6 }}
+                            title="把这一包从这次改包里移除"
+                            onClick={() => removePickedBale(line.srcBaleId as number)}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </td>
+                      <td>{line.brand || '—'}</td>
+                      <td>{line.species}</td>
+                      <td>{line.grade || '—'}</td>
+                      <td>{line.thickness}</td>
+                      <td>{line.width}</td>
+                      <td>{line.length}</td>
+                      <td>{line.pieces}</td>
+                      <td className="col-unit num">{formatCubic(lineCubic(line))}</td>
+                      <td className="col-unit">m³</td>
+                      {money && <td className="num">{formatAmount(beforePriceOf(line))}</td>}
+                      {money && (
+                        <td className="num">
+                          {formatAmount(lineCubic(line) * beforePriceOf(line))}
+                        </td>
                       )}
-                    </td>
-                  )}
-                  {money && <td className="num">{formatAmount(beforeAmount)}</td>}
-                  <td className="col-code">{bale.barcode || '—'}</td>
-                </tr>
+                      <td className="col-code">{line.srcBarcode || '—'}</td>
+                    </tr>
+                  )
+                })}
 
                 {/* 成本价匹配到多行的，逐行让用户挑一个（挑完才能保存） */}
                 {ambiguousLines.map((line) => (
@@ -1138,8 +1224,10 @@ export default function Repack() {
                         </button>
                       </span>
                     </td>
-                    {/* 旧包号：只读展示，让人知道这一行原来属于哪一包 */}
-                    <td className="col-no">{bale?.bale_no || '—'}</td>
+                    {/* 旧包号：这一行是从哪一包搬来的（手填的行没有 → 「—」） */}
+                    <td className="col-no">
+                      {pickedBales.find((one) => one.id === row.srcBaleId)?.bale_no || '—'}
+                    </td>
                     {/* 新包号：相同的算同一包；留空就是空的，系统不会替你编一个 */}
                     <td className="col-split-no">
                       <input
@@ -1341,7 +1429,8 @@ export default function Repack() {
             <tr>
               <th>日期</th>
               <th>单号</th>
-              <th>包号</th>
+              <th>源包号</th>
+              <th>包数</th>
               <th>条码号</th>
               <th>提单号</th>
               <th>改前</th>
@@ -1362,7 +1451,14 @@ export default function Repack() {
               <tr key={row.id}>
                 <td>{row.repack_date}</td>
                 <td>{row.repack_no}</td>
-                <td>{row.bale_no || '—'}</td>
+                <td>
+                  {(row.source_bale_nos ?? []).length > 0
+                    ? (row.source_bale_nos ?? []).join('、')
+                    : row.bale_no || '—'}
+                </td>
+                <td className="num">
+                  {row.source_bale_count ?? 1} → {row.bale_count}
+                </td>
                 <td>{row.barcode || '—'}</td>
                 <td>{row.bl_no || '—'}</td>
                 <td>
@@ -1421,7 +1517,8 @@ export default function Repack() {
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={7} className="sheet-total-label">
+              {/* 领先列：日期 / 单号 / 源包号 / 包数 / 条码号 / 提单号 / 改前 / 改后 = 8 */}
+              <td colSpan={8} className="sheet-total-label">
                 合计
               </td>
               <td className="num">{formatCubic(sums?.before_cubic ?? 0)}</td>
@@ -1429,6 +1526,7 @@ export default function Repack() {
               {money && <td className="num">{formatAmount(sums?.before_amount ?? 0)}</td>}
               {money && <td className="num">{formatAmount(sums?.after_amount ?? 0)}</td>}
               <td className="num">{formatCubic(sums?.loss_cubic ?? 0)}</td>
+              {/* 损耗率 / 摘要 / 制单人 / 操作 */}
               <td colSpan={4} />
             </tr>
           </tfoot>
@@ -1454,7 +1552,11 @@ export default function Repack() {
             <div className="modal-head">
               <h2 className="modal-title">
                 改包记录 {viewTarget.repack_no}
-                {viewTarget.kind === 'split' ? '（拆包）' : '（改规格）'}
+                {viewTarget.kind === 'split'
+                  ? (viewTarget.source_bale_count ?? 1) > 1
+                    ? `（${viewTarget.source_bale_count} 包 → ${viewTarget.bale_count} 包）`
+                    : `（拆包 ${viewTarget.bale_count} 包）`
+                  : '（改规格）'}
               </h2>
               <button className="btn btn-sm btn-quiet" onClick={() => setViewTarget(null)}>
                 关闭
@@ -1469,7 +1571,13 @@ export default function Repack() {
               <span>制单人：{viewTarget.created_by || '—'}</span>
             </div>
 
-            <h3 className="section-title">改包前（1 包 · {formatCubic(viewTarget.before_cubic)} m³）</h3>
+            <h3 className="section-title">
+              改包前（{viewTarget.source_bale_count ?? 1} 包
+              {(viewTarget.source_bale_nos ?? []).length > 0
+                ? `：${(viewTarget.source_bale_nos ?? []).join('、')}`
+                : ''}
+              　· {formatCubic(viewTarget.before_cubic)} m³）
+            </h3>
             {renderSpecTable(viewTarget.before_items)}
 
             <h3 className="section-title" style={{ marginTop: 22 }}>
@@ -1603,12 +1711,44 @@ export default function Repack() {
                 重置
               </button>
               <span className="spacer" />
-              <span className="muted">共 {pickerTotal} 包</span>
+              <span className="muted">
+                共 {pickerTotal} 包 · 勾选后点右边「加进本次改包」
+              </span>
+              <button
+                className="btn btn-primary"
+                onClick={() =>
+                  // 按"勾选的先后"加进去（用户先勾的那包排在前面，第一个当主包）
+                  void addPickedBales(
+                    pickerPicked
+                      .map((id) => pickerRows.find((one) => one.id === id))
+                      .filter((one): one is BaleRow => Boolean(one)),
+                  )
+                }
+                disabled={pickerPicked.length === 0}
+              >
+                加进本次改包（{pickerPicked.length}）
+              </button>
             </div>
 
             <table className="table">
               <thead>
                 <tr>
+                  <th className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={
+                        pickerRows.length > 0 &&
+                        pickerRows.every((one) => pickerPicked.includes(one.id))
+                      }
+                      onChange={(event) =>
+                        setPickerPicked(
+                          event.target.checked
+                            ? [...new Set([...pickerPicked, ...pickerRows.map((one) => one.id)])]
+                            : pickerPicked.filter((id) => !pickerRows.some((one) => one.id === id)),
+                        )
+                      }
+                    />
+                  </th>
                   <th>包号</th>
                   <th>品名</th>
                   <th>等级</th>
@@ -1620,12 +1760,28 @@ export default function Repack() {
                   <th>柜号</th>
                   <th>提单码</th>
                   <th>状态</th>
-                  <th>操作</th>
                 </tr>
               </thead>
               <tbody>
-                {pickerRows.map((row) => (
-                  <tr key={row.id}>
+                {pickerRows.map((row) => {
+                  const already = baleIds.includes(row.id)
+                  return (
+                  <tr key={row.id} className={already ? 'row-active' : undefined}>
+                    <td className="col-check">
+                      <input
+                        type="checkbox"
+                        disabled={already}
+                        title={already ? '这一包已经在下面了' : '勾选，然后点右上角「加进本次改包」'}
+                        checked={already || pickerPicked.includes(row.id)}
+                        onChange={(event) =>
+                          setPickerPicked((prev) =>
+                            event.target.checked
+                              ? [...prev, row.id]
+                              : prev.filter((id) => id !== row.id),
+                          )
+                        }
+                      />
+                    </td>
                     <td>{row.bale_no || '—'}</td>
                     <td>{row.species}</td>
                     <td>{row.grade || '—'}</td>
@@ -1645,13 +1801,9 @@ export default function Repack() {
                         {row.status === 'in_stock' ? '在库' : '已出库'}
                       </span>
                     </td>
-                    <td>
-                      <button className="btn btn-sm btn-primary" onClick={() => void pickFromPicker(row)}>
-                        选择
-                      </button>
-                    </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
 

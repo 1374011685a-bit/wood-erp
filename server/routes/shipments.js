@@ -19,8 +19,16 @@ function todayLocal() {
 const findShipmentStmt = db.prepare(
   `SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL`,
 )
+/**
+ * 按提单号查：**大小写不敏感 + 两边都去空格**。
+ *
+ * 这里以前是精确匹配（`bl_no = ?`），于是「DUPTEST」建完再建「duptest」能建出第二张 ——
+ * 用户看到的「提单号重复」就是这么来的。口径必须和入库那边（inbound.js 的
+ * findShipmentByNoStmt）完全一致。
+ */
 const findByNoStmt = db.prepare(
-  `SELECT * FROM shipments WHERE bl_no = ? AND deleted_at IS NULL`,
+  `SELECT * FROM shipments
+    WHERE lower(trim(bl_no)) = lower(trim(?)) AND deleted_at IS NULL`,
 )
 
 /**
@@ -165,7 +173,8 @@ const insertContainer = db.prepare(
 
 const createShipment = db.transaction(({ blNo, contractNo, supplier, arrivalDate, remark, containerNos }) => {
   const { lastInsertRowid } = insertShipment.run({
-    bl_no: blNo,
+    // 统一去空格（大小写保留原样，反正查重不区分大小写）
+    bl_no: String(blNo).trim(),
     contract_no: contractNo || null,
     supplier: supplier || null,
     arrival_date: arrivalDate,

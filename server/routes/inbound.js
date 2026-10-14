@@ -113,8 +113,16 @@ const insertOrder = db.prepare(
 const findShipmentStmt = db.prepare(
   `SELECT * FROM shipments WHERE id = ? AND deleted_at IS NULL`,
 )
+/**
+ * 按提单号找提单：**大小写不敏感 + 两边都去空格**。
+ *
+ * 一票货可能分几天入完，同一个提单号必须归到同一张；
+ * 之前只 lower 了、没 trim 库里那侧，存量里带空格的号会永远匹配不上，
+ * 结果就是同一票货建出两张提单（用户报的「提单号重复」）。
+ */
 const findShipmentByNoStmt = db.prepare(
-  `SELECT * FROM shipments WHERE lower(bl_no) = lower(?) AND deleted_at IS NULL`,
+  `SELECT * FROM shipments
+    WHERE lower(trim(bl_no)) = lower(trim(?)) AND deleted_at IS NULL`,
 )
 const insertShipmentStmt = db.prepare(
   `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
@@ -122,13 +130,60 @@ const insertShipmentStmt = db.prepare(
 )
 
 /**
+ * 这个提单号下「活着的」（deleted_at IS NULL）入库单里最新的一张。
+ *
+ * 用途：入库保存前先问一句 —— 同一票货是不是已经录过一张单了？
+ * `excludeId` 给编辑用：编辑自己那张单时不能把自己当成"占用者"。
+ *
+ * 立方口径 = 这张单的入库明细合计，和入库单列表里的「总立方」完全一致
+ * （同样不排除明细的软删，保证两处数字对得上）。
+ */
+const liveOrderByBlNoStmt = db.prepare(
+  `SELECT o.id, o.order_no, o.order_date, o.supplier,
+          ROUND(COALESCE(SUM(i.cubic), 0), 4) AS cubic,
+          COUNT(i.id)                         AS item_count
+     FROM inbound_orders o
+     LEFT JOIN order_items i
+            ON i.order_id = o.id AND i.order_type = 'in'
+    WHERE o.deleted_at IS NULL
+      AND lower(trim(o.bl_no)) = lower(trim(?))
+      AND o.id <> ?
+    GROUP BY o.id
+    ORDER BY o.id DESC
+    LIMIT 1`,
+)
+const findLiveOrderByBlNo = (blNo, excludeId = 0) => {
+  const key = String(blNo ?? '').trim()
+  if (!key) return null
+  return liveOrderByBlNoStmt.get(key, Number(excludeId) || 0) ?? null
+}
+
+/**
+ * 「这个提单号已经有活单」的 409 返回体。
+ *
+ * 除了给人看的中文提示，还把那张单的 id / 单号 / 已入立方一起带回去 ——
+ * 前端要靠 id 跳「去编辑那张单」，靠立方拼提示。
+ * 前端带 `force: true` 重发就跳过这条校验（用户点了「仍要新建」）。
+ */
+const blHasLiveOrderResponse = (blNo, clash) => ({
+  error:
+    `提单号 ${blNo} 已经有一张入库单（${clash.order_no}，已入 ${clash.cubic} 方）。` +
+    '去编辑那张单追加，还是仍要新建？',
+  code: 'BL_HAS_ORDER',
+  order: { id: clash.id, order_no: clash.order_no, cubic: clash.cubic },
+})
+
+/** 前端点「仍要新建」时带过来的 force 标记 */
+const wantsForce = (body) => body?.force === true || String(body?.force ?? '') === 'true'
+
+/**
  * 把「这次请求里刚建的提单」撤掉。
  *
  * 为什么需要：手打新提单号时我们会顺手建一张提单，然后才做明细预检。
  * 预检/写库失败时如果不撤，库里就留下一张 0 包的空提单（还能在提单下拉里选到）。
- * 只有确认这张提单下面一包货都没有，才真删。
+ * 只有确认这张提单下面**一包货都没有、也没有别的单据挂着**，才真删。
  */
-function dropEmptyShipment(shipmentId) {
+function dropEmptyShipment(shipmentId, exceptOrderId = 0) {
   if (!shipmentId) return
   const bales =
     db
@@ -138,6 +193,15 @@ function dropEmptyShipment(shipmentId) {
       )
       .get(shipmentId)?.total ?? 0
   if (bales > 0) return
+  // 别的单据还挂在这张提单上就不能删（编辑改提单号时老提单可能还有别的单在用）
+  const orders =
+    db
+      .prepare(
+        `SELECT COUNT(*) AS total FROM inbound_orders
+          WHERE shipment_id = ? AND deleted_at IS NULL AND id <> ?`,
+      )
+      .get(shipmentId, Number(exceptOrderId) || 0)?.total ?? 0
+  if (orders > 0) return
   db.prepare(`DELETE FROM shipments WHERE id = ?`).run(shipmentId)
 }
 
@@ -274,6 +338,17 @@ router.post('/', requireCap('inbound.write'), (req, res) => {
     return res.status(400).json({ error: problems.join('\n') })
   }
 
+  /**
+   * ── 这个提单号已经有一张活单了？──
+   * 一票货可能分几天入完，系统不拦"再开一张"，但要让用户**先确认**：
+   * 去那张单上追加，还是确实要另开一张（前端带 force: true 表示"仍要新建"）。
+   * 放在建提单之前：确认阶段不该顺手建出一张空提单。
+   */
+  if (!wantsForce(body)) {
+    const clash = findLiveOrderByBlNo(blNo)
+    if (clash) return res.status(409).json(blHasLiveOrderResponse(blNo, clash))
+  }
+
   // ── 再解析 / 建档提单 ──
   let shipment = null
   // 记下「这次请求里新建的提单」：万一后面校验失败，要把它删掉，不留 0 包空提单
@@ -345,7 +420,7 @@ router.post('/', requireCap('inbound.write'), (req, res) => {
 const updateOrderStmt = db.prepare(
   `UPDATE inbound_orders
       SET supplier = ?, order_date = ?, remark = ?, warehouse = ?, operator = ?,
-          bl_no = ?, contract_no = ?, vehicle_no = ?
+          bl_no = ?, contract_no = ?, vehicle_no = ?, shipment_id = ?
     WHERE id = ? AND deleted_at IS NULL`,
 )
 const replaceOrderItemsStmt = db.prepare(
@@ -397,6 +472,36 @@ const updateInbound = db.transaction(
     error.status = 404
     throw error
   }
+
+  /**
+   * 提单号可能被改过：按新号（lower + trim）查已有的提单，查不到就建一张，
+   * 然后把这一单**连同它的包**都挂到那张提单上（条码号前缀也跟着新提单走）。
+   *
+   * 之前这里直接沿用 order.shipment_id：用户改了提单号，单上的号变了、
+   * 挂的还是老提单，条码号也还是老前缀 —— 两边对不上。
+   */
+  const previousShipmentId = order.shipment_id ?? null
+  const targetBlNo = String(blNo ?? '').trim()
+  let shipmentId = previousShipmentId
+  let shipmentNo = null
+  if (targetBlNo) {
+    const hit = findShipmentByNoStmt.get(targetBlNo)
+    if (hit) {
+      shipmentId = hit.id
+      shipmentNo = hit.bl_no
+    } else {
+      const { lastInsertRowid } = insertShipmentStmt.run(
+        targetBlNo,
+        contractNo || null,
+        supplier || null,
+        orderDate || order.order_date || null,
+        '编辑入库单时自动建档',
+      )
+      shipmentId = Number(lastInsertRowid)
+      shipmentNo = targetBlNo
+    }
+  }
+
   // 改动前的这张单金额（用于回报「金额有没有变」）
   const amountBefore = fromCents(
     Number(
@@ -456,15 +561,14 @@ const updateInbound = db.transaction(
   }
   db.prepare(`DELETE FROM bales WHERE inbound_order_id = ?`).run(id)
 
-  const container = order.shipment_id
-    ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(order.shipment_id)
-    : null
+  // 提单按上面解析出来的那张（改了号就是新那张）
+  const container = shipmentNo ? { bl_no: shipmentNo } : null
   const barcodes = []
   for (const item of items) {
     const created = createBalesForItem({
       item,
       specs: item.specs,
-      shipmentId: order.shipment_id ?? null,
+      shipmentId: shipmentId ?? null,
       shipmentNo: container?.bl_no ?? null,
       inboundOrderId: id,
       inboundOrderNo: order.order_no,
@@ -513,11 +617,20 @@ const updateInbound = db.transaction(
     remark || null,
     warehouse,
     operator || null,
-    blNo || null,
+    targetBlNo || null,
     contractNo || null,
     vehicleNo || null,
+    shipmentId ?? null,
     id,
   )
+
+  /**
+   * 老提单如果空了（这一单是它唯一的使用者、包也都搬走了）就顺手删掉，
+   * 别在提单下拉里留一张 0 包的空壳。
+   */
+  if (previousShipmentId && previousShipmentId !== shipmentId) {
+    dropEmptyShipment(previousShipmentId, id)
+  }
 
   return {
     id,
@@ -607,6 +720,22 @@ router.put('/:id', requireCap('inbound.write'), (req, res) => {
   const legacyNoBl = !String(existing.bl_no ?? '').trim()
   if (!blNo && !legacyNoBl) {
     return res.status(400).json({ error: '提单号必填，一票货一个号' })
+  }
+
+  /**
+   * **把提单号改成别的单正在用的号** → 409（和新建同一套提示）。
+   *
+   * 只在"号确实变了"时才查：提单号没变就直接放行 —— 库里本来就可能有
+   * 同号的多张单（用户确认过"仍要新建"就会这样），编辑其中一张时
+   * 不该被另一张自己撞自己。`excludeOrderId` 传自己双保险；
+   * 前端点「仍要新建」带 force: true 一样跳过。
+   */
+  const blChanged =
+    String(blNo ?? '').trim().toLowerCase() !==
+    String(existing.bl_no ?? '').trim().toLowerCase()
+  if (blChanged && !wantsForce(body)) {
+    const clash = findLiveOrderByBlNo(blNo, id)
+    if (clash) return res.status(409).json(blHasLiveOrderResponse(blNo, clash))
   }
 
   const shipped = Number(
@@ -764,6 +893,22 @@ router.get('/', (req, res) => {
   res.json({ total, limit, offset, rows })
 })
 
+/**
+ * 按提单号查「这票货下面还有没有活着的入库单」。
+ *
+ * 前端提单号输入框失焦时调它做就地提示；保存撞号时的 409 用的是同一套判断。
+ * ⚠️ 这个路由必须注册在 `GET /:id` 之前 —— 否则 Express 会把 "by-bl"
+ *    当成 id 传进去（Number('by-bl') = NaN → 404）。
+ */
+router.get('/by-bl', (req, res) => {
+  const blNo = String(req.query.bl_no ?? '').trim()
+  const excludeId = Number(req.query.exclude_id) || 0
+  res.json({
+    bl_no: blNo,
+    order: blNo ? findLiveOrderByBlNo(blNo, excludeId) : null,
+  })
+})
+
 // 入库单详情：单头 + 全部明细
 router.get('/:id', (req, res) => {
   const id = Number(req.params.id)
@@ -917,6 +1062,26 @@ const shippedBaleCountStmt = db.prepare(
   `SELECT COUNT(*) AS total FROM bales
     WHERE inbound_order_id = ? AND status = 'shipped'`,
 )
+/**
+ * 删单闸用的查询：这张单下面的包里，有没有「混了别的入库单的货」？
+ *
+ * 跨单合并包（多包并一包）的 `bales.inbound_order_id` 只记得"主单"，
+ * 里面却可能装着别的单的规格行（`bale_items.src_inbound_order_id` 指向别的单）。
+ * 删主单会把整包一起软删 —— 属于别那张单的那部分货就变成
+ * 「有库存、没有包」：库存页/合同进度还显示它在库，但出库要选包，选不到，发不出去。
+ * 所以这里先拦下来，让仓管先把混包拆开。
+ */
+const mixedSourceBaleStmt = db.prepare(
+  `SELECT b.bale_no, bi.src_inbound_order_id AS other_order_id,
+          o.order_no AS other_order_no
+     FROM bales b
+     JOIN bale_items bi ON bi.bale_id = b.id
+     LEFT JOIN inbound_orders o ON o.id = bi.src_inbound_order_id
+    WHERE b.inbound_order_id = ? AND b.deleted_at IS NULL
+      AND bi.src_inbound_order_id IS NOT NULL
+      AND bi.src_inbound_order_id <> ?
+    LIMIT 1`,
+)
 // 包只打删除标记，不真删：回收站恢复单据时，包和条码号要跟着回来
 const softDeleteBalesStmt = db.prepare(
   `UPDATE bales SET deleted_at = datetime('now', 'localtime')
@@ -1028,6 +1193,20 @@ router.delete('/:id', requireCap('inbound.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '入库单 ID 不合法' })
+  }
+
+  /**
+   * 删单闸：这一单下面的包里混了**别的入库单**的货 → 不让删。
+   * 否则整包跟着这一单被软删，别那张单的货就变成「有库存、没有包」，发不出去。
+   */
+  const mixed = mixedSourceBaleStmt.get(id, id)
+  if (mixed) {
+    return res.status(400).json({
+      error:
+        `这一包里混了别的入库单（${mixed.other_order_no ?? mixed.other_order_id}）的货，` +
+        '请先改包把它们分开',
+      code: 'BALE_MIXED_SOURCE',
+    })
   }
 
   try {

@@ -49,6 +49,11 @@ export type CreateInboundPayload = {
   /** 整票到货时选提单，合同号/提单号从提单上继承 */
   shipment_id?: number
   items: InboundItemPayload[]
+  /**
+   * 这个提单号已经有一张活单时，后端回 409 让用户先确认；
+   * 点「仍要新建」→ 用同一份 payload 加 `force:true` 重发，跳过这条校验。
+   */
+  force?: boolean
 }
 
 export type CreateInboundResult = {
@@ -205,10 +210,41 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
      * 后端统一回「你没有这个操作的权限，请联系管理员」，这里原样抛给调用方弹提示。
      */
 
-    throw new Error(message)
+    /**
+     * 把状态码和**原始返回体**一起挂在 error 上。
+     *
+     * 有些错误不是"一句话"就够的：比如入库保存撞上"这个提单号已经有活单"，
+     * 后端回 409 + `{ code:'BL_HAS_ORDER', order:{ id, order_no, cubic } }`，
+     * 前端要靠 `order.id` 跳「去编辑那张单」。以前这里把 body 拍平成一句 message，
+     * 那些字段就丢了，跳不过去。
+     */
+    const error = new Error(message) as ApiError
+    error.status = response.status
+    error.payload = data as ApiError['payload']
+    throw error
   }
 
   return data as T
+}
+
+/** 接口报错：除了 message，还带着 HTTP 状态码和后端原始返回体 */
+export type ApiError = Error & {
+  status?: number
+  payload?: {
+    error?: string
+    code?: string
+    /** `code: 'BL_HAS_ORDER'` 时带上那张已在用这个提单号的入库单 */
+    order?: { id: number; order_no: string; cubic: number }
+  } | null
+}
+
+/** 「这个提单号已经有一张活单」的 409（入库保存时要弹三按钮确认） */
+export function isBlHasOrderError(err: unknown): err is ApiError {
+  return (
+    err instanceof Error &&
+    (err as ApiError).status === 409 &&
+    (err as ApiError).payload?.code === 'BL_HAS_ORDER'
+  )
 }
 
 /* ---------- 认证接口 ---------- */
@@ -377,6 +413,19 @@ export function updateInbound(id: number, payload: CreateInboundPayload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
+}
+
+/**
+ * 按提单号查「这票货下面还有没有活着的入库单」（提单号输入框失焦时用）。
+ * `excludeId`：编辑入库单时排除自己那张。
+ */
+export function fetchInboundByBlNo(params: { blNo: string; excludeId?: number }) {
+  const query = new URLSearchParams({ bl_no: params.blNo })
+  if (params.excludeId) query.set('exclude_id', String(params.excludeId))
+  return request<{
+    bl_no: string
+    order: { id: number; order_no: string; order_date: string; supplier: string; cubic: number; item_count: number } | null
+  }>(`/api/inbound/by-bl?${query.toString()}`)
 }
 
 /* ---------- 出库 ---------- */
@@ -1097,6 +1146,11 @@ export function deleteDictItem(id: number) {
 export type RepackLine = {
   /** 规格行 id（包里的行才有；改包前选成本价要按它回传） */
   id?: number
+  /** 这一行来自哪张入库单（合并改包时一包里会混好几张单的货） */
+  src_inbound_order_id?: number | null
+  /** 这一行来自哪个源包（改包前的行会带；「查看」弹窗按它归类） */
+  src_bale_id?: number | null
+  src_bale_no?: string
   brand?: string
   species: string
   grade: string
@@ -1152,6 +1206,10 @@ export type RepackRow = {
     barcode: string
     items: RepackLine[]
   }> | null
+  /** 这条记录改了几个源包（多选改包 ≥ 2）*/
+  source_bale_count: number
+  /** 源包号（空的跳过），列表 / 查看里显示「A2、A5」 */
+  source_bale_nos: string[]
   bl_no: string
   contract_no: string
   created_at: string
@@ -1207,7 +1265,8 @@ export function fetchRepackList(query: RepackQuery = {}) {
 
 export function createRepack(payload: {
   repack_date: string
-  bale_id: number
+  /** 源包（多选改包）：1 个就是改这一包，多个就是合并 / 重排 */
+  bale_ids: number[]
   summary?: string
   remark?: string
   bl_no?: string
@@ -1231,6 +1290,11 @@ export function createRepack(payload: {
       length: number | string
       pieces: number | string
       unit_price?: number
+      /**
+       * 这一行是从哪个源包来的（「复制改包前数据」「一键拆包」会自动带上）。
+       * 后端据此把这一行的账落回原来那张入库单；不带就按规格匹配。
+       */
+      srcBaleId?: number
     }>
   }>
 }) {
@@ -1247,9 +1311,13 @@ export function createRepack(payload: {
 }
 
 export function deleteRepack(id: number) {
-  return request<{ ok: boolean; repack_no: string }>(`/api/repacks/${id}`, {
-    method: 'DELETE',
-  })
+  return request<{
+    ok: boolean
+    repack_no: string
+    /** 撤销后回来的源包（新 id）——「编辑」用它把源包重新选回来 */
+    restored_bales?: Array<{ id: number; bale_no: string; barcode: string }>
+    restored_bale?: string
+  }>(`/api/repacks/${id}`, { method: 'DELETE' })
 }
 
 // 新增 / 修改合同（multipart，含 PDF 文件）

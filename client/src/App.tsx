@@ -65,6 +65,8 @@ export default function App() {
           <Route path="inbound" element={<Inbound defaultMode="list" />} />
           {/* 首页「新增入库 / 新增出库」直接落到录入界面 */}
           <Route path="inbound/new" element={<Inbound defaultMode="method" />} />
+          {/* 编辑某张入库单：可直接分享/跳转的地址（列表的「编辑」按钮也走这里） */}
+          <Route path="inbound/edit/:id" element={<Inbound defaultMode="edit" />} />
           <Route path="outbound" element={<Outbound />} />
           <Route path="outbound/new" element={<Outbound defaultMode="create" />} />
           <Route path="stock" element={<Stock />} />

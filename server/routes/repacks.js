@@ -178,6 +178,9 @@ const snapshotLine = (item, cents) => {
       ? { src_inbound_order_id: Number(item.src_inbound_order_id) }
       : {}),
     ...(Number(item.src_bale_id ?? 0) > 0 ? { src_bale_id: Number(item.src_bale_id) } : {}),
+    ...(Number(item.srcBaleId ?? 0) > 0 && Number(item.src_bale_id ?? 0) === 0
+      ? { src_bale_id: Number(item.srcBaleId) }
+      : {}),
     ...(item.src_bale_no ? { src_bale_no: String(item.src_bale_no) } : {}),
   }
 }
@@ -236,6 +239,7 @@ function parseAfterSnapshot(text) {
 const toApi = (row) => ({
   ...(() => {
     const after = parseAfterSnapshot(row.after_json)
+    const sources = readSourceSnapshots(row.before_bale_json)
     return {
       /** 'spec' 改规格 / 'split' 拆包 */
       kind: row.kind ?? 'spec',
@@ -245,6 +249,10 @@ const toApi = (row) => ({
       after_bales: after.bales,
       /** 拆出来的包数（改规格固定 1） */
       bale_count: (row.kind === 'split' ? safeParseArray(row.after_bale_ids).length : 1) || 1,
+      /** 这次改了几个源包（多选改包 ≥ 2）；列表 / 查看显示「N 包 → M 包」用 */
+      source_bale_count: sources.length || 1,
+      /** 源包号（空的跳过） */
+      source_bale_nos: sources.map((one) => one.bale_no).filter(Boolean),
     }
   })(),
   id: row.id,
@@ -488,7 +496,9 @@ const sameSpecLine = (a, b) =>
   Number(a.pieces) === Number(b.pieces)
 
 const findShipmentByNoStmt = db.prepare(
-  `SELECT * FROM shipments WHERE lower(bl_no) = lower(?) AND deleted_at IS NULL`,
+  // 和入库 / 提单管理一个口径：大小写不敏感 + 两边去空格
+  `SELECT * FROM shipments
+    WHERE lower(trim(bl_no)) = lower(trim(?)) AND deleted_at IS NULL`,
 )
 const insertShipmentStmt = db.prepare(
   `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
@@ -500,7 +510,8 @@ const insertShipmentStmt = db.prepare(
  * 用户确认过：填了就建档）。已经存在的提单不会被改合同号，只补空的那一项。
  */
 function findOrCreateShipment(blNo, contractNo) {
-  const hit = findShipmentByNoStmt.get(blNo)
+  const wanted = String(blNo ?? '').trim()
+  const hit = findShipmentByNoStmt.get(wanted)
   if (hit) {
     if (contractNo && !String(hit.contract_no ?? '').trim()) {
       db.prepare(`UPDATE shipments SET contract_no = ? WHERE id = ?`).run(contractNo, hit.id)
@@ -509,13 +520,13 @@ function findOrCreateShipment(blNo, contractNo) {
     return hit
   }
   const { lastInsertRowid } = insertShipmentStmt.run(
-    blNo,
+    wanted,
     contractNo || null,
     null,
     todayLocal(),
     '改包时自动建档',
   )
-  return { id: Number(lastInsertRowid), bl_no: blNo, contract_no: contractNo || null }
+  return { id: Number(lastInsertRowid), bl_no: wanted, contract_no: contractNo || null }
 }
 
 const createRepack = db.transaction((payload) => {
@@ -794,9 +805,13 @@ const createRepack = db.transaction((payload) => {
      * 反过来（先删源包）的话，如果源包正好是这张提单里最大的号，
      * 新号会从它的编号重新开始，跟刚撕下来那张已打印的标签撞号。
      *
-     * 按「提单 + 入库单」这个取号上下文分批取：同上下文一次取够，避免两组拿到同一个号。
+     * 取号上下文 = **条码号前缀的来源**：
+     *   有提单 → 前缀取提单号（同一张提单下的所有新包共用一个池）
+     *   没提单（散货）→ 前缀取入库单号（按单分池）
+     * 同一个池一次取够，避免两组各自计算序列、拿到同一个号。
      */
-    const contextKey = (meta) => `${meta.shipmentId ?? 'x'}|${meta.inboundOrderId ?? 'x'}`
+    const contextKey = (meta) =>
+      meta.shipmentId ? `s${meta.shipmentId}` : `o${meta.inboundOrderId ?? 'x'}`
     const barcodePool = new Map()
     const barcodes = groupByIndex.map((meta) => {
       const key = contextKey(meta)

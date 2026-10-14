@@ -4088,6 +4088,39 @@ section > .toolbar .btn-primary {
   cursor: not-allowed;
 }
 
+/*
+ * 表单里的「就地提示」：比如提单号下面那句
+ * 「这个提单号已经有入库单 RK…（已入 5.2624 方）」。
+ * 橘色小字，和红色的校验错误区分开 —— 它只是个提醒，不拦人。
+ */
+.bl-hint {
+  display: block;
+  margin-top: 6px;
+  color: #b26a00;
+  background-color: #fff8e6;
+  border: 1px solid #ffe2a8;
+  border-radius: 8px;
+  padding: 6px 10px;
+  line-height: 1.5;
+}
+
+/* 提示里那种「看起来像链接」的按钮 */
+.link-btn {
+  margin-left: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--blue);
+  font-size: inherit;
+  font-family: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: #0058b0;
+}
+
 .sheet-table tfoot td {
   height: 36px;
   background-color: #fafafa;

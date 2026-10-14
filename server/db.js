@@ -939,6 +939,99 @@ function migrateBaleNoGlobalUnique() {
   }
 }
 
+/**
+ * 提单号：查重口径「大小写不敏感 + 去空格」，并且**软删的不占号**。
+ *
+ * 1) 存量里带空格的号统一去空格（`'X '` → `'X'`），否则拿 `'X'` 永远查不到它，
+ *    同一票货就会建出第二张提单；
+ * 2) 加表达式唯一索引 `lower(trim(bl_no)) WHERE deleted_at IS NULL` ——
+ *    表上原有的只是列的 `UNIQUE(bl_no)`（精确匹配），`'ABC'` 和 `'abc'` 能并存；
+ * 3) 建索引前先自检非软删的重号：确实有（只是大小写 / 空格不同）就**不建唯一索引**，
+ *    打日志列出来让人先合并，避免启动直接失败；这时退化成普通索引，查询不会变慢。
+ */
+/**
+ * 提单号：把建表时写死的那句列级 `UNIQUE(bl_no)` 拆掉。
+ *
+ * 它是**精确匹配**的唯一约束，而且**连软删的行也占着号** ——
+ * 把一张提单删进回收站后，用同一个号（连大小写都一样）再建，
+ * 会直接报 `UNIQUE constraint failed: shipments.bl_no`。
+ * SQLite 删不掉列上的约束，只能重建表：建新表 → 搬数据 → 删旧表 → 改名。
+ * 唯一性改由 `migrateShipmentBlNoUnique()` 建的部分索引负责
+ * （大小写不敏感 + 去空格 + 排除软删），那个函数跑在这个**之后**。
+ */
+function migrateShipmentDropInlineUnique() {
+  const tableSql =
+    db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='shipments'`)
+      .get()?.sql ?? ''
+  if (!/bl_no\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(tableSql)) return
+
+  db.exec(`
+    CREATE TABLE shipments_new (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      bl_no         TEXT    NOT NULL,
+      contract_no   TEXT,
+      supplier      TEXT,
+      arrival_date  TEXT,
+      remark        TEXT,
+      deleted_at    TEXT,
+      created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    INSERT INTO shipments_new
+      (id, bl_no, contract_no, supplier, arrival_date, remark, deleted_at, created_at)
+      SELECT id, trim(bl_no), contract_no, supplier, arrival_date, remark, deleted_at, created_at
+        FROM shipments;
+    DROP TABLE shipments;
+    ALTER TABLE shipments_new RENAME TO shipments;
+    CREATE INDEX IF NOT EXISTS idx_shipments_contract ON shipments (contract_no);
+  `)
+  writeLog(
+    '[db] 迁移：重建 shipments 表（去掉列级 UNIQUE，改用「大小写不敏感 + 去空格 + 软删不占号」的唯一索引）',
+  )
+}
+
+function migrateShipmentBlNoUnique() {
+  // 先确保表上没有「列级 UNIQUE」—— 它连软删的行也占着号（见上一个迁移）
+  const trimmed = db
+    .prepare(`UPDATE shipments SET bl_no = trim(bl_no) WHERE trim(bl_no) <> bl_no`)
+    .run()
+
+  const dupes = db
+    .prepare(
+      `SELECT lower(trim(bl_no)) AS key, COUNT(*) AS n, group_concat(id) AS ids
+         FROM shipments
+        WHERE deleted_at IS NULL
+        GROUP BY lower(trim(bl_no))
+       HAVING COUNT(*) > 1`,
+    )
+    .all()
+
+  if (dupes.length > 0) {
+    writeLog(`[db] ⚠️ 提单号有 ${dupes.length} 组重号（只是大小写 / 空格不同），本次不建唯一索引：`)
+    for (const one of dupes) writeLog(`       「${one.key}」→ id ${one.ids}`)
+    writeLog('[db]       合并这些提单后重启，会自动补上唯一索引')
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_shipments_bl_no_lookup ON shipments (lower(trim(bl_no)))`,
+    )
+    return
+  }
+
+  const exists = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_shipments_bl_no'`)
+    .get()
+  if (exists) return
+
+  db.exec(
+    `CREATE UNIQUE INDEX idx_shipments_bl_no
+       ON shipments (lower(trim(bl_no)))
+     WHERE deleted_at IS NULL`,
+  )
+  writeLog(
+    '[db] 迁移：提单号唯一索引（大小写不敏感 + 去空格，软删不占号）' +
+      (trimmed.changes > 0 ? `；顺手去空格 ${trimmed.changes} 行` : ''),
+  )
+}
+
 function migrateBaleSoftDelete() {
   const added = addColumnIfMissing('bales', 'deleted_at', 'TEXT')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_deleted ON bales (deleted_at)`)
@@ -1289,7 +1382,11 @@ function migrateDropContainerLayer() {
   for (const box of orphans) {
     const blNo = String(box.bl_no ?? '').trim() || box.container_no
     const exists = db
-      .prepare(`SELECT id FROM shipments WHERE bl_no = ? AND deleted_at IS NULL`)
+      // 和入库 / 提单管理一个口径：大小写不敏感 + 两边去空格
+      .prepare(
+        `SELECT id FROM shipments
+          WHERE lower(trim(bl_no)) = lower(trim(?)) AND deleted_at IS NULL`,
+      )
       .get(blNo)
     let shipmentId = exists?.id
     if (!shipmentId) {
@@ -1299,7 +1396,7 @@ function migrateDropContainerLayer() {
            VALUES (?, ?, ?, ?, ?)`,
         )
         .run(
-          blNo,
+          String(blNo).trim(),
           box.contract_no ?? null,
           box.supplier ?? null,
           box.arrive_date ?? null,
@@ -1501,6 +1598,8 @@ export function initDB() {
   migrateBaleBarcode()
   migrateVehicleNo()
   migrateDropContainerLayer()
+  migrateShipmentDropInlineUnique()
+  migrateShipmentBlNoUnique()
   migrateBoxNo()
   migrateBrand()
   migrateBaleItemPrice()
