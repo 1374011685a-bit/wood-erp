@@ -282,9 +282,11 @@ const insertBale = db.prepare(
  * （直接撞索引只会得到 `UNIQUE constraint failed`）。
  *
  * @param {string} baleNo 要用的包号
- * @param {{ excludeBaleId?: number }} [options] 改包时排除原包自己
+ * @param {{ excludeBaleId?: number, excludeBaleIds?: number[] }} [options]
+ *   改包时排除"原包自己"：单包改传 excludeBaleId，多包合并/拆分传 excludeBaleIds
+ *   （这几个包马上要被删掉，它们占着的号要允许新包继续用）
  */
-export function assertBaleNoAvailable(baleNo, { excludeBaleId } = {}) {
+export function assertBaleNoAvailable(baleNo, { excludeBaleId, excludeBaleIds } = {}) {
   const key = String(baleNo ?? '').trim()
   if (!key) return
 
@@ -292,7 +294,13 @@ export function assertBaleNoAvailable(baleNo, { excludeBaleId } = {}) {
     .prepare(`SELECT id FROM bales WHERE bale_no = ? AND deleted_at IS NULL`)
     .get(key)
   if (!hit) return
-  if (excludeBaleId !== undefined && Number(hit.id) === Number(excludeBaleId)) return
+  const excluded = new Set(
+    [
+      ...(Array.isArray(excludeBaleIds) ? excludeBaleIds : []),
+      ...(excludeBaleId === undefined ? [] : [excludeBaleId]),
+    ].map(Number),
+  )
+  if (excluded.has(Number(hit.id))) return
 
   const error = new Error(`包号 ${key} 已经存在，请换一个`)
   error.status = 400
@@ -419,9 +427,11 @@ export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrder
 const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items
-     (bale_id, brand, species, grade, thickness, width, length, pieces, cubic, unit_price_cents)
+     (bale_id, brand, species, grade, thickness, width, length, pieces, cubic, unit_price_cents,
+      src_inbound_order_id)
    VALUES
-     (@bale_id, @brand, @species, @grade, @thickness, @width, @length, @pieces, @cubic, @unit_price_cents)`,
+     (@bale_id, @brand, @species, @grade, @thickness, @width, @length, @pieces, @cubic, @unit_price_cents,
+      @src_inbound_order_id)`,
 )
 const updateBaleSummary = db.prepare(
   `UPDATE bales
@@ -547,6 +557,8 @@ export function createBalesForItem({
         pieces: spec.pieces,
         cubic: roundTo(calcCubic(item.thickness, item.width, spec.length, spec.pieces, 1), 4),
         unit_price_cents: item.unit_price_cents ?? null,
+        // 这一行来自哪张入库单：入库时就是这张单
+        src_inbound_order_id: inboundOrderId ?? null,
       })
     }
 
@@ -736,28 +748,52 @@ function addOneBundleToOrder(orderId, item) {
   )
 }
 
-/** 把码单的旧规格行从入库单里整体扣掉 */
+/**
+ * 这一行规格属于哪张入库单。
+ * 优先看行自己记的来源（`bale_items.src_inbound_order_id`），
+ * 老数据没这一列/为空时退回「这一包挂的那张单」。
+ */
+const orderIdOfLine = (item, bale) =>
+  Number(item?.src_inbound_order_id ?? bale?.inbound_order_id ?? 0) || null
+
+/** 把行按来源单分组：一包里可能混了好几张单的货，账要各扣各的 */
+function groupBySourceOrder(items, bale) {
+  const groups = new Map()
+  for (const item of items) {
+    const orderId = orderIdOfLine(item, bale)
+    if (!orderId) continue
+    if (!groups.has(orderId)) groups.set(orderId, [])
+    groups.get(orderId).push(item)
+  }
+  return groups
+}
+
+/** 把码单的旧规格行从各自的入库单里整体扣掉 */
 export function detachBaleFromOrder(bale) {
-  if (!bale.inbound_order_id) return
-  for (const item of baleItemsStmt.all(bale.id)) {
-    // 把这一包的包号一起带进去：扣件时要从原行的包号列表里摘掉它
-    removeOneBundleFromOrder(bale.inbound_order_id, item, bale.bale_no)
+  if (!bale) return
+  for (const [orderId, items] of groupBySourceOrder(baleItemsStmt.all(bale.id), bale)) {
+    for (const item of items) {
+      // 把这一包的包号一起带进去：扣件时要从原行的包号列表里摘掉它
+      removeOneBundleFromOrder(orderId, item, bale.bale_no)
+    }
   }
 }
 
-/** 把码单的新规格行挂回入库单 */
+/** 把码单的新规格行挂回**各自**的入库单 */
 export function attachBaleToOrder(bale, items) {
-  if (!bale.inbound_order_id) return
-  for (const item of items) {
-    /**
-     * 包号 / 柜号是包级字段：挂回去的明细行必须知道自己是哪一包的，
-     * 否则「采购入库明细」里这几行的包号会变成空 —— 拆包之后尤其明显。
-     */
-    addOneBundleToOrder(bale.inbound_order_id, {
-      ...item,
-      bale_no: item.bale_no ?? bale.bale_no ?? null,
-      box_no: item.box_no ?? bale.box_no ?? null,
-    })
+  if (!bale) return
+  for (const [orderId, group] of groupBySourceOrder(items, bale)) {
+    for (const item of group) {
+      /**
+       * 包号 / 柜号是包级字段：挂回去的明细行必须知道自己是哪一包的，
+       * 否则「采购入库明细」里这几行的包号会变成空 —— 拆包之后尤其明显。
+       */
+      addOneBundleToOrder(orderId, {
+        ...item,
+        bale_no: item.bale_no ?? bale.bale_no ?? null,
+        box_no: item.box_no ?? bale.box_no ?? null,
+      })
+    }
   }
 }
 
@@ -838,6 +874,9 @@ export function insertBaleWithItems({
         4,
       ),
       unit_price_cents: item.unit_price_cents ?? null,
+      // 这一行来自哪张入库单：由调用方带过来（拆包/合并时从源包继承），
+      // 没带就按这一包挂的那张单
+      src_inbound_order_id: item.src_inbound_order_id ?? inboundOrderId ?? null,
     })
   }
   refreshBaleSummary(baleId)
@@ -881,7 +920,16 @@ export function replaceBaleItems(bale, items) {
   // 每一行最终用哪个单价 + 该带哪些包级字段
   const priced = items.map((item) => {
     const given = Number(item.unit_price_cents)
-    const old = before.find((line) => sameSpec(line, item))
+    /**
+     * 一包里可能混了好几张入库单的货，所以「原行」要连着来源一起对：
+     * 先按「规格 + 来源」精确找；调用方没给来源（码单编辑弹窗就是这样）时
+     * 退化成只按规格找，并**继承找到的那一行的来源** —— 这样每行的账还是落在原单上。
+     */
+    const wanted = Number(item.src_inbound_order_id ?? 0)
+    const old =
+      before.find(
+        (line) => sameSpec(line, item) && wanted > 0 && Number(line.src_inbound_order_id ?? 0) === wanted,
+      ) ?? before.find((line) => sameSpec(line, item))
 
     let unitPriceCents
     if (Number.isFinite(given)) {
@@ -904,6 +952,10 @@ export function replaceBaleItems(bale, items) {
       box_no: item.box_no ?? bale.box_no ?? null,
       bale_no: item.bale_no ?? bale.bale_no ?? null,
       unit_price_cents: unitPriceCents,
+      // 这一行来自哪张入库单：调用方给了就用，否则继承原行，再不然算这一包的
+      src_inbound_order_id:
+        Number(item.src_inbound_order_id ?? old?.src_inbound_order_id ?? bale.inbound_order_id ?? 0) ||
+        null,
     }
   })
 
@@ -919,6 +971,7 @@ export function replaceBaleItems(bale, items) {
       pieces: item.pieces,
       cubic: item.cubic,
       unit_price_cents: item.unit_price_cents ?? null,
+      src_inbound_order_id: item.src_inbound_order_id ?? null,
     })
   }
   refreshBaleSummary(bale.id)

@@ -906,25 +906,76 @@ function migrateRepackSplit() {
  * 规则（用户确认）：
  *   - 有值的包号，整个系统里只能出现一次 —— 跨提单、跨柜、跨一切
  *   - 空包号随便有几个，不参与唯一性（所以要用部分索引）
+ *   - **软删的包不算**（进回收站的单，它的包号要立刻腾出来给人用）：
+ *     不然会出现「列表里查重说这个号没人用 → 插库时撞索引」的原始 SQLite 报错，
+ *     而用户根本看不出那个号躺在回收站里（deleted_at IS NOT NULL）。
  *
  * 历史：最早是 `UNIQUE(bale_no)`（全局、连空值也管），后来改过一版
  * 「提单内唯一」的 `idx_bales_scope_no`。这一版把它彻底换成全局的
  * `idx_bales_no_global`，所以要把旧索引删掉 —— 否则老索引还在，
  * 同一张提单里重名照样会被它拦，跨提单重名又拦不住，两套规则打架。
+ *
+ * 口径必须和 `assertBaleNoAvailable` / `preflightBales` 的查重 SQL 一致
+ * （那两句都带 `deleted_at IS NULL`）—— 索引是最后一关，两边不一致就会
+ * 变成「查重放过、插库报错」。
  */
 function migrateBaleNoGlobalUnique() {
   db.exec(`DROP INDEX IF EXISTS idx_bales_scope_no`)
-  db.exec(
-    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bales_no_global
+  const wanted = `CREATE UNIQUE INDEX idx_bales_no_global
        ON bales (bale_no)
-     WHERE bale_no IS NOT NULL AND bale_no <> ''`,
-  )
+     WHERE bale_no IS NOT NULL AND bale_no <> '' AND deleted_at IS NULL`
+  /**
+   * `CREATE ... IF NOT EXISTS` 不会更新已存在的索引，所以先看口径对不对：
+   * 老库里可能还留着「没排除软删」的那版（正是用户踩到的坑），这里顺手重建。
+   */
+  const current = db
+    .prepare(`SELECT sql FROM sqlite_master WHERE name = 'idx_bales_no_global'`)
+    .get()?.sql
+  const upToDate = current && /deleted_at\s+IS\s+NULL/i.test(current)
+  if (!upToDate) {
+    db.exec(`DROP INDEX IF EXISTS idx_bales_no_global`)
+    db.exec(wanted)
+    if (current) writeLog('[db] 迁移：重建包号全局唯一索引（口径改为「软删的不算」）')
+  }
 }
 
 function migrateBaleSoftDelete() {
   const added = addColumnIfMissing('bales', 'deleted_at', 'TEXT')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_deleted ON bales (deleted_at)`)
   if (added) writeLog('[db] 迁移：包新增列 deleted_at（删单据时随单软删，可随回收站恢复）')
+}
+
+/**
+ * 规格行记住自己来自哪张入库单：`bale_items.src_inbound_order_id`。
+ *
+ * 为什么需要：包是**物理**的东西，可以随便重组（多包并成一包、一包拆成几包），
+ * 但财务账（order_items）必须按来源各记各的 —— 一包里混了两张单的货时，
+ * 「扣库存 / 挂库存」要分别落到各自那张单上，不能因为合并就把账挪走。
+ * 有了这一列，`detachBaleFromOrder` / `attachBaleToOrder` 才能按行分组处理。
+ *
+ * 老数据回填：这一行属于哪张单 = 它所在包的 `bales.inbound_order_id`
+ * （包和规格行本来就是在这个口径下写出来的，回填不会改变任何金额）。
+ */
+function migrateBaleItemSourceOrder() {
+  const added = addColumnIfMissing('bale_items', 'src_inbound_order_id', 'INTEGER')
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_bale_items_src_order
+       ON bale_items (src_inbound_order_id)`,
+  )
+  if (!added) return
+
+  const filled = db
+    .prepare(
+      `UPDATE bale_items
+          SET src_inbound_order_id = (
+                SELECT b.inbound_order_id FROM bales b WHERE b.id = bale_items.bale_id
+              )
+        WHERE src_inbound_order_id IS NULL`,
+    )
+    .run()
+  writeLog(
+    `[db] 迁移：规格行新增列 src_inbound_order_id（这一行来自哪张入库单），回填 ${filled.changes} 行`,
+  )
 }
 
 /**
@@ -1453,6 +1504,7 @@ export function initDB() {
   migrateBoxNo()
   migrateBrand()
   migrateBaleItemPrice()
+  migrateBaleItemSourceOrder()
   migrateBaleSoftDelete()
   migrateOrderItemBaleNo()
   migrateRepackCreator()

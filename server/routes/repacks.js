@@ -121,25 +121,29 @@ function overrideCents(overrides, baleItemId) {
   return Number.isFinite(cents) ? cents : undefined
 }
 
-function beforeCostCents(bale, overrides = {}, { auto = false } = {}) {
-  if (!bale.inbound_order_id) return 0
-  let cents = 0
-  for (const item of baleItemsStmt.all(bale.id)) {
+/**
+ * 改前每一行的成本价（分）。
+ *
+ * 一包可能混了好几张入库单的货（多包合并出来的），所以**逐行按这一行自己的来源单**
+ * 去解析成本价，不能拿"某一个包的单号"去查全部行。
+ */
+function beforePriceCentsList(lines, overrides = {}, { auto = false } = {}) {
+  return lines.map((item) => {
     const picked = overrideCents(overrides, item.id)
-    const unit = picked ?? resolvePriceCents(bale.inbound_order_id, item, { auto }) ?? 0
-    cents += calcAmountCents(roundTo(item.cubic ?? 0, 4), unit)
-  }
-  return cents
-}
-
-/** 改前每一行的成本价（分）：用户选过的按用户选的，否则按唯一价 */
-function beforePriceCentsList(bale, overrides = {}, { auto = false } = {}) {
-  if (!bale.inbound_order_id) return baleItemsStmt.all(bale.id).map(() => 0)
-  return baleItemsStmt.all(bale.id).map((item) => {
-    const picked = overrideCents(overrides, item.id)
-    return picked ?? resolvePriceCents(bale.inbound_order_id, item, { auto }) ?? 0
+    if (picked !== undefined) return picked
+    const orderId = Number(item.src_inbound_order_id ?? 0)
+    if (!orderId) return 0
+    return resolvePriceCents(orderId, item, { auto }) ?? 0
   })
 }
+
+/** 改前总成本（分）= 每一行的 立方 × 这一行的成本价 */
+const beforeCostCents = (lines, centsList) =>
+  lines.reduce(
+    (sum, item, index) =>
+      sum + calcAmountCents(roundTo(item.cubic ?? 0, 4), centsList[index] ?? 0),
+    0,
+  )
 
 /**
  * 快照里的一行。
@@ -165,6 +169,16 @@ const snapshotLine = (item, cents) => {
     cubic: roundTo(item.cubic ?? 0, 4),
     // 记下这一行当时的成本单价，撤销改包时按原价还原
     unit_price: fromCents(cents ?? 0),
+    /**
+     * 这一行来自哪张入库单 / 哪个源包。
+     * 合并改包时一包里会混好几张单的货，撤销要按来源各回各的单；
+     * 「查看」弹窗也要靠 `src_bale_no` 把每一行归回原包。
+     */
+    ...(Number(item.src_inbound_order_id ?? 0) > 0
+      ? { src_inbound_order_id: Number(item.src_inbound_order_id) }
+      : {}),
+    ...(Number(item.src_bale_id ?? 0) > 0 ? { src_bale_id: Number(item.src_bale_id) } : {}),
+    ...(item.src_bale_no ? { src_bale_no: String(item.src_bale_no) } : {}),
   }
 }
 
@@ -176,6 +190,27 @@ const parseSnapshot = (text) => {
   try {
     const list = JSON.parse(text)
     return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * 原包快照 → 源包数组。
+ *
+ * 新格式：`{ bales: [ { id, bale_no, barcode, box_no, shipment_id, inbound_order_id, items:[…] } ] }`
+ *   —— 多选改包时，一个记录对应多个源包。
+ * 老格式：就是**一个包对象**（单包改包的历史记录），当成单元素数组。
+ */
+function readSourceSnapshots(text) {
+  if (!text) return []
+  try {
+    const parsed = JSON.parse(text)
+    if (!parsed || typeof parsed !== 'object') return []
+    if (Array.isArray(parsed.bales)) return parsed.bales.filter(Boolean)
+    // 老记录：单个包对象
+    if (parsed.id && Array.isArray(parsed.items)) return [parsed]
+    return []
   } catch {
     return []
   }
@@ -343,9 +378,15 @@ router.get('/bales', (_req, res) => {
       bl_no: row.bl_no ?? '',
       contract_no: row.contract_no ?? '',
       items: baleItemsStmt.all(row.id).map((item) => {
-        const candidates = priceCandidates(row.inbound_order_id, item)
+        /**
+         * 成本价按**这一行自己的来源单**查：一包里可能混了好几张单的货，
+         * 拿包的主单号去查会查错/查不到（多包合并之后就会这样）。
+         */
+        const srcOrderId = item.src_inbound_order_id ?? row.inbound_order_id
+        const candidates = priceCandidates(srcOrderId, item)
         return {
           id: item.id,
+          src_inbound_order_id: item.src_inbound_order_id ?? null,
           brand: item.brand ?? '',
           species: item.species ?? '',
           grade: item.grade ?? '',
@@ -426,26 +467,126 @@ const itemsFromSnapshot = (list) =>
     cubic: roundTo(line.cubic ?? 0, 4),
   }))
 
-const createRepack = db.transaction((payload) => {
-  const bale = getBale(payload.baleId)
-  if (!bale) {
-    const error = new Error('这一包不存在')
-    error.status = 404
-    throw error
-  }
-  if (bale.status !== 'in_stock') {
-    const error = new Error(
-      `条码号 ${bale.barcode || bale.bale_no} 已经出库了，不能改包`,
-    )
-    error.status = 400
-    throw error
-  }
+/** 提单号（shipments.bl_no）：按单号查 */
+const blNoOfShipment = db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`)
+/** 合同号 / 单号：按入库单查 */
+const orderBriefStmt = db.prepare(
+  `SELECT order_no, contract_no, shipment_id FROM inbound_orders WHERE id = ?`,
+)
 
-  const beforeItems = baleItemsStmt.all(bale.id)
+/** 去重后取「有值的那些」 */
+const distinctValues = (list) =>
+  [...new Set(list.filter((one) => one !== null && one !== undefined && String(one).trim() !== ''))]
+
+/** 规格完全一致（品名 / 等级 / 厚 / 宽 / 长 / 片数）—— 用来把手填的行认回它原来的来源 */
+const sameSpecLine = (a, b) =>
+  String(a.species ?? '') === String(b.species ?? '') &&
+  String(a.grade ?? '') === String(b.grade ?? '') &&
+  Number(a.thickness) === Number(b.thickness) &&
+  Number(a.width) === Number(b.width) &&
+  Number(a.length) === Number(b.length) &&
+  Number(a.pieces) === Number(b.pieces)
+
+const findShipmentByNoStmt = db.prepare(
+  `SELECT * FROM shipments WHERE lower(bl_no) = lower(?) AND deleted_at IS NULL`,
+)
+const insertShipmentStmt = db.prepare(
+  `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
+   VALUES (?, ?, ?, ?, ?)`,
+)
+
+/**
+ * 改包时手打的提单号：库里没有就顺手建一张（和入库时手打提单号一个口径，
+ * 用户确认过：填了就建档）。已经存在的提单不会被改合同号，只补空的那一项。
+ */
+function findOrCreateShipment(blNo, contractNo) {
+  const hit = findShipmentByNoStmt.get(blNo)
+  if (hit) {
+    if (contractNo && !String(hit.contract_no ?? '').trim()) {
+      db.prepare(`UPDATE shipments SET contract_no = ? WHERE id = ?`).run(contractNo, hit.id)
+      hit.contract_no = contractNo
+    }
+    return hit
+  }
+  const { lastInsertRowid } = insertShipmentStmt.run(
+    blNo,
+    contractNo || null,
+    null,
+    todayLocal(),
+    '改包时自动建档',
+  )
+  return { id: Number(lastInsertRowid), bl_no: blNo, contract_no: contractNo || null }
+}
+
+const createRepack = db.transaction((payload) => {
+  /* ---------- 源包：1 个（老行为）或多个（多选改包） ---------- */
+  const sources = payload.baleIds.map((id) => {
+    const bale = getBale(id)
+    if (!bale) {
+      const error = new Error(`要改的包里有不存在的（id=${id}），请重新选择`)
+      error.status = 404
+      throw error
+    }
+    if (bale.status !== 'in_stock') {
+      const error = new Error(
+        `条码号 ${bale.barcode || bale.bale_no} 已经出库了，不能改包`,
+      )
+      error.status = 400
+      throw error
+    }
+    return bale
+  })
+  const sourceIds = sources.map((bale) => bale.id)
+  const primary = sources[0]
+
+  /**
+   * 改前的规格行：所有源包的行摊平，每行标上「来自哪个包、哪张单」。
+   * 包是物理的（可以随便合并），账是按行走的 —— 这一份就是账的依据。
+   */
+  const beforeItems = sources.flatMap((bale) =>
+    baleItemsStmt.all(bale.id).map((item) => ({
+      ...item,
+      src_bale_id: bale.id,
+      src_bale_no: bale.bale_no ?? '',
+      src_inbound_order_id: item.src_inbound_order_id ?? bale.inbound_order_id ?? null,
+    })),
+  )
   const beforeCubic = roundTo(
     beforeItems.reduce((sum, item) => sum + (item.cubic ?? 0), 0),
     4,
   )
+
+  /**
+   * 一段规格属于哪张入库单（顺序即优先级）：
+   *   ① 段自己带的来源（后端内部继承下来的）
+   *   ② 前端提示的源包（复制改包前数据 / 一键拆包出来的行会带 srcBaleId）
+   *   ③ 按「规格 + 片数」在改前的行里找（手填的行也能归位）
+   *   ③b 只按「规格」（不管片数）再找一次 —— 常见场景：一包 20 片被拆成两行各 10 片，
+   *       片数对不上但规格是同一个，这时也要认回原来那张单
+   *   ④ 兜底：第一个源包那张单
+   */
+  const sourceOrderOfSegment = (segment) => {
+    if (Number(segment.src_inbound_order_id ?? 0) > 0) {
+      return Number(segment.src_inbound_order_id)
+    }
+    const hint = Number(segment.srcBaleId ?? segment.src_bale_id ?? 0)
+    if (hint > 0) {
+      const hit = sources.find((bale) => bale.id === hint)
+      if (hit) return hit.inbound_order_id ?? null
+    }
+    const matched =
+      beforeItems.find((line) => sameSpecLine(line, segment)) ??
+      beforeItems.find(
+        (line) =>
+          String(line.species ?? '') === String(segment.species ?? '') &&
+          String(line.grade ?? '') === String(segment.grade ?? '') &&
+          Number(line.thickness) === Number(segment.thickness) &&
+          Number(line.width) === Number(segment.width) &&
+          Number(line.length) === Number(segment.length),
+      )
+    if (matched) return matched.src_inbound_order_id ?? null
+    return primary.inbound_order_id ?? null
+  }
 
   /**
    * 改前成本：同一规格在入库明细里匹配到多个价时，不静默取第一条。
@@ -456,10 +597,11 @@ const createRepack = db.transaction((payload) => {
    */
   const auto = payload.autoPickPrice === true
   const overrides = payload.beforePrices ?? {}
-  if (bale.inbound_order_id && !auto) {
+  if (!auto) {
     const unresolved = beforeItems.findIndex(
       (item) =>
-        resolvePriceCents(bale.inbound_order_id, item) === null &&
+        Number(item.src_inbound_order_id ?? 0) > 0 &&
+        resolvePriceCents(Number(item.src_inbound_order_id), item) === null &&
         overrideCents(overrides, item.id) === undefined,
     )
     if (unresolved >= 0) {
@@ -473,23 +615,25 @@ const createRepack = db.transaction((payload) => {
       throw error
     }
   }
-  const beforeCents = beforeCostCents(bale, overrides, { auto })
   /**
    * 改前每一行的成本价（分）。
    *
-   * ⚠️ 必须在**动原包之前**取出来：拆包会先把这个包从入库明细里摘掉
+   * ⚠️ 必须在**动源包之前**取出来：拆包会先把这些包从入库明细里摘掉
    * （那几行 order_items 直接没了），等写完记录再去取价，取到的全是 0。
    * 撤销改包是按这份快照还原的 —— 快照里是 0，撤销回来成本价就变 0
    * （用户报的「撤销后单价、金额全变 0」就是这个原因）。
    */
-  const beforePriceList = beforePriceCentsList(bale, overrides, { auto })
+  const beforePriceList = beforePriceCentsList(beforeItems, overrides, { auto })
+  const beforeCents = beforeCostCents(beforeItems, beforePriceList)
 
   /**
    * 改包后可能有几组 —— 一组就是一个包。
-   * 只有一组 = 老行为（改这一包的规格）；两组以上 = 拆包（原包删掉、建几个新包）。
+   *
+   * 「1 个源包 → 1 个新包」= 老行为：包还是那个包，只把规格换掉（包号 / 条码号不动）。
+   * 其余情况（多包并一包、一包拆几包、多包重排）= 源包全部删掉，按组新建。
    */
   const groups = payload.groups
-  const isSplit = groups.length > 1
+  const isSplit = !(sources.length === 1 && groups.length === 1)
 
   const afterCubic = roundTo(
     groups.reduce(
@@ -517,7 +661,20 @@ const createRepack = db.transaction((payload) => {
       ...row,
       unit_price_cents: pinned ? toCents(row.unit_price ?? 0) : derivedCents,
     }))
-    return { baleNo: group.baleNo, rows, items: specSegmentsOf(rows) }
+    /**
+     * 每一段规格属于哪张入库单：
+     *   ① 行/段自己带的来源（后端内部调用、或上一轮继承下来的）
+     *   ② 前端提示的源包（「复制改包前数据」「一键拆包」出来的行会带）
+     *   ③ 按「规格 + 片数」在改前的行里找（手填的行也能归位）
+     *   ④ 兜底：第一个源包那张单
+     * —— 这一步就是"包只管物理、财务按来源分开"的落点：新包里的每一段，
+     *    库存都记到它本来那张单上。
+     */
+    const items = specSegmentsOf(rows).map((segment) => ({
+      ...segment,
+      src_inbound_order_id: sourceOrderOfSegment(segment),
+    }))
+    return { baleNo: group.baleNo, rows, items }
   })
   const afterCents = pricedGroups.reduce(
     (sum, group) =>
@@ -526,28 +683,100 @@ const createRepack = db.transaction((payload) => {
     0,
   )
 
-  // 提单号 / 合同号：改前的值（留空时同步它）
-  const baseContractNo = bale.inbound_order_id
-    ? db.prepare(`SELECT contract_no FROM inbound_orders WHERE id = ?`).get(bale.inbound_order_id)?.contract_no ?? null
-    : null
-  const shipment = bale.shipment_id
-    ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(bale.shipment_id)
-    : null
+  /**
+   * 新包要继承的东西（逐组算）：
+   *   提单号 / 合同号：表单填了用表单的；留空时这一组的来源必须一致，不一致就 400 让用户填
+   *   柜号：来源一致就继承，不一致就留空（保存后可在「采购入库明细」里单独编辑这一包补上）
+   *   入库单：取这一组第一段来源的那张单（列表/明细按它显示，账仍按行走）
+   */
+  const blNoInput = String(payload.blNo ?? '').trim()
+  const contractNoInput = String(payload.contractNo ?? '').trim()
+  /** 表单里手打的提单号：没有这张提单就顺手建档（和入库时手打提单号一个口径） */
+  const inputShipment = blNoInput ? findOrCreateShipment(blNoInput, contractNoInput) : null
 
-  // 入库单号：没有提单时条码号用它做前缀
-  const inboundOrder = bale.inbound_order_id
-    ? db.prepare(`SELECT order_no FROM inbound_orders WHERE id = ?`).get(bale.inbound_order_id)
-    : null
+  const groupMeta = pricedGroups.map((group, index) => {
+    const orderIds = distinctValues(
+      group.items.map((item) => item.src_inbound_order_id),
+    ).map(Number)
+    const orders = orderIds.map((id) => orderBriefStmt.get(id)).filter(Boolean)
 
-  /* ---------- 拆包：原包删掉，按分组建几个新包 ---------- */
-  const scopeKey =
-    bale.scope_key ?? baleScopeKey(bale.shipment_id, bale.inbound_order_id)
+    /* 这一组是从哪几个源包来的（前端有提示就用提示，没有就按来源单反推） */
+    const hinted = distinctValues(
+      group.rows.map((row) => row.srcBaleId ?? row.src_bale_id),
+    ).map(Number)
+    const groupSources =
+      hinted.length > 0
+        ? sources.filter((bale) => hinted.includes(bale.id))
+        : sources.filter((bale) => orderIds.includes(Number(bale.inbound_order_id)))
+
+    /* 柜号：一致就继承，不一致留空 */
+    const boxNos = distinctValues(groupSources.map((bale) => bale.box_no))
+    const boxNo = boxNos.length === 1 ? boxNos[0] : null
+
+    /* 提单号 */
+    let shipmentId = inputShipment ? inputShipment.id : null
+    if (!inputShipment) {
+      const shipmentIds = distinctValues(orders.map((one) => one.shipment_id)).map(Number)
+      if (shipmentIds.length > 1) {
+        const names = shipmentIds.map((id) => blNoOfShipment.get(id)?.bl_no ?? `#${id}`)
+        const error = new Error(
+          `这一包里的货来自不同提单（${names.join(' / ')}），请填一个提单号`,
+        )
+        error.status = 400
+        throw error
+      }
+      shipmentId = shipmentIds[0] ?? null
+    }
+
+    /* 合同号 */
+    let contractNo = contractNoInput || null
+    if (!contractNo) {
+      const names = distinctValues(orders.map((one) => one.contract_no))
+      if (names.length > 1) {
+        const error = new Error(
+          `这一包里的货来自不同合同（${names.join(' / ')}），请填一个合同号`,
+        )
+        error.status = 400
+        throw error
+      }
+      contractNo = names[0] ?? null
+    }
+
+    return {
+      baleNo: group.baleNo,
+      items: group.items,
+      rows: group.rows,
+      shipmentId,
+      contractNo,
+      boxNo,
+      // 主入库单：这一组第一段来源的那张单
+      inboundOrderId: orderIds[0] ?? primary.inbound_order_id ?? null,
+      index,
+    }
+  })
+  const groupByIndex = groupMeta
+
+  /** 记录上显示的提单号 / 合同号：表单 > 各组一致 > 第一个源包的 */
+  const allShipmentIds = distinctValues(groupByIndex.map((one) => one.shipmentId)).map(Number)
+  const allContractNos = distinctValues(groupByIndex.map((one) => one.contractNo))
+  const recordBlNo =
+    blNoInput ||
+    (allShipmentIds.length === 1 ? blNoOfShipment.get(allShipmentIds[0])?.bl_no ?? null : null) ||
+    (primary.shipment_id ? blNoOfShipment.get(primary.shipment_id)?.bl_no ?? null : null)
+  const recordContractNo =
+    contractNoInput ||
+    (allContractNos.length === 1 ? allContractNos[0] : null) ||
+    (primary.inbound_order_id
+      ? orderBriefStmt.get(primary.inbound_order_id)?.contract_no ?? null
+      : null)
+
+  /* ---------- 源包删掉，按分组建新包 ---------- */
   let createdBales = []
   if (isSplit) {
-    // 包号查重：组内不能重名，也不能和这张提单里别的包重名
-    // （原包自己不算 —— 它马上要被删掉，用户可以沿用它的包号）
+    // 包号查重：组内不能重名，也不能和库里活着的包重名
+    // （这几个源包不算 —— 它们马上要被删掉，用户可以沿用原来的包号）
     const seen = new Set()
-    for (const group of pricedGroups) {
+    for (const group of groupByIndex) {
       const label = group.baleNo
       if (!label) continue
       if (seen.has(label)) {
@@ -556,35 +785,57 @@ const createRepack = db.transaction((payload) => {
         throw error
       }
       seen.add(label)
-      // 包号全局唯一；原包马上要被删掉，所以排除它自己
-      assertBaleNoAvailable(label, { excludeBaleId: bale.id })
+      // 包号全局唯一；源包马上要被删掉，所以排除它们
+      assertBaleNoAvailable(label, { excludeBaleIds: sourceIds })
     }
 
     /**
-     * 先取号，再动原包。
-     * 反过来（先删原包）的话，如果原包正好是这张提单里最大的号，
+     * 先取号，再动源包。
+     * 反过来（先删源包）的话，如果源包正好是这张提单里最大的号，
      * 新号会从它的编号重新开始，跟刚撕下来那张已打印的标签撞号。
+     *
+     * 按「提单 + 入库单」这个取号上下文分批取：同上下文一次取够，避免两组拿到同一个号。
      */
-    const barcodes = takeBarcodes(pricedGroups.length, {
-      shipmentId: bale.shipment_id,
-      shipmentNo: shipment?.bl_no ?? null,
-      inboundOrderNo: inboundOrder?.order_no ?? null,
+    const contextKey = (meta) => `${meta.shipmentId ?? 'x'}|${meta.inboundOrderId ?? 'x'}`
+    const barcodePool = new Map()
+    const barcodes = groupByIndex.map((meta) => {
+      const key = contextKey(meta)
+      if (!barcodePool.has(key)) {
+        const sameContext = groupByIndex.filter((one) => contextKey(one) === key)
+        barcodePool.set(
+          key,
+          takeBarcodes(sameContext.length, {
+            // 同一组里的提单是同一个，取第一组的上下文就够
+            shipmentId: meta.shipmentId ?? null,
+            shipmentNo: meta.shipmentId
+              ? blNoOfShipment.get(meta.shipmentId)?.bl_no ?? null
+              : null,
+            inboundOrderNo: meta.inboundOrderId
+              ? orderBriefStmt.get(meta.inboundOrderId)?.order_no ?? null
+              : null,
+          }),
+        )
+      }
+      return barcodePool.get(key).shift()
     })
 
-    // 先把原包从入库明细里扣掉（库存跟着减）
-    detachBaleFromOrder(bale)
-    db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
-    db.prepare(`DELETE FROM bales WHERE id = ?`).run(bale.id)
+    // 先把源包从各自的入库明细里扣掉（库存跟着减），再删包
+    for (const bale of sources) detachBaleFromOrder(bale)
+    for (const bale of sources) {
+      db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
+      db.prepare(`DELETE FROM bales WHERE id = ?`).run(bale.id)
+    }
 
-    pricedGroups.forEach((group, index) => {
+    groupByIndex.forEach((group, index) => {
       const barcode = barcodes[index]
       const created = insertBaleWithItems({
         // 包号留空就真的空着（不再拿条码号顶替），出库和明细里都显示「—」
         baleNo: group.baleNo || '',
         barcode,
-        boxNo: bale.box_no ?? null,
-        shipmentId: bale.shipment_id ?? null,
-        inboundOrderId: bale.inbound_order_id ?? null,
+        // 柜号：这一组来源一致就继承，不一致就是空（用户之后可单独编辑这一包补上）
+        boxNo: group.boxNo,
+        shipmentId: group.shipmentId,
+        inboundOrderId: group.inboundOrderId,
         items: group.items,
       })
       // 再把新包挂回入库明细（库存跟着加）
@@ -592,8 +843,8 @@ const createRepack = db.transaction((payload) => {
         {
           id: created.id,
           bale_no: created.bale_no,
-          box_no: bale.box_no ?? null,
-          inbound_order_id: bale.inbound_order_id ?? null,
+          box_no: group.boxNo,
+          inbound_order_id: group.inboundOrderId,
         },
         group.items,
       )
@@ -604,10 +855,12 @@ const createRepack = db.transaction((payload) => {
   const { lastInsertRowid } = insertRepack.run({
     repack_no: payload.repackNo,
     repack_date: payload.repackDate,
-    bale_id: bale.id,
-    barcode: bale.barcode ?? bale.bale_no ?? '',
-    bale_no: bale.bale_no ?? '',
-    container_no: shipment?.bl_no ?? null,
+    // 记录挂在**第一个源包**上（列表 / 查看 / 编辑按它定位）
+    bale_id: primary.id,
+    barcode: primary.barcode ?? primary.bale_no ?? '',
+    // 多选时把源包号列出来（空包号跳过），界面上显示成「A2、A5」
+    bale_no: sources.map((one) => one.bale_no ?? '').filter(Boolean).join('、'),
+    container_no: recordBlNo,
     summary: payload.summary || null,
     remark: payload.remark || null,
     before_cubic: beforeCubic,
@@ -635,21 +888,31 @@ const createRepack = db.transaction((payload) => {
       })),
     ),
     // 留空就跟改前一致（真正写进记录，不只是显示）
-    bl_no: payload.blNo || shipment?.bl_no || null,
-    contract_no: payload.contractNo || baseContractNo || null,
+    bl_no: recordBlNo,
+    contract_no: recordContractNo,
     created_by: payload.createdBy || null,
     kind: isSplit ? 'split' : 'spec',
     after_bale_ids: isSplit ? JSON.stringify(createdBales.map((one) => one.id)) : null,
+    /**
+     * 原包快照：**数组**（多选改包时是多个源包）。
+     * 每一行都带着 `src_inbound_order_id`，撤销时按来源各回各的单。
+     * 老记录里这个字段是「一个对象」，读取时按单元素数组兼容（见 readSourceSnapshots）。
+     */
     before_bale_json: isSplit
       ? JSON.stringify({
-          id: bale.id,
-          bale_no: bale.bale_no,
-          barcode: bale.barcode,
-          box_no: bale.box_no,
-          shipment_id: bale.shipment_id,
-          inbound_order_id: bale.inbound_order_id,
-          scope_key: scopeKey,
-          items: JSON.parse(snapshot(beforeItems, beforePriceList)),
+          bales: sources.map((bale) => ({
+            id: bale.id,
+            bale_no: bale.bale_no,
+            barcode: bale.barcode,
+            box_no: bale.box_no,
+            shipment_id: bale.shipment_id,
+            inbound_order_id: bale.inbound_order_id,
+            scope_key: bale.scope_key ?? baleScopeKey(bale.shipment_id, bale.inbound_order_id),
+            items: beforeItems
+              .map((line, lineIndex) => ({ line, cents: beforePriceList[lineIndex] ?? 0 }))
+              .filter(({ line }) => line.src_bale_id === bale.id)
+              .map(({ line, cents }) => snapshotLine(line, cents)),
+          })),
         })
       : null,
   })
@@ -660,15 +923,15 @@ const createRepack = db.transaction((payload) => {
      * 不认这个值的话，他改了包号保存，出库那边还是旧包号。
      */
     const newNo = pricedGroups[0].baleNo
-    if (newNo && newNo !== (bale.bale_no ?? '')) {
+    if (newNo && newNo !== (primary.bale_no ?? '')) {
       // 全局唯一（改包号也要走同一套校验，这是用户报的那个 BUG）
-      assertBaleNoAvailable(newNo, { excludeBaleId: bale.id })
-      db.prepare(`UPDATE bales SET bale_no = ? WHERE id = ?`).run(newNo, bale.id)
-      bale.bale_no = newNo
+      assertBaleNoAvailable(newNo, { excludeBaleId: primary.id })
+      db.prepare(`UPDATE bales SET bale_no = ? WHERE id = ?`).run(newNo, primary.id)
+      primary.bale_no = newNo
     }
     // 规格换掉，入库明细一起同步（库存跟着变）；
     // 成本单价一并写进去，库存金额才不会因为改包变成 0
-    replaceBaleItems(bale, pricedGroups[0].items)
+    replaceBaleItems(primary, pricedGroups[0].items)
   }
 
   return {
@@ -682,8 +945,17 @@ const createRepack = db.transaction((payload) => {
 
 router.post('/', requireCap('repack.write'), (req, res) => {
   const body = req.body ?? {}
-  const baleId = Number(body.bale_id)
-  if (!Number.isInteger(baleId) || baleId <= 0) {
+  /**
+   * 源包：多选传 `bale_ids`（数组）；单包调用（老前端 / 脚本）继续接受 `bale_id`。
+   * 去重 + 过滤非法值，顺序保持用户选的样子（第一个当"主包"）。
+   */
+  const rawIds = Array.isArray(body.bale_ids)
+    ? body.bale_ids
+    : body.bale_id !== undefined
+      ? [body.bale_id]
+      : []
+  const baleIds = [...new Set(rawIds.map(Number).filter((one) => Number.isInteger(one) && one > 0))]
+  if (baleIds.length === 0) {
     return res.status(400).json({ error: '请先选择要改的包' })
   }
 
@@ -717,7 +989,7 @@ router.post('/', requireCap('repack.write'), (req, res) => {
     const result = createRepack({
       repackNo: buildRepackNo(body.repack_date),
       repackDate: body.repack_date ? String(body.repack_date) : todayLocal(),
-      baleId,
+      baleIds,
       summary: String(body.summary ?? '').trim(),
       remark: String(body.remark ?? '').trim(),
       blNo: String(body.bl_no ?? '').trim(),
@@ -751,18 +1023,11 @@ const removeRepack = db.transaction((id) => {
     throw error
   }
 
-  /* ---------- 拆包的撤回：删掉新包，把原包重建回来 ---------- */
+  /* ---------- 拆包 / 合并 / 重排的撤回：删掉新包，把**每个源包**重建回来 ---------- */
   if (row.kind === 'split') {
-    const snap = (() => {
-      try {
-        const parsed = JSON.parse(row.before_bale_json ?? 'null')
-        return parsed && typeof parsed === 'object' ? parsed : null
-      } catch {
-        return null
-      }
-    })()
-    if (!snap) {
-      const error = new Error('这条拆包记录缺原包快照，没法自动还原，请联系管理员')
+    const snaps = readSourceSnapshots(row.before_bale_json)
+    if (snaps.length === 0) {
+      const error = new Error('这条改包记录缺原包快照，没法自动还原，请联系管理员')
       error.status = 400
       throw error
     }
@@ -792,9 +1057,8 @@ const removeRepack = db.transaction((id) => {
       }
     }
 
-    const beforeItems = itemsFromSnapshot(
-      Array.isArray(snap.items) ? snap.items : parseSnapshot(row.before_json),
-    )
+    /* 快照里没带规格行的话（极少见），退回用 before_json 里那一份摊平 */
+    const fallbackItems = itemsFromSnapshot(parseSnapshot(row.before_json))
 
     // ① 新包从入库明细里扣掉
     for (const bale of newBales) detachBaleFromOrder(bale)
@@ -805,59 +1069,63 @@ const removeRepack = db.transaction((id) => {
     }
 
     /**
-     * ③ 原包号得能重新用。
-     * 放在删完新包**之后**查：拆包时允许把原包号给某个新包用（那时原包已被排除），
-     * 如果这里提前查，会把「自己拆出来的包」当成占位者，导致永远撤不回去。
+     * ③ 逐个源包原样重建：
+     *    包号 / 条码号 / 柜号 / 提单 / 入库单 / 每一行的来源（src_inbound_order_id）都按快照回来。
+     *
+     *    包号查重放在**删完新包之后**：改包时允许把源包号给新包用（那时源包已被排除），
+     *    提前查会把「自己拆出来的包」当成占位者，导致永远撤不回去。
      */
-    if (snap.bale_no) assertBaleNoAvailable(snap.bale_no)
+    const restored = snaps.map((snap) => {
+      const items = itemsFromSnapshot(
+        Array.isArray(snap.items) && snap.items.length > 0 ? snap.items : fallbackItems,
+      )
+      if (snap.bale_no) assertBaleNoAvailable(snap.bale_no)
 
-    // ③ 原包原样重建（包号 / 条码号 / 柜号 / 归属都按快照来）
-    //    条码号万一被新包复用走了，重新取一个，别撞号
-    let restoredBarcode = snap.barcode
-    const barcodeTaken = restoredBarcode
-      ? db
-          .prepare(`SELECT id FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
-          .get(restoredBarcode)
-      : null
-    if (!restoredBarcode || barcodeTaken) {
-      const shipment = snap.shipment_id
-        ? db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`).get(snap.shipment_id)
-        : null
-      const inboundOrder = snap.inbound_order_id
+      // 条码号万一被新包复用走了，重新取一个，别撞号
+      let restoredBarcode = snap.barcode
+      const barcodeTaken = restoredBarcode
         ? db
-            .prepare(`SELECT order_no FROM inbound_orders WHERE id = ?`)
-            .get(snap.inbound_order_id)
+            .prepare(`SELECT id FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
+            .get(restoredBarcode)
         : null
-      restoredBarcode = takeBarcodes(1, {
-        shipmentId: snap.shipment_id ?? null,
-        shipmentNo: shipment?.bl_no ?? null,
-        inboundOrderNo: inboundOrder?.order_no ?? null,
-      })[0]
-    }
+      if (!restoredBarcode || barcodeTaken) {
+        const shipment = snap.shipment_id ? blNoOfShipment.get(snap.shipment_id) : null
+        const inboundOrder = snap.inbound_order_id
+          ? orderBriefStmt.get(snap.inbound_order_id)
+          : null
+        restoredBarcode = takeBarcodes(1, {
+          shipmentId: snap.shipment_id ?? null,
+          shipmentNo: shipment?.bl_no ?? null,
+          inboundOrderNo: inboundOrder?.order_no ?? null,
+        })[0]
+      }
 
-    const restored = insertBaleWithItems({
-      baleNo: snap.bale_no,
-      barcode: restoredBarcode,
-      boxNo: snap.box_no,
-      shipmentId: snap.shipment_id,
-      inboundOrderId: snap.inbound_order_id,
-      items: beforeItems,
+      const bale = insertBaleWithItems({
+        baleNo: snap.bale_no,
+        barcode: restoredBarcode,
+        boxNo: snap.box_no,
+        shipmentId: snap.shipment_id,
+        inboundOrderId: snap.inbound_order_id,
+        items,
+      })
+      // ④ 挂回各自的入库明细（每行的 src 决定落哪张单）
+      attachBaleToOrder(
+        {
+          id: bale.id,
+          bale_no: bale.bale_no,
+          box_no: snap.box_no ?? null,
+          inbound_order_id: snap.inbound_order_id ?? null,
+        },
+        items,
+      )
+      return bale
     })
-    // ④ 挂回入库明细
-    attachBaleToOrder(
-      {
-        id: restored.id,
-        bale_no: restored.bale_no,
-        box_no: snap.box_no ?? null,
-        inbound_order_id: snap.inbound_order_id ?? null,
-      },
-      beforeItems,
-    )
 
     db.prepare(`DELETE FROM repacks WHERE id = ?`).run(id)
     return {
       repack_no: row.repack_no,
-      restored_bale: restored.bale_no,
+      restored_bale: restored.map((one) => one.bale_no).join('、'),
+      restored_bales: restored,
       removed_bales: newBales.map((one) => one.bale_no),
     }
   }
