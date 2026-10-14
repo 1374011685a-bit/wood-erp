@@ -2184,7 +2184,26 @@ export default function Inbound({
                             <td className="num">{bale.width}</td>
                             <td className="num">{bale.length_text ?? bale.length}</td>
                             <td className="num">{bale.pieces_text ?? bale.pieces}</td>
-                            <td className="num">{formatCubic(bale.cubic)}</td>
+                            {/*
+                              跨单合并包只挂在主单下：整包 8 方、其中本单 3 方。
+                              本单那份小于整包时显示「3 / 8」（本单 / 总），鼠标悬停说清差额；
+                              普通包（两个数相等）还是一个数字，和以前一样。
+                            */}
+                            <td className="num">
+                              {bale.own_cubic < bale.cubic ? (
+                                <span
+                                  title={
+                                    `这一包 ${formatCubic(bale.cubic)} 方，` +
+                                    `其中 ${formatCubic(bale.own_cubic)} 方来自本单，` +
+                                    `${formatCubic(roundTo(bale.cubic - bale.own_cubic, 4))} 方来自其他入库单`
+                                  }
+                                >
+                                  {formatCubic(bale.own_cubic)} / {formatCubic(bale.cubic)}
+                                </span>
+                              ) : (
+                                formatCubic(bale.cubic)
+                              )}
+                            </td>
                             <td>
                               <span
                                 className={

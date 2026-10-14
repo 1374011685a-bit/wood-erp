@@ -969,6 +969,20 @@ router.get('/:id', (req, res) => {
       `SELECT b.id, b.bale_no, b.barcode, b.box_no, b.species, b.grade, b.thickness, b.width, b.length,
               b.pieces, b.cubic, b.status, b.shipped_at,
               ${BALE_TEXT_COLS},
+              /**
+               * 这一包里「属于本单」的立方。
+               *
+               * 跨单合并出来的包只挂在主单下，b.cubic 是**整包**的合计；
+               * 主单看这一包时得知道"其中多少是我的货"，否则会困惑
+               * 「这包 8 方，我这单才 3 方」。
+               * 老数据没有来源标记 → 按"算这一包的"归类（COALESCE 兜底），
+               * 这样普通包算出来就是整包立方，前端按"小于才显示 本单/总"处理。
+               */
+              (SELECT ROUND(COALESCE(SUM(bi.cubic), 0), 4)
+                 FROM bale_items bi
+                WHERE bi.bale_id = b.id
+                  AND COALESCE(bi.src_inbound_order_id, b.inbound_order_id) = b.inbound_order_id
+              ) AS own_cubic,
               o.order_no AS outbound_order_no
          FROM bales b
          LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
@@ -988,6 +1002,8 @@ router.get('/:id', (req, res) => {
       length: row.length,
       pieces: row.pieces ?? 0,
       cubic: Number((row.cubic ?? 0).toFixed(4)),
+      // 这一包里属于**本单**的立方（跨单合并包会小于 cubic）
+      own_cubic: Number((row.own_cubic ?? 0).toFixed(4)),
       // 斜杠串（混装包的长度 / 片数），和 /api/bales 一个口径
       ...baleTextFields(row),
       status: row.status,

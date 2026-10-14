@@ -131,6 +131,12 @@ export type InboundDetail = {
     length_text?: string
     pieces_text?: string
     cubic: number
+    /**
+     * 这一包里**属于本单**的立方。
+     * 跨单合并出来的包只挂在主单下：`cubic` 是整包合计，`own_cubic` 是本单那部分，
+     * 详情里按「本单 / 总」显示（相同时就是普通包，只显示一个数）。
+     */
+    own_cubic: number
     status: 'in_stock' | 'shipped'
     shipped_at: string | null
     outbound_order_no: string
