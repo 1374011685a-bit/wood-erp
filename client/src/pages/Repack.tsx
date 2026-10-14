@@ -82,12 +82,12 @@ const blankRows = () => Array.from({ length: AFTER_BLANK_ROWS }, () => createRow
  * 两张表的列数 / 合计行跨列。
  * 合计行的 colspan 一律从这里倒推 —— 写死数字的话，加一列就会错位。
  *   改包前：# 包号 品牌 品名 等级 厚 宽 长 片数 立方 单位 [单价] [金额] 条码号
- *   改包后：# 旧包号 新包号 品牌 品名 等级 厚 宽 长 片数 立方 单位 [单价] [金额] 操作
+ *   改包后：# 操作 旧包号 新包号 品牌 品名 等级 厚 宽 长 片数 立方 单位 [单价] [金额]
  */
 const BEFORE_COLS = 14
 const BEFORE_LEAD_COLS = 9
 const AFTER_COLS = 15
-const AFTER_LEAD_COLS = 10
+const AFTER_LEAD_COLS = 11
 
 /** 斜杠串拆成各段（`1.8/2.1/2.4` → ['1.8','2.1','2.4']；单值 → 一段） */
 const slashSegments = (text: string) =>
@@ -450,6 +450,16 @@ export default function Repack() {
 
   /** ＋ 空白行：末尾加一行空的 */
   const addRow = () => setRows((prev) => [...prev, createRow()])
+
+  /** 在指定行下面插一行空行（行内「+ 加行」按钮） */
+  const insertRowAfter = (key: number) =>
+    setRows((prev) => {
+      const index = prev.findIndex((row) => row.key === key)
+      if (index < 0) return [...prev, createRow()]
+      const next = [...prev]
+      next.splice(index + 1, 0, createRow())
+      return next
+    })
 
   /**
    * 复制本行：字段照抄、包号清空、插到本行下面（第 N 行 → 新行落在 N+1）。
@@ -1064,6 +1074,8 @@ export default function Repack() {
             <thead>
               <tr>
                 <th className="col-no">#</th>
+                {/* 操作列放最左边（# 后面）：和入库 / 出库两张明细表位置一致 */}
+                <th className="col-op">操作</th>
                 {/* 原来的「包号」列是只读展示；这一列是新包的包号，可填 */}
                 <th className="col-no">旧包号</th>
                 <th className="col-split-no">新包号</th>
@@ -1079,8 +1091,6 @@ export default function Repack() {
                 {/* 看不到金额的角色不显示单价输入：成本完全由后端按「改前总成本 ÷ 改后总方数」算 */}
                 {money && <th>单价{pinned ? '' : '（自动）'}</th>}
                 {money && <th>金额</th>}
-                {/* 这一列只放一个删行按钮，不写表头文字（免得被读成「操作✕」） */}
-                <th className="col-op" aria-label="操作" />
               </tr>
             </thead>
             <tbody>
@@ -1097,6 +1107,37 @@ export default function Repack() {
                 return (
                   <tr key={row.key}>
                     <td className="col-no">{index + 1}</td>
+                    <td className="col-op">
+                      <button
+                        type="button"
+                        className="sheet-act"
+                        title="在这一行下面加一行空行"
+                        onClick={() => insertRowAfter(row.key)}
+                      >
+                        + 加行
+                      </button>
+                      <button
+                        type="button"
+                        className="sheet-act"
+                        title="复制本行（包号会清空，自己填）"
+                        onClick={() => copyRow(row.key)}
+                      >
+                        复制
+                      </button>
+                      {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
+                      <span
+                        title={rows.length <= 1 ? '改包后至少要保留一行规格' : '删掉这一行'}
+                      >
+                        <button
+                          type="button"
+                          className="sheet-act sheet-act-danger"
+                          disabled={rows.length <= 1}
+                          onClick={() => removeRow(row.key)}
+                        >
+                          ✕ 删行
+                        </button>
+                      </span>
+                    </td>
                     {/* 旧包号：只读展示，让人知道这一行原来属于哪一包 */}
                     <td className="col-no">{bale?.bale_no || '—'}</td>
                     {/* 新包号：相同的算同一包；留空就是空的，系统不会替你编一个 */}
@@ -1163,32 +1204,6 @@ export default function Repack() {
                         {cubic ? formatAmount(cubic * priceOf(row)) : ''}
                       </td>
                     )}
-                    <td className="col-op">
-                      {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
-                      <span
-                        title={
-                          rows.length <= 1 ? '改包后至少要保留一行规格' : '删掉这一行'
-                        }
-                      >
-                        <button
-                          type="button"
-                          className="sheet-icon sheet-icon-danger"
-                          disabled={rows.length <= 1}
-                          onClick={() => removeRow(row.key)}
-                        >
-                          ✕
-                        </button>
-                      </span>
-                      {/* 右 ＋：复制本行（字段照抄、包号清空、插到本行下面） */}
-                      <button
-                        type="button"
-                        className="sheet-icon"
-                        title="复制本行（包号会清空，自己填）"
-                        onClick={() => copyRow(row.key)}
-                      >
-                        ＋
-                      </button>
-                    </td>
                   </tr>
                 )
               })}

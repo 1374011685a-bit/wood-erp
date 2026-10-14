@@ -1209,6 +1209,8 @@ export default function Outbound({
               <thead>
                 <tr>
                   <th className="col-no">#</th>
+                  {/* 操作列放最左边（# 后面）：和入库 / 改包两张明细表位置一致 */}
+                  <th className="col-op">操作</th>
                   <th className="col-check">
                     <input
                       type="checkbox"
@@ -1220,7 +1222,6 @@ export default function Outbound({
                       }
                     />
                   </th>
-                  <th className="col-op">操作</th>
                   <th className="col-code">条码号</th>
                   <th>包号</th>
                   {specFields.map(({ field, label }) => (
@@ -1252,6 +1253,22 @@ export default function Outbound({
                   <Fragment key={row.key}>
                     <tr className={reasons.length > 0 ? 'is-error' : undefined}>
                       <td className="col-no">{index + 1}</td>
+                      <td className="col-op">
+                        {/*
+                          出库明细都是「选择码单」带进来的，行内不需要加行 / 复制
+                          （要加行点工具栏的「选择码单」「新增一行」），所以这里只留删行。
+                        */}
+                        <span title={rows.length <= 1 ? '至少要保留一行' : '删掉这一行'}>
+                          <button
+                            type="button"
+                            className="sheet-act sheet-act-danger"
+                            disabled={rows.length <= 1}
+                            onClick={() => removeRow(row.key)}
+                          >
+                            ✕ 删行
+                          </button>
+                        </span>
+                      </td>
                       <td className="col-check">
                         <input
                           type="checkbox"
@@ -1265,21 +1282,6 @@ export default function Outbound({
                             )
                           }
                         />
-                      </td>
-                      <td className="col-op">
-                        {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
-                        <span
-                          title={rows.length <= 1 ? '至少要保留一行' : '删掉这一行'}
-                        >
-                          <button
-                            type="button"
-                            className="sheet-icon sheet-icon-danger"
-                            disabled={rows.length <= 1}
-                            onClick={() => removeRow(row.key)}
-                          >
-                            ✕
-                          </button>
-                        </span>
                       </td>
                       <td className="col-code">{row.baleBarcode || '—'}</td>
                       {/* 选了包但没填包号 → 显示「—」；一行都没选才是「未选码单」 */}

@@ -3360,7 +3360,8 @@ section > .toolbar .btn-primary {
 
 .sheet-table td.col-op,
 .sheet-table th.col-op {
-  width: 78px;
+  /* 三个带文字的行内按钮（+ 加行 / 复制 / ✕ 删行）并排要占这么宽，窄了会折成两行 */
+  width: 120px;
   text-align: center;
   white-space: nowrap;
 }
@@ -3792,6 +3793,13 @@ section > .toolbar .btn-primary {
     color: #c7c7cc;
   }
 
+  /* 手机上：带文字的行内按钮做成好点的尺寸（≥44px 高） */
+  .sheet-cards .sheet-act {
+    height: 40px;
+    padding: 0 12px;
+    font-size: 14px;
+  }
+
   /* 空状态 / 提示行 */
   .sheet-cards tbody td.sheet-empty {
     display: block;
@@ -4033,6 +4041,49 @@ section > .toolbar .btn-primary {
 .sheet-icon:disabled,
 .sheet-icon:disabled:hover {
   background-color: transparent;
+  color: #c7c7cc;
+  cursor: not-allowed;
+}
+
+/*
+ * 行内操作按钮（入库 / 出库 / 改包三张明细表最左边那一列）。
+ *
+ * 以前这三颗是「裸图标」：灰字、无边框、无底色，只有鼠标悬停才变色 ——
+ * 放在表格里几乎看不见（用户反馈「✕ 和复制都不见了」）。现在做成带文字的小按钮，
+ * 一眼能看出「这是个能点的按钮」，也看得出点下去干什么。
+ */
+.sheet-act {
+  display: inline-block;
+  margin: 0 2px;
+  padding: 3px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background-color: #fff;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--ease), border-color var(--ease), color var(--ease);
+}
+
+.sheet-act:hover {
+  background-color: #f2f2f5;
+}
+
+.sheet-act-danger {
+  color: var(--red);
+  border-color: #ffd7d2;
+}
+
+.sheet-act-danger:hover {
+  background-color: #fff1f0;
+}
+
+.sheet-act:disabled,
+.sheet-act:disabled:hover {
+  background-color: #f7f7f9;
+  border-color: var(--line);
   color: #c7c7cc;
   cursor: not-allowed;
 }

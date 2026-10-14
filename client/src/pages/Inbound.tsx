@@ -866,6 +866,18 @@ export default function Inbound({
     if (formError) setFormError('')
   }
 
+  /** 在指定行下面插一行空行（行内「+ 加行」按钮） */
+  const insertRowAfter = (key: number) => {
+    setRows((prev) => {
+      const index = prev.findIndex((row) => row.key === key)
+      if (index < 0) return [...prev, createRow()]
+      const next = [...prev]
+      next.splice(index + 1, 0, createRow())
+      return next
+    })
+    if (formError) setFormError('')
+  }
+
   /**
    * 复制本行：字段照抄、**包号清空**（一个包号只能对应一包货，复制过来必然撞号），
    * 新行插在这一行的下面（点第 N 行 → 新行落在第 N+1 行）。
@@ -1605,6 +1617,8 @@ export default function Inbound({
               <thead>
                 <tr>
                   <th className="col-no">#</th>
+                  {/* 操作列放最左边（# 后面）：三张明细表位置一致，再也不用横滑去找 */}
+                  <th className="col-op">操作</th>
                   <th className="col-check">
                     <input
                       type="checkbox"
@@ -1622,7 +1636,6 @@ export default function Inbound({
                       }
                     />
                   </th>
-                  <th className="col-op">操作</th>
                   {rowFields.map(({ field, label }) => (
                     <th
                       key={field}
@@ -1647,6 +1660,41 @@ export default function Inbound({
                     <Fragment key={row.key}>
                       <tr className={reasons.length > 0 ? 'is-error' : undefined}>
                         <td className="col-no">{index + 1}</td>
+                        <td className="col-op">
+                          <button
+                            type="button"
+                            className="sheet-act"
+                            title="在这一行下面加一行空行"
+                            onClick={() => insertRowAfter(row.key)}
+                          >
+                            + 加行
+                          </button>
+                          <button
+                            type="button"
+                            className="sheet-act"
+                            title="复制本行（包号会清空，自己填）"
+                            onClick={() => copyRow(row.key)}
+                          >
+                            复制
+                          </button>
+                          {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
+                          <span
+                            title={
+                              !filler && filledRowCount <= 1
+                                ? '至少要保留一行'
+                                : '删掉这一行'
+                            }
+                          >
+                            <button
+                              type="button"
+                              className="sheet-act sheet-act-danger"
+                              disabled={!filler && filledRowCount <= 1}
+                              onClick={() => removeRow(row.key)}
+                            >
+                              ✕ 删行
+                            </button>
+                          </span>
+                        </td>
                         <td className="col-check">
                           <input
                             type="checkbox"
@@ -1660,34 +1708,6 @@ export default function Inbound({
                               )
                             }
                           />
-                        </td>
-                        <td className="col-op">
-                          {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
-                          <span
-                            title={
-                              !filler && filledRowCount <= 1
-                                ? '至少要保留一行'
-                                : '删掉这一行'
-                            }
-                          >
-                            <button
-                              type="button"
-                              className="sheet-icon sheet-icon-danger"
-                              disabled={!filler && filledRowCount <= 1}
-                              onClick={() => removeRow(row.key)}
-                            >
-                              ✕
-                            </button>
-                          </span>
-                          {/* 右 ＋：复制本行（字段照抄、包号清空、插到本行下面） */}
-                          <button
-                            type="button"
-                            className="sheet-icon"
-                            title="复制本行（包号会清空，自己填）"
-                            onClick={() => copyRow(row.key)}
-                          >
-                            ＋
-                          </button>
                         </td>
                         {rowFields.map(({ field }) => (
                           <td key={field}>
