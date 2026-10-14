@@ -1082,6 +1082,23 @@ const mixedSourceBaleStmt = db.prepare(
       AND bi.src_inbound_order_id <> ?
     LIMIT 1`,
 )
+/**
+ * 删单闸（反方向）：这张单的货，有没有被合并到**别人的包里**？
+ *
+ * 合并时新包只记得"主包"那张单（`bales.inbound_order_id`）。如果这张单不是主包，
+ * 它的规格行就住在别人的包里 —— 直接删这张单，明细被扣掉、包还在，
+ * 库存和实物就对不上了。所以同样先拦下来，让仓管先改包分开。
+ */
+const myLinesInOtherBalesStmt = db.prepare(
+  `SELECT b.bale_no, ROUND(SUM(bi.cubic), 4) AS cubic
+     FROM bale_items bi
+     JOIN bales b ON b.id = bi.bale_id
+    WHERE bi.src_inbound_order_id = ?
+      AND b.deleted_at IS NULL
+      AND b.inbound_order_id IS NOT ?
+    GROUP BY b.id
+    ORDER BY b.id`,
+)
 // 包只打删除标记，不真删：回收站恢复单据时，包和条码号要跟着回来
 const softDeleteBalesStmt = db.prepare(
   `UPDATE bales SET deleted_at = datetime('now', 'localtime')
@@ -1206,6 +1223,24 @@ router.delete('/:id', requireCap('inbound.write'), (req, res) => {
         `这一包里混了别的入库单（${mixed.other_order_no ?? mixed.other_order_id}）的货，` +
         '请先改包把它们分开',
       code: 'BALE_MIXED_SOURCE',
+    })
+  }
+
+  /**
+   * 删单闸（反方向）：这张单的货被合并到别人的包里了 → 也不能删。
+   * 不拦的话：明细被扣掉、包还在，库存和实物对不上。
+   */
+  const elsewhere = myLinesInOtherBalesStmt.all(id, id)
+  if (elsewhere.length > 0) {
+    const cubic = Number(
+      elsewhere.reduce((sum, one) => sum + (one.cubic ?? 0), 0).toFixed(4),
+    )
+    const nos = elsewhere.map((one) => one.bale_no || '（空包号）').join('、')
+    return res.status(400).json({
+      error:
+        `这张单的货（${cubic} 方）已经被合并到别的包里（包号 ${nos}），` +
+        '请先改包把它们分开再删',
+      code: 'GOODS_MERGED_ELSEWHERE',
     })
   }
 
