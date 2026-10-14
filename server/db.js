@@ -654,6 +654,12 @@ const schema = `
     after_json          TEXT,
     bl_no               TEXT,
     contract_no         TEXT,
+    -- 改包的两条路：'spec' = 改这一包的规格（包还在）；'split' = 把一包拆成几包（原包删掉）
+    kind                TEXT    NOT NULL DEFAULT 'spec',
+    -- 拆包拆出来的新包 id（JSON 数组），撤回时按它找
+    after_bale_ids      TEXT,
+    -- 原包整行快照，撤回时用来把原包原样重建回来
+    before_bale_json    TEXT,
     created_at          TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
   );
 
@@ -871,6 +877,50 @@ function migrateUserRoles() {
   }
 }
 
+/**
+ * 改包支持「拆包」。
+ *
+ * 以前改包只能改**同一包**的规格；现在要把一包混装货拆成几包，就得记下
+ * 「拆出来的是哪几包」和「原包长什么样」——原包会被真删掉，撤回时只能靠快照重建。
+ *
+ * - kind：'spec' 改规格（老行为）/ 'split' 拆包
+ * - after_bale_ids：拆出来的新包 id（JSON 数组）
+ * - before_bale_json：原包整行快照（包号 / 条码号 / 柜号 / 提单 / 入库单 / 状态）
+ *
+ * 老记录 kind 默认 'spec'，行为和以前完全一样。
+ */
+function migrateRepackSplit() {
+  const added = [
+    addColumnIfMissing('repacks', 'kind', "TEXT NOT NULL DEFAULT 'spec'"),
+    addColumnIfMissing('repacks', 'after_bale_ids', 'TEXT'),
+    addColumnIfMissing('repacks', 'before_bale_json', 'TEXT'),
+  ].filter(Boolean)
+  if (added.length > 0) {
+    writeLog('[db] 迁移：改包记录新增 kind / after_bale_ids / before_bale_json（支持拆包）')
+  }
+}
+
+/**
+ * 包号：**全局唯一**，空包号除外。
+ *
+ * 规则（用户确认）：
+ *   - 有值的包号，整个系统里只能出现一次 —— 跨提单、跨柜、跨一切
+ *   - 空包号随便有几个，不参与唯一性（所以要用部分索引）
+ *
+ * 历史：最早是 `UNIQUE(bale_no)`（全局、连空值也管），后来改过一版
+ * 「提单内唯一」的 `idx_bales_scope_no`。这一版把它彻底换成全局的
+ * `idx_bales_no_global`，所以要把旧索引删掉 —— 否则老索引还在，
+ * 同一张提单里重名照样会被它拦，跨提单重名又拦不住，两套规则打架。
+ */
+function migrateBaleNoGlobalUnique() {
+  db.exec(`DROP INDEX IF EXISTS idx_bales_scope_no`)
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_bales_no_global
+       ON bales (bale_no)
+     WHERE bale_no IS NOT NULL AND bale_no <> ''`,
+  )
+}
+
 function migrateBaleSoftDelete() {
   const added = addColumnIfMissing('bales', 'deleted_at', 'TEXT')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_deleted ON bales (deleted_at)`)
@@ -990,11 +1040,14 @@ function migrateBaleScope() {
     !hasColumn('bales', 'scope_key') ||
     /bale_no\s+TEXT\s+NOT NULL\s+UNIQUE/i.test(tableSql)
 
-  // 已经改好的库只需要保证索引在
+  /**
+   * 已经改好的库不用重建表，直接返回。
+   *
+   * 注意：包号的唯一索引**不在这里建** —— 它已经升级成「全局唯一」，
+   * 由 migrateBaleNoGlobalUnique() 负责（这个函数跑在它后面，
+   * 这里要是再建一次提单内的老索引，两套规则就打架了）。
+   */
   if (!needRebuild) {
-    db.exec(
-      `CREATE UNIQUE INDEX IF NOT EXISTS idx_bales_scope_no ON bales (scope_key, bale_no)`,
-    )
     return
   }
 
@@ -1068,7 +1121,6 @@ function migrateBaleScope() {
     CREATE INDEX IF NOT EXISTS idx_bales_outbound  ON bales (outbound_order_id);
     CREATE INDEX IF NOT EXISTS idx_bales_barcode   ON bales (barcode);
     CREATE INDEX IF NOT EXISTS idx_bales_shipment  ON bales (shipment_id);
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_bales_scope_no ON bales (scope_key, bale_no);
   `)
 
   writeLog(
@@ -1405,6 +1457,8 @@ export function initDB() {
   migrateOrderItemBaleNo()
   migrateRepackCreator()
   migrateUserRoles()
+  migrateRepackSplit()
+  migrateBaleNoGlobalUnique()
   relinkBalesToShipment()
   // 补挂之后再看一遍：如果某张提单还是没货，就清掉
   cleanEmptyShipments()

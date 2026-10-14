@@ -416,7 +416,9 @@ export default function Bales() {
               <th>合同号</th>
               <th>品名</th>
               <th>等级</th>
-              <th className="num">厚×宽×长 (mm×mm×m)</th>
+              <th className="num">厚度 (mm)</th>
+              <th className="num">宽度 (mm)</th>
+              <th className="num">长度 (m)</th>
               <th className="num">片数 (片)</th>
               <th className="num">立方 (m³)</th>
               <th>状态</th>
@@ -447,10 +449,11 @@ export default function Bales() {
                 <td>{row.contract_no || '—'}</td>
                 <td>{row.species}</td>
                 <td>{row.grade || '—'}</td>
-                <td className="num">
-                  {row.thickness}×{row.width}×{row.length}
-                </td>
-                <td className="num">{row.pieces}</td>
+                {/* 厚度 / 宽度永远单值；长度和片数是混装包才用斜杠串（1.8/2.1/2.4、17/30/247） */}
+                <td className="num">{row.thickness}</td>
+                <td className="num">{row.width}</td>
+                <td className="num">{row.length_text ?? row.length}</td>
+                <td className="num">{row.pieces_text ?? row.pieces}</td>
                 <td className="num">{formatCubic(row.cubic)}</td>
                 <td>
                   <span className={row.status === 'in_stock' ? 'tag tag-in' : 'tag tag-out'}>

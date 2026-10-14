@@ -156,7 +156,9 @@ export default function Records() {
               <th>供应商/客户</th>
               <th>品名</th>
               <th>等级</th>
-              <th className="num">厚×宽×长</th>
+              <th className="num">厚度 (mm)</th>
+              <th className="num">宽度 (mm)</th>
+              <th className="num">长度 (m)</th>
               <th className="num">片数</th>
               <th className="num">件数</th>
               <th className="num">立方</th>
@@ -181,9 +183,9 @@ export default function Records() {
                 <td>{row.partner}</td>
                 <td>{row.species}</td>
                 <td>{row.grade || '—'}</td>
-                <td className="num">
-                  {row.thickness}×{row.width}×{row.length}
-                </td>
+                <td className="num">{row.thickness}</td>
+                <td className="num">{row.width}</td>
+                <td className="num">{row.length}</td>
                 <td className="num">{row.pieces}</td>
                 <td className="num">{row.bundles}</td>
                 <td className="num">{formatCubic(row.cubic)}</td>

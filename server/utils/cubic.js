@@ -26,6 +26,27 @@ export function calcCubic(thickness, width, length, pieces = 1, bundles = 1) {
 }
 
 /**
+ * 混装包（一包多段长度）的总立方。
+ *
+ * 每件立方 = Σ(厚 × 宽 × 该段长度 × 该段片数) ÷ 1e6，再乘件数。
+ * 单段时和 calcCubic(th, w, len, pieces, bundles) 完全等价
+ * （先把每段算出去除再相加会引入多次四舍五入，所以这里只在最后取整）。
+ *
+ * @param {number} thickness 厚度（mm）
+ * @param {number} width 宽度（mm）
+ * @param {Array<{length:number,pieces:number}>} specs 各段规格
+ * @param {number} [bundles=1] 件数
+ */
+export function calcCubicOfSpecs(thickness, width, specs, bundles = 1) {
+  const list = Array.isArray(specs) && specs.length > 0 ? specs : [{ length: 0, pieces: 0 }]
+  const perBundle = list.reduce(
+    (sum, spec) => sum + (thickness * width * Number(spec.length) * Number(spec.pieces)) / 1000000,
+    0,
+  )
+  return Number((perBundle * bundles).toFixed(4))
+}
+
+/**
  * 计算金额，保留 2 位小数
  *
  * 注意：库里金额以「整数分」为唯一真相（见 calcAmountCents），

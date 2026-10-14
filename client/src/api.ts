@@ -16,8 +16,10 @@ export type InboundItemPayload = {
   grade: string
   thickness: number
   width: number
-  length: number
-  pieces: number
+  /** 长度：普通行是数字；混装包可以是「1800/2100/2400」这种多段写法 */
+  length: number | string
+  /** 片数：普通行是数字；混装包可以是「17/30/247」 */
+  pieces: number | string
   bundles: number
   unit_price: number
   /** 包号列表（一个包号一个码单）；留空则按柜内顺序自动编号 */
@@ -26,6 +28,10 @@ export type InboundItemPayload = {
   box_no?: string
   /** 「同包再加一行」：这一行是往同一个包里再加一个规格 */
   same_package?: boolean
+  /** 出库专用：这一行是从哪一包带出来的（服务端按包对账） */
+  bale_id?: number | null
+  /** 出库专用：这一行的包号（报错文案里用） */
+  bale_no?: string
 }
 
 export type CreateInboundPayload = {
@@ -116,6 +122,9 @@ export type InboundDetail = {
     width: number
     length: number
     pieces: number
+    /** 混装包：长度 / 片数的斜杠串（"1.8/2.1/2.4"、"17/30/247"） */
+    length_text?: string
+    pieces_text?: string
     cubic: number
     status: 'in_stock' | 'shipped'
     shipped_at: string | null
@@ -422,6 +431,13 @@ export type OutboundDetail = {
     barcode: string
     cubic: number
     pieces: number
+    /** 厚度 / 宽度（永远单值） */
+    thickness: number
+    width: number
+    length: number
+    /** 混装包：长度 / 片数的斜杠串（"1.8/2.1/2.4"、"17/30/247"） */
+    length_text?: string
+    pieces_text?: string
     status: string
     bl_no: string
     contract_no: string
@@ -500,6 +516,23 @@ export type ScanBaleResult = {
   cubic: number
   /** 这一包的成本价（加权平均），取不到就是 null */
   unit_price: number | null
+  /** 混装包：一包里有几段不同规格 */
+  is_mixed: boolean
+  /** 这一包的规格行 —— 出库明细按它逐行展开，别拿主规格拼一行 */
+  /** 长度 / 片数斜杠串（混装包一行显示用） */
+  length_text?: string
+  pieces_text?: string
+  items: Array<{
+    brand: string
+    species: string
+    grade: string
+    thickness: number
+    width: number
+    length: number
+    pieces: number
+    cubic: number
+    unit_price: number
+  }>
 }
 
 export function scanOutboundBale(code: string) {
@@ -769,6 +802,14 @@ export type BaleRow = {
   length: number
   pieces: number
   cubic: number
+  /** 混装包：这一包里有几段不同规格 */
+  is_mixed: boolean
+  /** 长度斜杠串：混装包 "1.8/2.1/2.4"，单规格就是原来的数字 */
+  length_text: string
+  /** 片数斜杠串：混装包 "17/30/247" */
+  pieces_text: string
+  /** 给人看的一行规格说明：混装包 "33×22×1.8/2.1/2.4"，别拿它重算立方 */
+  spec_text: string
   status: 'in_stock' | 'shipped'
   created_at: string
   shipped_at: string | null
@@ -1063,6 +1104,9 @@ export type RepackLine = {
   width: number
   length: number
   pieces: number
+  /** 混装行的原文（"1.8/2.1/2.4"、"17/30/247"）；普通行就是单个值 */
+  length_text?: string
+  pieces_text?: string
   cubic: number
   /** 入库时的单价（改前成本算它） */
   unit_price?: number
@@ -1080,6 +1124,10 @@ export type RepackRow = {
   id: number
   repack_no: string
   repack_date: string
+  /** 'spec' 改规格 / 'split' 拆包 */
+  kind: 'spec' | 'split'
+  /** 改包后的包数（改规格固定 1，拆包是拆出来的个数） */
+  bale_count: number
   bale_id: number | null
   barcode: string
   bale_no: string
@@ -1098,6 +1146,12 @@ export type RepackRow = {
   price_pinned: boolean
   before_items: RepackLine[]
   after_items: RepackLine[]
+  /** 拆包时才有：改后每个包的包号 / 条码号 / 规格行 */
+  after_bales: Array<{
+    bale_no: string
+    barcode: string
+    items: RepackLine[]
+  }> | null
   bl_no: string
   contract_no: string
   created_at: string
@@ -1160,18 +1214,32 @@ export function createRepack(payload: {
   contract_no?: string
   /** 改包前每一行选定的成本价：{ [规格行 id]: 单价 }（只有匹配到多个价时才用） */
   before_prices?: Record<string, number>
-  after_items: Array<{
-    brand?: string
-    species: string
-    grade: string
-    thickness: number
-    width: number
-    length: number
-    pieces: number
-    unit_price?: number
+  /**
+   * 改包后的分组：一组 = 一个包。
+   * 只有一组 = 改这一包的规格；多组 = 把这一包拆成几个。
+   * 包号留空就是真的空（不拿条码号顶替）。
+   */
+  groups: Array<{
+    bale_no?: string
+    items: Array<{
+      brand?: string
+      species: string
+      grade: string
+      thickness: number
+      width: number
+      /** 混装行可以是斜杠串（"1.8/2.1/2.4"），后端按段展开 */
+      length: number | string
+      pieces: number | string
+      unit_price?: number
+    }>
   }>
 }) {
-  return request<{ id: number; repack_no: string }>('/api/repacks', {
+  return request<{
+    id: number
+    repack_no: string
+    kind: 'spec' | 'split'
+    bale_count: number
+  }>('/api/repacks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),

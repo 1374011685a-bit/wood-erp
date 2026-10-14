@@ -1,7 +1,10 @@
 import express from 'express'
 import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
+import { calcCubicOfSpecs } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
+import { expandSlashSpecs, specsOf } from '../utils/slashSpecs.js'
+import { BALE_TEXT_COLS, baleItemsStmt, baleTextFields } from './bales.js'
 import { pageParams } from '../utils/paging.js'
 import { requireCap } from '../middleware/permissions.js'
 import { keepPricesFrom, orderItemKey } from '../utils/keepPrices.js'
@@ -125,21 +128,39 @@ function optionalNumber(value, fallback) {
   if (value === undefined || value === null || String(value).trim() === '') {
     return fallback
   }
-  return toNumber(value, fallback)
+  // 解析不出来返回 NaN（而不是静默兜成 1），交给字段校验报中文错
+  return toNumber(value, Number.NaN)
 }
 
 function normalizeItems(items) {
   return items.map((item) => {
-    const spec = specOf(item)
-    const pieces = optionalNumber(item.pieces, 1)
+    /**
+     * 绑了码单的行：规格 / 片数以**这一包实际的 bale_items** 为准。
+     *
+     * 前端那一行显示的是这一包的原文 —— 混装包写的是斜杠串（`1.8/2.1/2.4`、`17/30/247`），
+     * 直接 toNumber 会变成 0，校验就会报「长度必须大于 0m」，混装包永远发不出去。
+     * 而真正要扣库存的规格本来就是按包里的段来的（见 specRowsOf / checkStock）。
+     */
+    const baleId = Number(item.bale_id) || null
+    const baleItems = baleId ? baleItemsStmt.all(baleId) : []
+    const head = baleItems[0] ?? null
+
+    const spec = head
+      ? {
+          species: head.species,
+          grade: head.grade,
+          thickness: head.thickness,
+          width: head.width,
+          length: head.length,
+        }
+      : specOf(item)
+    const pieces = head ? head.pieces : optionalNumber(item.pieces, 1)
     const bundles = optionalNumber(item.bundles, 1)
-    const cubic = calcCubic(
-      spec.thickness,
-      spec.width,
-      spec.length,
-      pieces,
-      bundles,
-    )
+    // 混装包：出库明细也可能一行多段（长度 1800/2100/2400）；绑了码单就照包里的段来
+    const specs = head
+      ? baleItems.map((one) => ({ length: one.length, pieces: one.pieces }))
+      : specsOf({ ...item, ...spec, pieces })
+    const cubic = calcCubicOfSpecs(spec.thickness, spec.width, specs, bundles)
     // 金额一律走整数分，避免浮点累加误差；unit_price / amount 只是显示镜像
     const unitPriceCents = toCents(item.unit_price)
     const amountCents = calcAmountCents(cubic, unitPriceCents)
@@ -149,6 +170,10 @@ function normalizeItems(items) {
       pieces,
       bundles,
       cubic,
+      specs,
+      /** 这一行明细是从哪一包带出来的（前端选的包）。做「明细 vs 包」一致性校验用 */
+      bale_id: baleId,
+      bale_no: item.bale_no ? String(item.bale_no) : '',
       unit_price: fromCents(unitPriceCents),
       amount: fromCents(amountCents),
       unit_price_cents: unitPriceCents,
@@ -202,25 +227,119 @@ function checkBales(baleIds) {
   return problems
 }
 
-function checkStock(items) {
-  const groups = new Map()
+/**
+ * 明细 vs 码单 的一致性校验（防「改完包数据不同步」再发生）。
+ *
+ * 背景：出库明细和 bales 是两套独立的数据，以前各写各的、互不校验。
+ * 结果就是「这一包实际 55.35 立方，明细却按 9.15 扣了库存」也能存下去，
+ * 剩下的 46 立方变成永远卖不掉的幽灵库存。
+ *
+ * 现在按包对账：明细里凡是标了 bale_id 的行，它们的立方合计必须等于这一包的立方
+ * （±0.01 容差，容忍四舍五入）。混装包一包多行，合计照样对得上。
+ */
+function checkBaleCubic(items, baleIds) {
+  const problems = []
+  if (!Array.isArray(baleIds) || baleIds.length === 0) return problems
 
+  const writtenByBale = new Map()
   for (const item of items) {
-    const key = specKey(item)
-    const group = groups.get(key) ?? {
+    const id = Number(item.bale_id)
+    if (!Number.isInteger(id) || id <= 0) continue
+    writtenByBale.set(id, (writtenByBale.get(id) ?? 0) + Number(item.cubic ?? 0))
+  }
+
+  const findBale = db.prepare(
+    `SELECT bale_no, barcode, cubic FROM bales WHERE id = ? AND deleted_at IS NULL`,
+  )
+
+  for (const id of baleIds) {
+    const written = writtenByBale.get(id)
+    // 明细没标 bale_id（老前端 / 手工行）：这一包不参与对账，别误伤
+    if (written === undefined) continue
+
+    const bale = findBale.get(id)
+    if (!bale) continue
+
+    const real = roundTo(bale.cubic ?? 0, 4)
+    const mine = roundTo(written, 4)
+    if (Math.abs(real - mine) > 0.01) {
+      problems.push(
+        `这一包（${bale.bale_no || bale.barcode}）实际 ${real} 立方，明细只写了 ${mine}，请重新选择`,
+      )
+    }
+  }
+
+  return problems
+}
+
+/**
+ * 把一条出库明细展开成「按规格的真实扣减行」。
+ *
+ * 界面上一包一行（长度片数是斜杠串），但库存按规格汇总，
+ * 所以校验和落库都必须先展开成一段一行，两边共用这一份，口径不会跑偏。
+ */
+function* specRowsOf(item) {
+  if (item.bale_id) {
+    const rows = baleItemsStmt.all(item.bale_id)
+    if (rows.length > 0) {
+      for (const one of rows) {
+        yield {
+          species: one.species,
+          grade: one.grade,
+          thickness: one.thickness,
+          width: one.width,
+          length: one.length,
+          pieces: one.pieces,
+          bundles: item.bundles,
+          cubic: calcCubic(one.thickness, one.width, one.length, one.pieces, item.bundles),
+          unit_price_cents: Number(one.unit_price_cents ?? item.unit_price_cents ?? 0),
+        }
+      }
+      return
+    }
+  }
+
+  for (const spec of item.specs ?? [{ length: item.length, pieces: item.pieces }]) {
+    yield {
       species: item.species,
       grade: item.grade,
       thickness: item.thickness,
       width: item.width,
-      length: item.length,
-      cubic: 0,
-      bundles: 0,
+      length: spec.length,
+      pieces: spec.pieces,
+      bundles: item.bundles,
+      cubic: calcCubic(item.thickness, item.width, spec.length, spec.pieces, item.bundles),
+      unit_price_cents: spec.cents ?? item.unit_price_cents ?? 0,
     }
-    group.cubic += item.cubic
-    group.bundles += item.bundles
-    groups.set(key, group)
+  }
+}
+
+function checkStock(items) {
+  const groups = new Map()
+
+  for (const item of items) {
+    // 按规格展开后再比库存：混装包一包多段，挤成一行会算出「长3 却有 2080 片」这种假规格
+    for (const row of specRowsOf(item)) {
+      const key = specKey(row)
+      const group = groups.get(key) ?? {
+        species: row.species,
+        grade: row.grade,
+        thickness: row.thickness,
+        width: row.width,
+        length: row.length,
+        cubic: 0,
+        bundles: 0,
+      }
+      group.cubic += row.cubic
+      group.bundles += row.bundles
+      groups.set(key, group)
+    }
   }
 
+  return compareWithStock(groups)
+}
+
+function compareWithStock(groups) {
   const problems = []
 
   for (const group of groups.values()) {
@@ -279,6 +398,34 @@ const insertItem = db.prepare(
       @pieces, @bundles, @cubic, @unit_price, @amount, @unit_price_cents, @amount_cents)`,
 )
 
+/**
+ * 一条出库明细 → 落几行 order_items。
+ *
+ * 界面上一包只显示 **1 行**（长度/片数写斜杠串），但库存是按「品名+等级+规格」
+ * 分别汇总的，所以落库时得按这一包的规格段拆成多行，否则混装包里
+ * 除第一段之外的库存都扣不到。
+ *
+ * - 绑了码单（item.bale_id 有值）→ 从这一包的 bale_items 取段，按段落多行
+ * - 手工行（没有 bale_id）→ 按 item.specs 或单段落一行
+ */
+function insertItemRows(stmt, item, orderId) {
+  // 和库存校验共用同一份展开（specRowsOf），保证「校验用哪几行」和「落库哪几行」完全一致
+  for (const row of specRowsOf(item)) {
+    const amountCents = calcAmountCents(row.cubic, row.unit_price_cents)
+    stmt.run({
+      ...item,
+      order_id: orderId,
+      length: row.length,
+      pieces: row.pieces,
+      cubic: row.cubic,
+      unit_price_cents: row.unit_price_cents,
+      unit_price: fromCents(row.unit_price_cents),
+      amount: fromCents(amountCents),
+      amount_cents: amountCents,
+    })
+  }
+}
+
 // 事务：库存校验与写入放在同一事务里，避免并发超卖
 const createOutbound = db.transaction(
   ({
@@ -309,9 +456,10 @@ const createOutbound = db.transaction(
       vehicleNo || null,
     )
     const orderId = Number(lastInsertRowid)
-    items.forEach((item, index) => {
-      insertItem.run({ ...item, order_id: orderId })
-    })
+    // 混装包一行多段 → 每段单独落一条明细，库存才按规格扣得对
+    for (const item of items) {
+      insertItemRows(insertItem, item, orderId)
+    }
 
     // 把这次发走的码单标记成已出库，并挂到出库单上
     const markShipped = db.prepare(
@@ -361,11 +509,22 @@ router.post('/', requireCap('outbound.write'), (req, res) => {
     return res.status(400).json({ error: baleErrors.join('\n') })
   }
 
-  const items = normalizeItems(rawItems)
+  // 混装包：出库明细也支持「长度 1800/2100/2400 + 片数 17/30/247」
+  const expanded = expandSlashSpecs(rawItems)
+  if (expanded.problems.length > 0) {
+    return res.status(400).json({ error: expanded.problems.join('\n') })
+  }
+  const items = normalizeItems(expanded.items)
   // 字段级校验：出库额外要求该行立方大于 0（库存校验在事务里，逻辑未改动）
   const problems = validateItems(items, { requirePositiveCubic: true })
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
+  }
+
+  // 明细和「发走的包」必须对得上（见 checkBaleCubic 里的说明）
+  const baleProblems = checkBaleCubic(items, rawBales)
+  if (baleProblems.length > 0) {
+    return res.status(400).json({ error: baleProblems.join('\n') })
   }
 
   try {
@@ -470,6 +629,23 @@ router.get('/scan', (req, res) => {
     return res.status(400).json({ error: '这一包已经出库了' })
   }
 
+  /**
+   * 规格行单独给出来：混装包一包里有几段不同长度，
+   * 前端要按**每一段**生成一行出库明细（不是拿主规格拼一行），
+   * 否则立方会算错 —— 这正是「改完包数据不同步」那个 bug 的根源。
+   */
+  const items = baleItemsOfStmt.all(bale.id).map((item) => ({
+    brand: item.brand ?? '',
+    species: item.species ?? '',
+    grade: item.grade ?? '',
+    thickness: item.thickness,
+    width: item.width,
+    length: item.length,
+    pieces: item.pieces,
+    cubic: roundTo(item.cubic ?? 0, 4),
+    unit_price: fromCents(Number(item.unit_price_cents ?? 0)),
+  }))
+
   res.json({
     bale_id: bale.id,
     bale_no: bale.bale_no ?? '',
@@ -484,6 +660,8 @@ router.get('/scan', (req, res) => {
     bundles: 1,
     cubic: roundTo(bale.cubic ?? 0, 4),
     unit_price: baleCostPrice(bale),
+    is_mixed: items.length > 1,
+    items,
   })
 })
 
@@ -571,7 +749,7 @@ const updateOutbound = db.transaction(
 
   replaceOrderItemsStmt.run(id)
   for (const item of items) {
-    insertItem.run({ ...item, order_id: id })
+    insertItemRows(insertItem, item, id)
   }
   updateOrderStmt.run(
     customer,
@@ -621,8 +799,13 @@ router.put('/:id', requireCap('outbound.write'), (req, res) => {
     )
     .all(id)
 
+  // 先拆斜杠、再补原价：展开之后 length/pieces 才是数字，才能和原明细对上号
+  const expanded = expandSlashSpecs(rawItems)
+  if (expanded.problems.length > 0) {
+    return res.status(400).json({ error: expanded.problems.join('\n') })
+  }
   const items = normalizeItems(
-    keepPricesFrom(rawItems, oldItems, {
+    keepPricesFrom(expanded.items, oldItems, {
       keyOf: orderItemKey,
       priceOf: (row) => Number(row.unit_price_cents ?? Math.round((row.unit_price ?? 0) * 100)),
     }),
@@ -630,6 +813,16 @@ router.put('/:id', requireCap('outbound.write'), (req, res) => {
   const problems = validateItems(items, { requirePositiveCubic: true })
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
+  }
+
+  // 明细和「这张单已经发走的包」必须对得上（编辑时不重绑包，所以查库里挂着的那几包）
+  const shippedBaleIds = db
+    .prepare(`SELECT id FROM bales WHERE outbound_order_id = ? AND deleted_at IS NULL`)
+    .all(id)
+    .map((row) => row.id)
+  const baleProblems = checkBaleCubic(items, shippedBaleIds)
+  if (baleProblems.length > 0) {
+    return res.status(400).json({ error: baleProblems.join('\n') })
   }
 
   try {
@@ -794,6 +987,8 @@ router.get('/:id', (req, res) => {
   const bales = db
     .prepare(
       `SELECT b.bale_no, b.barcode, b.cubic, b.pieces, b.status,
+              b.thickness, b.width, b.length,
+              ${BALE_TEXT_COLS},
               s.bl_no, s.contract_no
          FROM bales b
          LEFT JOIN shipments s ON s.id = b.shipment_id
@@ -806,6 +1001,12 @@ router.get('/:id', (req, res) => {
       barcode: row.barcode ?? row.bale_no ?? '',
       cubic: roundTo(row.cubic ?? 0, 4),
       pieces: row.pieces ?? 0,
+      // 厚 / 宽 永远单值；长度和片数混装时才是斜杠串
+      thickness: row.thickness,
+      width: row.width,
+      length: row.length,
+      // 混装包：长度 / 片数用斜杠串，别拿「第一段 + 片数合计」糊弄（和 /api/bales 一个口径）
+      ...baleTextFields(row),
       status: row.status,
       bl_no: row.bl_no ?? '',
       contract_no: row.contract_no ?? '',

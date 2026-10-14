@@ -5,6 +5,7 @@ import { pageParams } from '../utils/paging.js'
 import { calcAmountCents, fromCents, toCents } from '../utils/cubic.js'
 import { writeLog } from '../boot-log.js'
 import { requireCap } from '../middleware/permissions.js'
+import { expandSlashSpecs, specsOf, toMeters } from '../utils/slashSpecs.js'
 
 const router = express.Router()
 
@@ -13,11 +14,48 @@ const roundTo = (value, digits) => Number((value ?? 0).toFixed(digits))
 /**
  * 码单列表：一包一条，带上柜号 / 合同号 / 出库单号，
  * 用来查「这包货还在不在、卖给了谁、属于哪个合同」。
+ *
+ * 下面这三段子查询是**混装包的显示口径**，全项目共用（列表 / 详情 / 改包选货）：
+ * `bales` 表只存得下「第一条规格」的厚宽长 + 全部规格的片数合计，
+ * 直接拿来显示必然是错的（长度只有第一段、片数却是几段之和）。
+ * 所以从 bale_items 拼出斜杠串：
+ *   长度 1.8/2.1/2.4   片数 17/30/247   规格 33×22×1.8/2.1/2.4
+ *
+ * ⚠️ GROUP_CONCAT 官方不保证顺序，必须套一层带 ORDER BY id 的子查询，
+ *    否则会出现 2.1/1.8/2.4 这种乱序。
  */
+export const BALE_TEXT_COLS = `
+  (SELECT GROUP_CONCAT(t.length, '/') FROM
+     (SELECT length FROM bale_items WHERE bale_id = b.id ORDER BY id) t) AS length_text,
+  (SELECT GROUP_CONCAT(t.pieces, '/') FROM
+     (SELECT pieces FROM bale_items WHERE bale_id = b.id ORDER BY id) t) AS pieces_text,
+  (SELECT COUNT(*) FROM bale_items bi WHERE bi.bale_id = b.id) AS item_count
+`
+
+/**
+ * 把上面那三列整理成给前端的字段。
+ * `spec_text`：混装时是 `33×22×1.8/2.1/2.4`，单规格时退回原来的 `33×22×2`。
+ */
+export const baleTextFields = (row) => {
+  const count = Number(row.item_count ?? 0)
+  const mixed = count > 1
+  const lengthText = row.length_text || String(row.length ?? '')
+  const piecesText = row.pieces_text || String(row.pieces ?? '')
+  return {
+    length_text: lengthText,
+    pieces_text: piecesText,
+    is_mixed: mixed,
+    spec_text: mixed
+      ? `${row.thickness}×${row.width}×${lengthText}`
+      : `${row.thickness}×${row.width}×${row.length}`,
+  }
+}
+
 const listSql = (where) => `
   SELECT b.*,
          s.bl_no,
          s.contract_no,
+         ${BALE_TEXT_COLS},
          o.order_no AS outbound_order_no
     FROM bales b
     LEFT JOIN shipments s       ON s.id = b.shipment_id
@@ -123,6 +161,8 @@ router.get('/', (req, res) => {
       length: row.length,
       pieces: row.pieces,
       cubic: roundTo(row.cubic ?? 0, 4),
+      // 混装包：长度 / 片数用斜杠串，规格也是（见 BALE_TEXT_COLS 的说明）
+      ...baleTextFields(row),
       status: row.status,
       created_at: row.created_at,
       shipped_at: row.shipped_at,
@@ -231,7 +271,35 @@ const insertBale = db.prepare(
       @thickness, @width, @length, @pieces, @cubic, 'in_stock')`,
 )
 
-/** 包号查重：同一范围（提单 / 散货按入库单）里找同名包 */
+/**
+ * 包号唯一性校验：**全局唯一**（跨提单、跨柜、跨一切），空包号不参与。
+ *
+ * 规则（用户确认）：
+ *   - 有值的包号，整个系统里只能出现一次
+ *   - 空包号随便有几个，并存没问题
+ *
+ * 数据库那边有 idx_bales_no_global 兜底，这里提前拦是为了给出中文提示
+ * （直接撞索引只会得到 `UNIQUE constraint failed`）。
+ *
+ * @param {string} baleNo 要用的包号
+ * @param {{ excludeBaleId?: number }} [options] 改包时排除原包自己
+ */
+export function assertBaleNoAvailable(baleNo, { excludeBaleId } = {}) {
+  const key = String(baleNo ?? '').trim()
+  if (!key) return
+
+  const hit = db
+    .prepare(`SELECT id FROM bales WHERE bale_no = ? AND deleted_at IS NULL`)
+    .get(key)
+  if (!hit) return
+  if (excludeBaleId !== undefined && Number(hit.id) === Number(excludeBaleId)) return
+
+  const error = new Error(`包号 ${key} 已经存在，请换一个`)
+  error.status = 400
+  throw error
+}
+
+/** 包号查重：同一范围（提单 / 散货按入库单）里找同名包 —— 内部辅助用，不再做对外校验 */
 const findBaleInScope = db.prepare(
   `SELECT * FROM bales WHERE scope_key = ? AND bale_no = ? AND deleted_at IS NULL`,
 )
@@ -295,8 +363,6 @@ export function assertBoxOwner(boxNo, shipmentId, inboundOrderId) {
 }
 
 export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrderId }) {
-  const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
-  const where = shipmentId ? '这张提单' : '这张入库单'
   const seen = new Map() // 包号 -> 第一次出现的位置
 
   items.forEach((item, index) => {
@@ -322,8 +388,6 @@ export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrder
       throw error
     }
 
-    if (item.same_package === true) return // 同包行是往已有的包里加规格，不参与查重
-
     for (const label of labels) {
       const key = String(label).trim()
       if (!key) continue
@@ -335,10 +399,17 @@ export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrder
         throw error
       }
       seen.set(key, index + 1)
-      const hit = scopeKey ? findBaleInScope.get(scopeKey, key) : null
-      const ownBale = hit && excludeOrderId && Number(hit.inbound_order_id) === Number(excludeOrderId)
+      /**
+       * 全局唯一。编辑这张单时，它自己原来的包要排除掉
+       * （包号没改的话本来就在库里，不能算冲突）。
+       */
+      const hit = db
+        .prepare(`SELECT id, inbound_order_id FROM bales WHERE bale_no = ? AND deleted_at IS NULL`)
+        .get(key)
+      const ownBale =
+        hit && excludeOrderId && Number(hit.inbound_order_id) === Number(excludeOrderId)
       if (hit && !ownBale) {
-        const error = new Error(`包号 ${key} 在${where}里已存在，请换一个包号`)
+        const error = new Error(`包号 ${key} 已经存在，请换一个`)
         error.status = 400
         throw error
       }
@@ -374,13 +445,17 @@ const updateBaleSummary = db.prepare(
  */
 export function createBalesForItem({
   item,
+  /**
+   * 这一包的规格段。普通行就是一段（长度/片数各一个数）；
+   * 混装包一行写多段（长度 1800/2100/2400 + 片数 17/30/247），
+   * 这几段落进**同一张码单**的多行规格行 —— 也就是「一包混装」。
+   */
+  specs,
   shipmentId,
   shipmentNo,
   inboundOrderId,
   inboundOrderNo,
   baleLabels,
-  /** 这一行是「同包再加一行」：允许往已有的包里追加规格 */
-  samePackage,
 }) {
   const labels =
     Array.isArray(baleLabels) && baleLabels.length > 0
@@ -389,9 +464,19 @@ export function createBalesForItem({
   const bundles = labels ? labels.length : Math.round(Number(item.bundles ?? 0))
   if (!(bundles > 0)) return []
 
+  const specList =
+    Array.isArray(specs) && specs.length > 0
+      ? specs
+      : [{ length: item.length, pieces: item.pieces }]
+
   let sequence = nextBaleSequence(shipmentId, inboundOrderNo)
+  /** 一件（一包）的立方：单段时就等于原来的算法 */
   const cubicPerBale = roundTo(
-    calcCubic(item.thickness, item.width, item.length, item.pieces, 1),
+    specList.reduce(
+      (sum, spec) =>
+        sum + calcCubic(item.thickness, item.width, spec.length, spec.pieces, 1),
+      0,
+    ),
     4,
   )
   const created = []
@@ -411,24 +496,15 @@ export function createBalesForItem({
   for (let i = 0; i < bundles; i += 1) {
     const label = labels ? labels[i] : ''
 
-    // 手填了包号：查重（同一提单 / 同一散货单里包号必须唯一）
     const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
-    let bale = label ? findBaleInScope.get(scopeKey, label) : null
-    if (bale) {
-      // 只有「同包再加一行」这种明确标记过的行，才允许往已有的包里加规格
-      // 预检已经把关，这里只是兜底
-      if (samePackage !== true) {
-        const error = new Error(`包号 ${label} 在这张提单里已存在，请换一个包号`)
-        error.status = 400
-        throw error
-      }
-    } else {
-      // 预检已经把关，这里只是兜底
-      if (samePackage === true) {
-        const error = new Error(`「同包再加一行」没找到对应的包号 ${label}，请检查`)
-        error.status = 400
-        throw error
-      }
+    /**
+     * 手填了包号：全局唯一校验（preflightBales 已经拦过一次，这里是兜底）。
+     * 「同包再加一行」这个功能已经删掉 —— 混装包现在是一行写多段长度（斜杠），
+     * 不再靠「往已有包里追加规格」拼出来，所以这里不存在「找到已有包」的分支。
+     */
+    if (label) assertBaleNoAvailable(label)
+
+    const bale = (() => {
       const barcode = takeBarcode()
       const { lastInsertRowid } = db
         .prepare(
@@ -439,7 +515,8 @@ export function createBalesForItem({
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'in_stock')`,
         )
         .run(
-          label || barcode,
+          // 包号留空就存空字符串 —— 不再拿条码号顶替（用户明确要求）
+          label || '',
           barcode,
           item.box_no ?? null,
           shipmentId ?? null,
@@ -453,44 +530,32 @@ export function createBalesForItem({
           item.pieces,
           cubicPerBale,
         )
-      bale = { id: Number(lastInsertRowid) }
-      created.push(barcode)
+      return { id: Number(lastInsertRowid), bale_no: label || '', barcode }
+    })()
+    created.push(bale)
+
+    // 规格行：一包可以有几段（混装包就是在这里落成多行的）
+    for (const spec of specList) {
+      insertBaleItem.run({
+        bale_id: bale.id,
+        brand: item.brand ?? null,
+        species: item.species,
+        grade: item.grade,
+        thickness: item.thickness,
+        width: item.width,
+        length: spec.length,
+        pieces: spec.pieces,
+        cubic: roundTo(calcCubic(item.thickness, item.width, spec.length, spec.pieces, 1), 4),
+        unit_price_cents: item.unit_price_cents ?? null,
+      })
     }
 
-    // 规格行：一包可以有几个规格
-    insertBaleItem.run({
-      bale_id: bale.id,
-      brand: item.brand ?? null,
-      species: item.species,
-      grade: item.grade,
-      thickness: item.thickness,
-      width: item.width,
-      length: item.length,
-      pieces: item.pieces,
-      cubic: cubicPerBale,
-      unit_price_cents: item.unit_price_cents ?? null,
-    })
-
-    if (label) {
-      // 同一包再录规格时，把这一包的总立方 / 总片数累加上去
-      const totals = db
-        .prepare(
-          `SELECT ROUND(COALESCE(SUM(cubic), 0), 4) AS cubic,
-                  COALESCE(SUM(pieces), 0)         AS pieces
-             FROM bale_items WHERE bale_id = ?`,
-        )
-        .get(bale.id)
-      updateBaleSummary.run(
-        totals.cubic,
-        totals.pieces,
-        item.species,
-        item.grade,
-        item.thickness,
-        item.width,
-        item.length,
-        bale.id,
-      )
-    }
+    /**
+     * 规格行写完再重算一次汇总。
+     * 以前的版本只在「填了包号」时才算，靠新建 bale 时写进去的单段立方兜底；
+     * 混装包一包多段，必须每次都算，否则包里只认第一段。
+     */
+    refreshBaleSummary(bale.id)
   }
 
   return created
@@ -498,7 +563,10 @@ export function createBalesForItem({
 
 /* ---------- 码单编辑 / 删除：库存口径在入库单明细上，必须同步 ---------- */
 
-const getBaleStmt = db.prepare(`SELECT * FROM bales WHERE id = ? AND deleted_at IS NULL`)
+// 带上斜杠串那几列：详情接口和内部取包都用它，口径和列表完全一致
+const getBaleStmt = db.prepare(
+  `SELECT b.*, ${BALE_TEXT_COLS} FROM bales b WHERE b.id = ? AND b.deleted_at IS NULL`,
+)
 export const baleItemsStmt = db.prepare(
   `SELECT * FROM bale_items WHERE bale_id = ? ORDER BY id`,
 )
@@ -669,7 +737,7 @@ function addOneBundleToOrder(orderId, item) {
 }
 
 /** 把码单的旧规格行从入库单里整体扣掉 */
-function detachBaleFromOrder(bale) {
+export function detachBaleFromOrder(bale) {
   if (!bale.inbound_order_id) return
   for (const item of baleItemsStmt.all(bale.id)) {
     // 把这一包的包号一起带进去：扣件时要从原行的包号列表里摘掉它
@@ -678,11 +746,103 @@ function detachBaleFromOrder(bale) {
 }
 
 /** 把码单的新规格行挂回入库单 */
-function attachBaleToOrder(bale, items) {
+export function attachBaleToOrder(bale, items) {
   if (!bale.inbound_order_id) return
   for (const item of items) {
-    addOneBundleToOrder(bale.inbound_order_id, item)
+    /**
+     * 包号 / 柜号是包级字段：挂回去的明细行必须知道自己是哪一包的，
+     * 否则「采购入库明细」里这几行的包号会变成空 —— 拆包之后尤其明显。
+     */
+    addOneBundleToOrder(bale.inbound_order_id, {
+      ...item,
+      bale_no: item.bale_no ?? bale.bale_no ?? null,
+      box_no: item.box_no ?? bale.box_no ?? null,
+    })
   }
+}
+
+/**
+ * 连续取 n 个没人用过的条码号。
+ *
+ * 「没人用过」= 不在 bales 里。注意要在**删除原包之前**调用：
+ * 拆包时原包马上要被删掉，如果先删再取号，而原包正好是这张提单里最大的号，
+ * 新号就会从它的编号开始，跟刚撕下来那张已打印的标签撞号。
+ * 先取号 = 起点含原包，一定比原包大，不会复用。
+ */
+export function takeBarcodes(count, { shipmentId, shipmentNo, inboundOrderNo }) {
+  const out = []
+  let sequence = nextBaleSequence(shipmentId, inboundOrderNo)
+  for (let guard = 0; out.length < count && guard < 1000; guard += 1) {
+    const candidate = buildBaleNo(shipmentNo, inboundOrderNo, sequence)
+    sequence += 1
+    if (!findBaleByBarcode.get(candidate)) out.push(candidate)
+  }
+  if (out.length < count) {
+    const error = new Error('条码号生成失败，请检查提单号 / 单号')
+    error.status = 400
+    throw error
+  }
+  return out
+}
+
+/**
+ * 直接建一张码单（指定包号 / 条码号）并写入它的规格行。
+ *
+ * 入库那条路走的是 createBalesForItem（自己算包号、自己排条码号），
+ * 拆包这条路包号和条码号都是调用方定好的，所以单独走这里。
+ * 建完顺手把汇总列（立方 / 片数 / 主规格）算对。
+ */
+export function insertBaleWithItems({
+  baleNo,
+  barcode,
+  boxNo,
+  shipmentId,
+  inboundOrderId,
+  items,
+}) {
+  const scopeKey = baleScopeKey(shipmentId, inboundOrderId)
+  const { lastInsertRowid } = db
+    .prepare(
+      `INSERT INTO bales
+         (bale_no, barcode, box_no, shipment_id, inbound_order_id, scope_key,
+          species, grade, thickness, width, length, pieces, cubic, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 'in_stock')`,
+    )
+    .run(
+      baleNo,
+      barcode,
+      boxNo ?? null,
+      shipmentId ?? null,
+      inboundOrderId ?? null,
+      scopeKey,
+      items[0]?.species ?? null,
+      items[0]?.grade ?? null,
+      items[0]?.thickness ?? null,
+      items[0]?.width ?? null,
+      items[0]?.length ?? null,
+    )
+
+  const baleId = Number(lastInsertRowid)
+  for (const item of items) {
+    insertBaleItem.run({
+      bale_id: baleId,
+      brand: item.brand ?? null,
+      species: item.species,
+      grade: item.grade,
+      thickness: item.thickness,
+      width: item.width,
+      length: item.length,
+      pieces: item.pieces,
+      cubic: roundTo(
+        calcCubic(item.thickness, item.width, item.length, item.pieces, 1),
+        4,
+      ),
+      unit_price_cents: item.unit_price_cents ?? null,
+    })
+  }
+  refreshBaleSummary(baleId)
+
+  return { id: baleId, bale_no: baleNo, barcode }
 }
 
 /**
@@ -803,25 +963,47 @@ export function refreshBaleSummary(baleId) {
   )
 }
 
-/** 校验前端传来的规格行 */
+/**
+ * 校验前端传来的规格行。
+ *
+ * 一行里可以写多段（混装包）：长度 `1800/2100/2400` 配片数 `17/30/247`
+ * （规则见 utils/slashSpecs.js —— 厚度 / 宽度只能填一个数）。
+ * 校验通过后每一行是：
+ *   - `specs`：这一行的各段规格（普通行就是 1 段）；
+ *   - `cubic`：这一行的**合计**立方（多段相加）；
+ *   - `length` / `pieces`：保留第一段，老代码读这两个字段的地方行为不变；
+ *   - `unit_price`：前端回的单价（0 = 没填，按成本自动算）。
+ */
 export function normalizeBaleItems(rawItems) {
   const items = Array.isArray(rawItems) ? rawItems : []
   const problems = []
 
-  const normalized = items.map((raw, index) => {
+  // 先把「一行多段」拆开：段数不齐、厚度/宽度写了斜杠都在这里报出来
+  const expanded = expandSlashSpecs(items)
+  problems.push(...expanded.problems)
+
+  const normalized = expanded.items.map((raw, index) => {
     const species = String(raw.species ?? '').trim()
     const grade = String(raw.grade ?? '').trim()
     const thickness = Number(raw.thickness)
     const width = Number(raw.width)
-    const length = Number(raw.length)
-    const pieces = Number(raw.pieces)
+    // 长度同样认毫米写法（1800 → 1.8m），和入库/出库那边一套口径
+    const specs = specsOf(raw).map((spec) => ({
+      length: toMeters(spec.length),
+      pieces: Number(spec.pieces),
+    }))
 
     const reasons = []
     if (!species) reasons.push('品名不能为空')
     if (!(thickness > 0 && thickness <= 1000)) reasons.push('厚度需在 0~1000mm')
     if (!(width > 0 && width <= 1000)) reasons.push('宽度需在 0~1000mm')
-    if (!(length > 0 && length <= 20)) reasons.push('长度需在 0~20m')
-    if (!(Number.isInteger(pieces) && pieces > 0)) reasons.push('片数必须是大于 0 的整数')
+    specs.forEach((spec, seg) => {
+      const at = specs.length > 1 ? `第 ${seg + 1} 段` : ''
+      if (!(spec.length > 0 && spec.length <= 20)) reasons.push(`${at}长度需在 0~20m`)
+      if (!(Number.isInteger(spec.pieces) && spec.pieces > 0)) {
+        reasons.push(`${at}片数必须是大于 0 的整数`)
+      }
+    })
     if (reasons.length > 0) problems.push(`第 ${index + 1} 行：${reasons.join('；')}`)
 
     return {
@@ -830,14 +1012,39 @@ export function normalizeBaleItems(rawItems) {
       grade,
       thickness,
       width,
-      length,
-      pieces,
-      cubic: roundTo(calcCubic(thickness, width, length, pieces, 1), 4),
+      length: specs[0]?.length ?? NaN,
+      pieces: specs[0]?.pieces ?? NaN,
+      specs,
+      cubic: roundTo(
+        specs.reduce(
+          (sum, spec) => sum + calcCubic(thickness, width, spec.length, spec.pieces, 1),
+          0,
+        ),
+        4,
+      ),
+      unit_price: Number(raw.unit_price ?? 0),
     }
   })
 
   if (normalized.length === 0) problems.push('至少需要一个规格')
   return { items: normalized, problems }
+}
+
+/**
+ * 把「行」摊成「一条条规格段」：一段规格 = 一条 bale_items / order_items 记录。
+ *
+ * 混装行（长度 1.8/2.1/2.4）在界面上是一行，落到库存里必须是三段；
+ * 包级字段（品牌 / 包号 / 柜号 / 单价）原样带下去。
+ */
+export function specSegmentsOf(rows) {
+  return (Array.isArray(rows) ? rows : []).flatMap((row) =>
+    specsOf(row).map((spec) => ({
+      ...row,
+      length: spec.length,
+      pieces: spec.pieces,
+      cubic: roundTo(calcCubic(row.thickness, row.width, spec.length, spec.pieces, 1), 4),
+    })),
+  )
 }
 
 /** 码单详情（编辑弹窗用） */
@@ -862,6 +1069,8 @@ router.get('/:id', (req, res) => {
     status: bale.status,
     cubic: roundTo(bale.cubic ?? 0, 4),
     pieces: bale.pieces ?? 0,
+    // 斜杠串（和列表同一个口径，见 BALE_TEXT_COLS）
+    ...baleTextFields(bale),
     items: baleItemsStmt.all(id).map((item) => ({
       id: item.id,
       brand: item.brand ?? '',
@@ -895,24 +1104,20 @@ const updateBale = db.transaction((id, baleNo, boxNo, items) => {
     throw error
   }
 
-  // 查重按同一个范围（这张提单 / 这张散货单）比
-  const duplicate = findBaleInScope.get(bale.scope_key ?? '', baleNo)
-  if (duplicate && duplicate.id !== id) {
-    const error = new Error(
-      bale.shipment_id
-        ? `包号 ${baleNo} 在这张提单里已存在，请换一个包号`
-        : `包号 ${baleNo} 在这张入库单里已存在，请换一个包号`,
-    )
-    error.status = 400
-    throw error
-  }
+  // 包号全局唯一；改包号时排除这一包自己（没改的话它本来就在库里）
+  assertBaleNoAvailable(baleNo, { excludeBaleId: id })
 
-  const amounts = replaceBaleItems(bale, items)
+  /**
+   * 顺序不能反：先把新包号 / 柜号写进 bales，再用**新的包对象**重建明细。
+   * 以前是先 replaceBaleItems 再 UPDATE，重建出来的入库明细写的是**旧包号**——
+   * 结果就是「改了包号，采购入库明细里还是旧的」。
+   */
   db.prepare(`UPDATE bales SET bale_no = ?, box_no = ? WHERE id = ?`).run(
     baleNo,
     boxNo || null,
     id,
   )
+  const amounts = replaceBaleItems({ ...bale, bale_no: baleNo, box_no: boxNo || null }, items)
 
   return {
     id,
@@ -933,7 +1138,7 @@ router.put('/:id', requireCap('bale.write'), (req, res) => {
 
   const body = req.body ?? {}
   const baleNo = String(body.bale_no ?? '').trim()
-  if (!baleNo) return res.status(400).json({ error: '包号不能为空' })
+  // 包号允许留空：仓管没填就是空，系统不替他编一个
   const boxNo = String(body.box_no ?? '').trim()
 
   const { items, problems } = normalizeBaleItems(body.items)
@@ -950,14 +1155,15 @@ router.put('/:id', requireCap('bale.write'), (req, res) => {
     }
   }
 
-  // 前端把每一行原来的单价回传了：有（>0）就钉住它，没有就交给后端按原行/最近价兜底
-  const rawItems = Array.isArray(body.items) ? body.items : []
-  const pricedItems = items.map((item, index) => {
-    const price = Number(rawItems[index]?.unit_price)
-    return Number.isFinite(price) && price > 0
-      ? { ...item, unit_price_cents: toCents(price) }
-      : item
-  })
+  // 前端把每一行原来的单价回传了：有（>0）就钉住它，没有就交给后端按原行/最近价兜底。
+  // 混装行（一行多段）在这里摊成一段一条：库存是按段记的。
+  const pricedItems = specSegmentsOf(
+    items.map((item) =>
+      Number(item.unit_price) > 0
+        ? { ...item, unit_price_cents: toCents(item.unit_price) }
+        : item,
+    ),
+  )
 
   try {
     res.json(updateBale(id, baleNo, boxNo, pricedItems))

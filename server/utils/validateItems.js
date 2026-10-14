@@ -39,15 +39,27 @@ export function validateItems(items, { requirePositiveCubic = false } = {}) {
       reasons.push(`宽度不能超过 ${MAX_WIDTH}mm`)
     }
 
-    if (item.length <= 0) {
-      reasons.push('长度必须大于 0m')
-    } else if (item.length > MAX_LENGTH) {
-      reasons.push(`长度不能超过 ${MAX_LENGTH}m`)
-    }
+    /**
+     * 长度 / 片数按「段」校验：混装包一行里有多段（长度 1800/2100/2400），
+     * 每一段都要过关。单段的行等价于只校验一次。
+     */
+    const specs =
+      Array.isArray(item.specs) && item.specs.length > 0
+        ? item.specs
+        : [{ length: item.length, pieces: item.pieces }]
+    const multi = specs.length > 1
 
-    if (!(Number.isInteger(item.pieces) && item.pieces > 0)) {
-      reasons.push('片数必须是大于 0 的整数')
-    }
+    specs.forEach((spec, seg) => {
+      const tag = multi ? `第 ${seg + 1} 段 ` : ''
+      if (!(spec.length > 0)) {
+        reasons.push(`${tag}长度必须大于 0m`)
+      } else if (spec.length > MAX_LENGTH) {
+        reasons.push(`${tag}长度不能超过 ${MAX_LENGTH}m`)
+      }
+      if (!(Number.isInteger(spec.pieces) && spec.pieces > 0)) {
+        reasons.push(`${tag}片数必须是大于 0 的整数`)
+      }
+    })
 
     if (!(Number.isInteger(item.bundles) && item.bundles > 0)) {
       reasons.push('件数必须是大于 0 的整数')

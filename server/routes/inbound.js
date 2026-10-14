@@ -1,9 +1,11 @@
 import express from 'express'
 import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
+import { calcCubicOfSpecs } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
 import { pageParams } from '../utils/paging.js'
-import { createBalesForItem, preflightBales } from './bales.js'
+import { expandSlashSpecs, specsOf } from '../utils/slashSpecs.js'
+import { BALE_TEXT_COLS, baleTextFields, createBalesForItem, preflightBales } from './bales.js'
 import { requireCap } from '../middleware/permissions.js'
 import { keepPricesFrom, orderItemKey } from '../utils/keepPrices.js'
 
@@ -50,7 +52,12 @@ function optionalNumber(value, fallback) {
   if (value === undefined || value === null || String(value).trim() === '') {
     return fallback
   }
-  return toNumber(value, fallback)
+  /**
+   * 注意这里传 NaN 而不是 fallback：以前解析不出来会静默变成「1 片」，
+   * 像「17/30/247」这种写错的片数会一路存成 1 片，一点提示都没有。
+   * 现在解析不出来就返回 NaN，交给 validateItems 报中文错。
+   */
+  return toNumber(value, Number.NaN)
 }
 
 function normalizeItems(items) {
@@ -60,7 +67,9 @@ function normalizeItems(items) {
     const length = toNumber(item.length)
     const pieces = optionalNumber(item.pieces, 1)
     const bundles = optionalNumber(item.bundles, 1)
-    const cubic = calcCubic(thickness, width, length, pieces, bundles)
+    // 混装包：这一行可能有多段长度（长度 1800/2100/2400 + 片数 17/30/247）
+    const specs = specsOf({ ...item, thickness, width, length, pieces })
+    const cubic = calcCubicOfSpecs(thickness, width, specs, bundles)
     // 金额一律走整数分，避免浮点累加误差；unit_price / amount 只是显示镜像
     const unitPriceCents = toCents(item.unit_price)
     const amountCents = calcAmountCents(cubic, unitPriceCents)
@@ -75,6 +84,7 @@ function normalizeItems(items) {
       pieces,
       bundles,
       cubic,
+      specs,
       unit_price: fromCents(unitPriceCents),
       amount: fromCents(amountCents),
       unit_price_cents: unitPriceCents,
@@ -85,8 +95,6 @@ function normalizeItems(items) {
         : [],
       // 柜号：这一行货装在哪个柜/柜里
       box_no: String(item.box_no ?? '').trim(),
-      // 「同包再加一行」：明确标记过的行，才允许往已有的包里追加规格
-      same_package: item.same_package === true,
       // 这行的包号（人填的原文，编辑时原样读回）
       bale_no: Array.isArray(item.bale_labels) && item.bale_labels.length > 0
         ? item.bale_labels.join('、')
@@ -173,19 +181,46 @@ const createInbound = db.transaction(
   const orderId = Number(lastInsertRowid)
   const barcodes = []
   for (const item of items) {
-    insertItem.run({ ...item, order_id: orderId })
     // 每一包生成一个码单（贴包上的那张）
-    barcodes.push(
-      ...createBalesForItem({
-        item,
-        shipmentId,
-        shipmentNo,
-        inboundOrderId: orderId,
-        inboundOrderNo: orderNo,
-        baleLabels: item.bale_labels,
-        samePackage: item.same_package,
-      }),
-    )
+    const created = createBalesForItem({
+      item,
+      specs: item.specs,
+      shipmentId,
+      shipmentNo,
+      inboundOrderId: orderId,
+      inboundOrderNo: orderNo,
+      baleLabels: item.bale_labels,
+    })
+
+    /**
+     * 先建码单、再写入库明细（顺序不能反）。
+     *
+     * 包号留空时，明细里要写的是系统给这一包分的号（就是条码号）——
+     * 得等包建出来才知道。混装包更依赖这个号：一行的几段规格靠它认成同一包，
+     * 明细里写空了，下次编辑这一单就会散成几包。
+     */
+    const baleNoText =
+      item.bale_labels.length > 0
+        ? item.bale_labels.join('、')
+        : created.map((one) => one.bale_no).join('、')
+
+    // 混装包一行多段 → 每段单独落一条入库明细，库存才按规格算得对
+    for (const spec of item.specs) {
+      const cubic = calcCubic(item.thickness, item.width, spec.length, spec.pieces, item.bundles)
+      const amountCents = calcAmountCents(cubic, item.unit_price_cents)
+      insertItem.run({
+        ...item,
+        order_id: orderId,
+        bale_no: baleNoText,
+        length: spec.length,
+        pieces: spec.pieces,
+        cubic,
+        amount: fromCents(amountCents),
+        amount_cents: amountCents,
+      })
+    }
+
+    barcodes.push(...created.map((one) => one.barcode))
   }
   return {
     id: orderId,
@@ -227,7 +262,12 @@ router.post('/', requireCap('inbound.write'), (req, res) => {
     return res.status(400).json({ error: '至少需要一行明细' })
   }
 
-  const items = normalizeItems(rawItems)
+  // 混装包：长度/片数写「1800/2100/2400」这种斜杠写法，先拆成一段段规格
+  const expanded = expandSlashSpecs(rawItems)
+  if (expanded.problems.length > 0) {
+    return res.status(400).json({ error: expanded.problems.join('\n') })
+  }
+  const items = normalizeItems(expanded.items)
   // 字段级校验：入库不校验 cubic > 0
   const problems = validateItems(items)
   if (problems.length > 0) {
@@ -407,24 +447,10 @@ const updateInbound = db.transaction(
   }
 
   replaceOrderItemsStmt.run(id)
-  for (const item of items) {
-    insertItem.run({ ...item, order_id: id })
-  }
-
   // ── 重建码单：把这张单原来的包整体替换掉（硬删旧包，再按新明细生成）──
   const oldBales = db
     .prepare(`SELECT id FROM bales WHERE inbound_order_id = ?`)
     .all(id)
-  const beforeCents = Number(
-    db
-      .prepare(
-        `SELECT COALESCE(SUM(COALESCE(unit_price_cents, ROUND(unit_price * 100)) * cubic), 0) AS c
-           FROM order_items
-          WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
-      )
-      .get(id)?.c // 新明细已写入，这里算的是重建后的金额
-    ?? 0,
-  )
   for (const bale of oldBales) {
     db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(bale.id)
   }
@@ -435,18 +461,52 @@ const updateInbound = db.transaction(
     : null
   const barcodes = []
   for (const item of items) {
-    barcodes.push(
-      ...createBalesForItem({
-        item,
-        shipmentId: order.shipment_id ?? null,
-        shipmentNo: container?.bl_no ?? null,
-        inboundOrderId: id,
-        inboundOrderNo: order.order_no,
-        baleLabels: item.bale_labels,
-        samePackage: item.same_package,
-      }),
-    )
+    const created = createBalesForItem({
+      item,
+      specs: item.specs,
+      shipmentId: order.shipment_id ?? null,
+      shipmentNo: container?.bl_no ?? null,
+      inboundOrderId: id,
+      inboundOrderNo: order.order_no,
+      baleLabels: item.bale_labels,
+    })
+    // 同新增：先建包拿到真实包号，再写明细（包号留空时才有得写）
+    const baleNoText =
+      item.bale_labels.length > 0
+        ? item.bale_labels.join('、')
+        : created.map((one) => one.bale_no).join('、')
+
+    for (const spec of item.specs) {
+      const cubic = calcCubic(item.thickness, item.width, spec.length, spec.pieces, item.bundles)
+      const amountCents = calcAmountCents(cubic, item.unit_price_cents)
+      insertItem.run({
+        ...item,
+        order_id: id,
+        bale_no: baleNoText,
+        length: spec.length,
+        pieces: spec.pieces,
+        cubic,
+        amount: fromCents(amountCents),
+        amount_cents: amountCents,
+      })
+    }
+    barcodes.push(...created.map((one) => one.barcode))
   }
+
+  /**
+   * 重建后的金额：新明细到这里才全部写完（上面先建包、再写明细），
+   * 所以这一查必须放在循环之后，否则算出来永远是 0。
+   */
+  const beforeCents = Number(
+    db
+      .prepare(
+        `SELECT COALESCE(SUM(COALESCE(unit_price_cents, ROUND(unit_price * 100)) * cubic), 0) AS c
+           FROM order_items
+          WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
+      )
+      .get(id)?.c ?? 0,
+  )
+
   updateOrderStmt.run(
     supplier,
     orderDate,
@@ -512,8 +572,16 @@ router.put('/:id', requireCap('inbound.write'), (req, res) => {
     )
     .all(id)
 
+  /**
+   * 先拆斜杠、再补原价（顺序不能反）：
+   * 展开之后每一行的 length/pieces 才是真正的数字，才能和原明细对得上号。
+   */
+  const expanded = expandSlashSpecs(rawItems)
+  if (expanded.problems.length > 0) {
+    return res.status(400).json({ error: expanded.problems.join('\n') })
+  }
   const items = normalizeItems(
-    keepPricesFrom(rawItems, oldItems, {
+    keepPricesFrom(expanded.items, oldItems, {
       keyOf: orderItemKey,
       priceOf: (row) => Number(row.unit_price_cents ?? Math.round((row.unit_price ?? 0) * 100)),
     }),
@@ -755,6 +823,7 @@ router.get('/:id', (req, res) => {
     .prepare(
       `SELECT b.id, b.bale_no, b.barcode, b.box_no, b.species, b.grade, b.thickness, b.width, b.length,
               b.pieces, b.cubic, b.status, b.shipped_at,
+              ${BALE_TEXT_COLS},
               o.order_no AS outbound_order_no
          FROM bales b
          LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
@@ -774,6 +843,8 @@ router.get('/:id', (req, res) => {
       length: row.length,
       pieces: row.pieces ?? 0,
       cubic: Number((row.cubic ?? 0).toFixed(4)),
+      // 斜杠串（混装包的长度 / 片数），和 /api/bales 一个口径
+      ...baleTextFields(row),
       status: row.status,
       shipped_at: row.shipped_at,
       outbound_order_no: row.outbound_order_no ?? '',

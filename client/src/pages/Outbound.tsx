@@ -79,6 +79,13 @@ type FormRow = {
   baleNo?: string
   /** 条码号（就是码单，要打印贴包上） */
   baleBarcode?: string
+  /**
+   * 这一行的立方直接锁死（来自码单时用）。
+   * 混装包的长度 / 片数是斜杠串（`1.8/2.1/2.4`、`17/30/247`），
+   * 乘不出来，所以立方直接用这一包的合计值，别重算。
+   * undefined = 手工行，照常按 厚×宽×长×片数 算。
+   */
+  cubicLocked?: number
 }
 
 let rowSeq = 0
@@ -116,6 +123,18 @@ function validateRow(row: FormRow): string[] {
   const length = toNumber(row.length)
   const pieces = toNumber(row.pieces)
   const bundles = toNumber(row.bundles)
+
+  /**
+   * 绑了码单的行：规格 / 片数是这一包的原文 —— 混装包在这里写的是斜杠串
+   * （`1.8/2.1/2.4`、`17/30/247`），拿 toNumber 去比必然过不了，
+   * 混装包就永远发不出去。这一行真正要出库的规格由后端按 bale_items 展开，
+   * 所以这里只校验「出几件、什么价」。
+   */
+  if (row.baleId) {
+    if (!(Number.isInteger(bundles) && bundles > 0)) reasons.push('件数必须是大于 0 的整数')
+    if (!(toNumber(row.unitPrice) > 0)) reasons.push('单价必填，且必须大于 0')
+    return reasons
+  }
 
   if (!row.species.trim()) reasons.push('请先点左侧「选择规格」')
 
@@ -339,7 +358,8 @@ export default function Outbound({
   const computedRows = useMemo(
     () =>
       rows.map((row) => {
-        const cubic = previewCubic(row)
+        // 码单带来的行立方是锁死的（斜杠串没法做乘法），手工行才实时算
+        const cubic = row.cubicLocked !== undefined ? row.cubicLocked : previewCubic(row)
         return {
           ...row,
           specKey: specKeyOf(row),
@@ -458,23 +478,15 @@ export default function Outbound({
 
     setPickerApplying(true)
     try {
-      const costs = await Promise.all(
-        fresh.map(async (bale) => {
-          try {
-            const detail = await fetchBaleDetail(bale.id)
-            const cubic = detail.items.reduce((sum, item) => sum + (item.cubic ?? 0), 0)
-            if (cubic <= 0) return ''
-            const amount = detail.items.reduce(
-              (sum, item) => sum + (item.cubic ?? 0) * (item.unit_price ?? 0),
-              0,
-            )
-            const price = roundTo(amount / cubic, 2)
-            return price > 0 ? String(price) : ''
-          } catch {
-            // 取不到成本价就留空，让用户手填（单价仍然是必填）
-            return ''
-          }
-        }),
+      /**
+       * 每一包都拉一次规格行详情：
+       *   - 混装包一包里有几段不同长度，**必须按每一段生成一行明细**；
+       *     拿 bales 表的主规格（只有第一段的厚宽长）+ 片数合计拼一行，
+       *     立方必然算错（比如实际 55.35 会算成 9.15），库存也就扣错了。
+       *   - 顺便把成本价按立方加权算出来填进单价。
+       */
+      const details = await Promise.all(
+        fresh.map((bale) => fetchBaleDetail(bale.id).catch(() => null)),
       )
 
       setRows((prev) => {
@@ -482,20 +494,58 @@ export default function Outbound({
         const kept = prev.filter(
           (row) => typeof row.baleId === 'number' || row.species.trim(),
         )
-        const added = fresh.map((bale, index) => ({
-          key: (rowSeq += 1),
-          species: bale.species,
-          grade: bale.grade,
-          thickness: String(bale.thickness),
-          width: String(bale.width),
-          length: String(bale.length),
-          pieces: String(bale.pieces),
-          bundles: '1',
-          unitPrice: costs[index] ?? '',
-          baleId: bale.id,
-          baleNo: bale.bale_no,
-          baleBarcode: bale.barcode,
-        }))
+        const added: FormRow[] = []
+
+        fresh.forEach((bale, index) => {
+          const detail = details[index]
+          // 拉不到详情就退化成「按主规格一行」，至少不会卡住
+          const lines =
+            detail && detail.items.length > 0
+              ? detail.items
+              : [
+                  {
+                    brand: '',
+                    species: bale.species,
+                    grade: bale.grade,
+                    thickness: bale.thickness,
+                    width: bale.width,
+                    length: bale.length,
+                    pieces: bale.pieces,
+                    cubic: bale.cubic,
+                    unit_price: null as number | null,
+                  },
+                ]
+
+          const cubic = lines.reduce((sum, line) => sum + (line.cubic ?? 0), 0)
+          const amount = lines.reduce(
+            (sum, line) => sum + (line.cubic ?? 0) * (line.unit_price ?? 0),
+            0,
+          )
+          const price = cubic > 0 ? roundTo(amount / cubic, 2) : 0
+
+          /**
+           * 一包 = 明细里**一行**。
+           * 混装包的长度 / 片数写斜杠串（1.8/2.1/2.4、17/30/247），立方用这一包的合计值锁死；
+           * 库里仍然按段落 order_items（见 server/routes/outbound.js 的 specRowsOf），库存才不会错。
+           */
+          added.push({
+            key: (rowSeq += 1),
+            species: bale.species,
+            grade: bale.grade,
+            thickness: String(bale.thickness),
+            width: String(bale.width),
+            length: bale.length_text || String(bale.length),
+            pieces: bale.pieces_text || String(bale.pieces),
+            bundles: '1',
+            // 单价默认带出这一包的成本价（按立方加权），用户可以改
+            unitPrice: price > 0 ? String(price) : '',
+            baleId: bale.id,
+            baleNo: bale.bale_no,
+            baleBarcode: bale.barcode,
+            cubicLocked: cubic > 0 ? cubic : bale.cubic,
+          })
+        })
+
         return [...kept, ...added]
       })
       setPickerRowKey(null)
@@ -532,6 +582,13 @@ export default function Outbound({
         const kept = prev.filter(
           (row) => typeof row.baleId === 'number' || row.species.trim(),
         )
+        /**
+         * 一包 = 一行（和「选择码单」一致）。
+         * 混装包的长度 / 片数用斜杠串，立方用扫码接口返回的这一包合计值锁死。
+         * 成本价：看不到金额的角色拿不到（后端不返回），留空让他们手填 ——
+         * 注意不能写成 String(undefined)，那样会变成字符串 "undefined"。
+         */
+        const price = bale.unit_price
         return [
           ...kept,
           {
@@ -540,20 +597,21 @@ export default function Outbound({
             grade: bale.grade,
             thickness: String(bale.thickness),
             width: String(bale.width),
-            length: String(bale.length),
-            pieces: String(bale.pieces),
+            length:
+              bale.items && bale.items.length > 1
+                ? bale.items.map((one) => one.length).join('/')
+                : String(bale.length),
+            pieces:
+              bale.items && bale.items.length > 1
+                ? bale.items.map((one) => one.pieces).join('/')
+                : String(bale.pieces),
             bundles: '1',
-            /**
-             * 扫出来的成本价：看不到金额的角色拿不到（后端不返回 unit_price），
-             * 这时留空让他们手填 —— 注意不能写成 String(undefined) 变成 "undefined"。
-             */
             unitPrice:
-              bale.unit_price === null || bale.unit_price === undefined
-                ? ''
-                : String(bale.unit_price),
+              price === null || price === undefined ? '' : String(price),
             baleId: bale.bale_id,
             baleNo: bale.bale_no,
             baleBarcode: bale.barcode,
+            cubicLocked: bale.cubic,
           },
         ]
       })
@@ -757,12 +815,23 @@ export default function Outbound({
       pieces: toNumber(row.pieces),
       bundles: toNumber(row.bundles),
       unit_price: toNumber(row.unitPrice),
+      /**
+       * 这一行是从哪一包带出来的：服务端按包对账用
+       * （Σ该包的明细立方 == 这一包的立方，对不上直接 400）。
+       * 混装包一包多行，这几行的 bale_id 是同一个。
+       */
+      bale_id: row.baleId,
+      bale_no: row.baleNo,
     }))
-    // 发走的码单 id：服务端会再校验一遍是否都还在库
-    const baleIds = filledRows
-      .map((row) => row.baleId)
-      .filter((id): id is number => typeof id === 'number')
-    if (baleIds.length !== filledRows.length) {
+    // 发走的码单 id：混装包一包多行，去重后再发；服务端会再校验一遍是否都还在库
+    const baleIds = [
+      ...new Set(
+        filledRows
+          .map((row) => row.baleId)
+          .filter((id): id is number => typeof id === 'number'),
+      ),
+    ]
+    if (filledRows.some((row) => typeof row.baleId !== 'number')) {
       setFormError('有明细行没有选码单，请点「选择码单」重新挑选')
       return
     }
@@ -1213,7 +1282,8 @@ export default function Outbound({
                         </span>
                       </td>
                       <td className="col-code">{row.baleBarcode || '—'}</td>
-                      <td>{row.baleNo || '未选码单'}</td>
+                      {/* 选了包但没填包号 → 显示「—」；一行都没选才是「未选码单」 */}
+                      <td>{row.baleId ? row.baleNo || '—' : '未选码单'}</td>
                       {specFields.map(({ field }) => (
                         <td key={field}>
                           <input
@@ -1457,6 +1527,10 @@ export default function Outbound({
                           <th>条码号</th>
                           <th>提单号</th>
                           <th>合同号</th>
+                          {/* 和别处一个口径：厚 / 宽 单值，长度 / 片数混装时写斜杠串 */}
+                          <th className="num">厚度 (mm)</th>
+                          <th className="num">宽度 (mm)</th>
+                          <th className="num">长度 (m)</th>
                           <th className="num">片数</th>
                           <th className="num">立方</th>
                         </tr>
@@ -1468,7 +1542,10 @@ export default function Outbound({
                             <td>{bale.barcode || '—'}</td>
                             <td>{bale.bl_no || '—'}</td>
                             <td>{bale.contract_no || '—'}</td>
-                            <td className="num">{bale.pieces}</td>
+                            <td className="num">{bale.thickness}</td>
+                            <td className="num">{bale.width}</td>
+                            <td className="num">{bale.length_text ?? bale.length}</td>
+                            <td className="num">{bale.pieces_text ?? bale.pieces}</td>
                             <td className="num">{formatCubic(bale.cubic)}</td>
                           </tr>
                         ))}
@@ -1545,7 +1622,9 @@ export default function Outbound({
                   <th>合同号</th>
                   <th>品名</th>
                   <th>等级</th>
-                  <th className="num">厚×宽×长</th>
+                  <th className="num">厚度</th>
+                  <th className="num">宽度</th>
+                  <th className="num">长度</th>
                   <th className="num">片数</th>
                   <th className="num">立方</th>
                 </tr>
@@ -1583,10 +1662,11 @@ export default function Outbound({
                     <td>{row.contract_no || '—'}</td>
                     <td>{row.species}</td>
                     <td>{row.grade || '—'}</td>
-                    <td className="num">
-                      {row.thickness}×{row.width}×{row.length}
-                    </td>
-                    <td className="num">{row.pieces}</td>
+                    {/* 厚度 / 宽度永远单值；长度和片数是混装包才用斜杠串（1.8/2.1/2.4、17/30/247） */}
+                    <td className="num">{row.thickness}</td>
+                    <td className="num">{row.width}</td>
+                    <td className="num">{row.length_text ?? row.length}</td>
+                    <td className="num">{row.pieces_text ?? row.pieces}</td>
                     <td className="num">{formatCubic(row.cubic)}</td>
                   </tr>
                 ))}

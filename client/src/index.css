@@ -3422,7 +3422,7 @@ section > .toolbar .btn-primary {
   text-align: center;
 }
 
-/* 「同包」那一行：包号是继承来的，加个标记 */
+/* 一行里放「说明 + 下拉」的排版（改包页挑成本价那一行还在用） */
 .same-bale-cell {
   display: flex;
   align-items: center;
@@ -3431,22 +3431,6 @@ section > .toolbar .btn-primary {
 
 .same-bale-cell .sheet-input {
   color: var(--text-2);
-}
-
-.same-bale-tag {
-  flex: none;
-  padding: 1px 6px;
-  border-radius: var(--r-pill);
-  background-color: #fff3e0;
-  color: #b26a00;
-  font-size: 11px;
-  white-space: nowrap;
-}
-
-/* 操作列里「同包」按钮按下的样子 */
-.sheet-icon.is-on {
-  background-color: #fff3e0;
-  color: #b26a00;
 }
 
 .sheet-input {

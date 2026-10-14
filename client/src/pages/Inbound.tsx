@@ -28,6 +28,7 @@ import {
   type ShipmentOption,
   type DictAll,
   type InboundDetail,
+  type InboundDetailItem,
   type InboundItemPayload,
   type InboundListFilters,
   type InboundListItem,
@@ -48,16 +49,54 @@ import { can } from '../permissions'
 
 const CUBIC_DIVISOR = 1000000
 
-const previewCubic = (row: FormRow) =>
-  roundTo(
-    (toNumber(row.thickness) *
-      toNumber(row.width) *
-      toNumber(row.length) *
-      toNumber(row.pieces) *
-      toNumber(row.bundles)) /
-      CUBIC_DIVISOR,
-    4,
+/**
+ * 混装包：一行里长度/片数可以用斜杠写多段（1800/2100/2400 + 17/30/247）。
+ *
+ * 这里和服务端 server/utils/slashSpecs.js 是同一套口径：
+ *   - 段数必须一致，只有一边有斜杠算错
+ *   - 长度大于 20 当毫米（1800 → 1.8m）
+ * 返回空数组表示这一行不是多段写法，按普通行处理。
+ */
+function slashSegments(row: FormRow): { meters: number; pieces: number }[] {
+  const lenText = row.length.trim()
+  const pcsText = row.pieces.trim()
+  if (!lenText.includes('/') && !pcsText.includes('/')) return []
+
+  const lens = lenText ? lenText.split('/').map((one) => one.trim()) : []
+  const pcss = pcsText ? pcsText.split('/').map((one) => one.trim()) : []
+  if (lens.length !== pcss.length) return []
+
+  return lens.map((one, index) => {
+    const num = toNumber(one)
+    return {
+      meters: num > 20 ? num / 1000 : num,
+      pieces: toNumber(pcss[index]),
+    }
+  })
+}
+
+/** 一行（可能是多段）的立方合计 */
+const previewCubic = (row: FormRow) => {
+  const segments = slashSegments(row)
+  const bundles = toNumber(row.bundles)
+  if (segments.length === 0) {
+    return roundTo(
+      (toNumber(row.thickness) *
+        toNumber(row.width) *
+        toNumber(row.length) *
+        toNumber(row.pieces) *
+        bundles) /
+        CUBIC_DIVISOR,
+      4,
+    )
+  }
+  const perBundle = segments.reduce(
+    (sum, seg) =>
+      sum + (toNumber(row.thickness) * toNumber(row.width) * seg.meters * seg.pieces) / CUBIC_DIVISOR,
+    0,
   )
+  return roundTo(perBundle * (bundles || 1), 4)
+}
 
 const previewAmount = (cubic: number, unitPrice: string) =>
   roundTo(cubic * toNumber(unitPrice), 2)
@@ -73,7 +112,6 @@ type FormRow = {
   /** 包号（=码单号）：留空由系统自动编号；混装包时手动填同一个号 */
   baleLabel: string
   /** 「同包再加一行」：这一行是往上一行那个包里再加一个规格 */
-  samePackage?: boolean
   species: string
   grade: string
   thickness: string
@@ -152,10 +190,43 @@ function validateRow(row: FormRow): string[] {
   if (width <= 0) reasons.push('宽度必须大于 0mm')
   else if (width > MAX_WIDTH) reasons.push(`宽度不能超过 ${MAX_WIDTH}mm`)
 
-  if (length <= 0) reasons.push('长度必须大于 0m')
-  else if (length > MAX_LENGTH) reasons.push(`长度不能超过 ${MAX_LENGTH}m`)
+  /**
+   * 长度 / 片数支持斜杠多段（混装包）。
+   * 段数不等、或者只有一边有斜杠 —— 当场报错，不做任何猜测。
+   */
+  const lenText = row.length.trim()
+  const pcsText = row.pieces.trim()
+  const lenHasSlash = lenText.includes('/')
+  const pcsHasSlash = pcsText.includes('/')
 
-  if (!(Number.isInteger(pieces) && pieces > 0)) reasons.push('片数必须是大于 0 的整数')
+  if (thickness !== toNumber(row.thickness) && String(row.thickness).includes('/')) {
+    reasons.push('厚度只能填一个数')
+  }
+  if (String(row.width).includes('/')) reasons.push('宽度只能填一个数')
+
+  if (lenHasSlash !== pcsHasSlash) {
+    reasons.push('长度和片数要么都只有一段，要么都用「/」写同样多段（如 1800/2100/2400 配 17/30/247）')
+  } else if (lenHasSlash) {
+    const segments = slashSegments(row)
+    if (segments.length === 0) {
+      reasons.push('长度和片数的段数要一样多，请检查斜杠写法')
+    } else {
+      segments.forEach((seg, index) => {
+        if (!(seg.meters > 0)) reasons.push(`第 ${index + 1} 段长度必须大于 0m`)
+        else if (seg.meters > MAX_LENGTH) {
+          reasons.push(`第 ${index + 1} 段长度不能超过 ${MAX_LENGTH}m`)
+        }
+        if (!(Number.isInteger(seg.pieces) && seg.pieces > 0)) {
+          reasons.push(`第 ${index + 1} 段片数必须是大于 0 的整数`)
+        }
+      })
+    }
+  } else {
+    if (length <= 0) reasons.push('长度必须大于 0m')
+    else if (length > MAX_LENGTH) reasons.push(`长度不能超过 ${MAX_LENGTH}m`)
+    if (!(Number.isInteger(pieces) && pieces > 0)) reasons.push('片数必须是大于 0 的整数')
+  }
+
   if (!(Number.isInteger(bundles) && bundles > 0)) reasons.push('件数必须是大于 0 的整数')
   if (!(toNumber(row.unitPrice) > 0)) reasons.push('单价必填，且必须大于 0')
 
@@ -242,7 +313,6 @@ const sheetRowFloor = () =>
 /* ---------- 样式 ---------- */
 
 
-/** 表里能输入的列（samePackage 只是标记，不是输入框） */
 type RowField =
   | 'baleLabel'
   | 'boxNo'
@@ -263,8 +333,9 @@ const rowFields: { field: RowField; label: string }[] = [
   { field: 'grade', label: '等级' },
   { field: 'thickness', label: '厚度 (mm)' },
   { field: 'width', label: '宽度 (mm)' },
-  { field: 'length', label: '长度 (m)' },
-  { field: 'pieces', label: '片数 (片)' },
+  // 混装包：这两个都能用「/」写多段（1800/2100/2400 配 17/30/247）
+  { field: 'length', label: '长度 (m) / 可多段' },
+  { field: 'pieces', label: '片数 (片) / 可多段' },
   { field: 'bundles', label: '件数 (件)' },
 ]
 
@@ -277,6 +348,36 @@ const SHEET_TAIL_COLS = 5
  * 合计行不再写死 colspan，一律从总列数倒推——以后往 rowFields 里加列也不会再错位。
  */
 const SHEET_COL_COUNT = SHEET_LEAD_COLS + rowFields.length + SHEET_TAIL_COLS
+
+/**
+ * 详情页「入库明细」的显示行。
+ *
+ * 混装包在库里是**一段规格一行**（写库存必须按段），但界面上它是一包一行：
+ * 同一个包号的那几段合成一行，长度 / 片数写斜杠串（1.8/2.1/2.4、17/30/247）。
+ * 包号为空的散货行分不清是不是同一包，保持一行一段。
+ */
+const mergeItemsByBale = (items: InboundDetailItem[]) => {
+  const groups: InboundDetailItem[][] = []
+  const byBaleNo = new Map<string, InboundDetailItem[]>()
+
+  for (const item of items) {
+    const no = String(item.bale_no ?? '').trim()
+    if (!no) {
+      groups.push([item])
+      continue
+    }
+    const hit = byBaleNo.get(no)
+    if (hit) {
+      hit.push(item)
+      continue
+    }
+    const group = [item]
+    byBaleNo.set(no, group)
+    groups.push(group)
+  }
+
+  return groups
+}
 
 export default function Inbound({
   defaultMode = 'list',
@@ -648,7 +749,6 @@ export default function Inbound({
     for (const row of computedRows) {
       if (isRowEmpty(row)) continue
       // 「同包再加一行」不新开包，所以不占条码号
-      if (row.samePackage) continue
 
       const label = row.baleLabel.trim()
       if (label) {
@@ -713,7 +813,6 @@ export default function Inbound({
   const checkRowBaleNo = async (key: number) => {
     const row = rows.find((item) => item.key === key)
     const label = row?.baleLabel.trim() ?? ''
-    if (!row || !label || row.samePackage || !shipmentId) return
 
     try {
       const result = await checkBaleNo({
@@ -767,35 +866,28 @@ export default function Inbound({
     if (formError) setFormError('')
   }
 
-  /** 在指定行下面插一行 */
-  const insertRowAfter = (key: number) => {
-    setRows((prev) => {
-      const index = prev.findIndex((row) => row.key === key)
-      if (index < 0) return [...prev, createRow()]
-      const next = [...prev]
-      next.splice(index + 1, 0, createRow())
-      return next
-    })
-    if (formError) setFormError('')
-  }
-
   /**
-   * 「同包再加一行」：在下面插一行，自动继承这一行的包号，
-   * 并标记为同包（后端就知道这是往同一个包里加规格，而不是新开一包）。
+   * 复制本行：字段照抄、**包号清空**（一个包号只能对应一包货，复制过来必然撞号），
+   * 新行插在这一行的下面（点第 N 行 → 新行落在第 N+1 行）。
    */
-  const addSamePackageRow = (key: number) => {
+  const copyRow = (key: number) => {
     setRows((prev) => {
       const index = prev.findIndex((row) => row.key === key)
       if (index < 0) return prev
-      const label = prev[index].baleLabel.trim()
-      if (!label) return prev
+      const row = prev[index]
       const next = [...prev]
       next.splice(index + 1, 0, {
         ...createRow(),
-        boxNo: prev[index].boxNo,
-        brand: prev[index].brand,
-        baleLabel: label,
-        samePackage: true,
+        boxNo: row.boxNo,
+        brand: row.brand,
+        species: row.species,
+        grade: row.grade,
+        thickness: row.thickness,
+        width: row.width,
+        length: row.length,
+        pieces: row.pieces,
+        bundles: row.bundles,
+        unitPrice: row.unitPrice,
       })
       return next
     })
@@ -1005,14 +1097,18 @@ export default function Inbound({
       grade: row.grade.trim(),
       thickness: toNumber(row.thickness),
       width: toNumber(row.width),
-      length: toNumber(row.length),
-      pieces: toNumber(row.pieces),
+      /**
+       * 长度 / 片数原样把**字符串**发上去：
+       * 混装包写的是「1800/2100/2400」「17/30/247」，先 toNumber 会变成 NaN → 0，
+       * 服务端就拆不出这几段了。普通行发字符串它也认（内部 toMeters / Number）。
+       */
+      length: row.length.trim(),
+      pieces: row.pieces.trim(),
       bundles: toNumber(row.bundles),
       unit_price: toNumber(row.unitPrice),
       // 包号：填了范围就按范围生成码单，留空让后端自动编号
       bale_labels: parseBaleLabels(row.baleLabel),
       box_no: row.boxNo.trim(),
-      same_package: row.samePackage === true,
     }))
 
     setSaving(true)
@@ -1566,25 +1662,6 @@ export default function Inbound({
                           />
                         </td>
                         <td className="col-op">
-                          <button
-                            type="button"
-                            className="sheet-icon"
-                            title="在下面插一行"
-                            onClick={() => insertRowAfter(row.key)}
-                          >
-                            +
-                          </button>
-                          <button
-                            type="button"
-                            className={
-                              row.samePackage ? 'sheet-icon is-on' : 'sheet-icon'
-                            }
-                            title="同包再加一行：这一包还有别的规格"
-                            disabled={!row.baleLabel.trim() || row.samePackage}
-                            onClick={() => addSamePackageRow(row.key)}
-                          >
-                            同
-                          </button>
                           {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
                           <span
                             title={
@@ -1602,16 +1679,18 @@ export default function Inbound({
                               ✕
                             </button>
                           </span>
+                          {/* 右 ＋：复制本行（字段照抄、包号清空、插到本行下面） */}
+                          <button
+                            type="button"
+                            className="sheet-icon"
+                            title="复制本行（包号会清空，自己填）"
+                            onClick={() => copyRow(row.key)}
+                          >
+                            ＋
+                          </button>
                         </td>
                         {rowFields.map(({ field }) => (
                           <td key={field}>
-                            {field === 'baleLabel' && row.samePackage ? (
-                              // 同包的行包号是继承来的，不让改（改了就不是同一包了）
-                              <div className="same-bale-cell">
-                                <input className="sheet-input" value={row.baleLabel} readOnly />
-                                <span className="same-bale-tag">同包</span>
-                              </div>
-                            ) : (
                             <input
                               className="sheet-input"
                               type="text"
@@ -1637,7 +1716,6 @@ export default function Inbound({
                                   : undefined
                               }
                             />
-                            )}
                           </td>
                         ))}
                         <td className="col-unit num">{filler ? '' : formatCubic(row.cubic)}</td>
@@ -1669,6 +1747,18 @@ export default function Inbound({
                         <tr>
                           <td colSpan={sheetColCount} className="row-hint">
                             该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
+                          </td>
+                        </tr>
+                      )}
+                      {/* 混装包：把「这行会被拆成几段、总立方多少」当场说清楚 */}
+                      {row.cubic > 0 && slashSegments(row).length > 1 && (
+                        <tr>
+                          <td colSpan={sheetColCount} className="row-hint">
+                            混装包：将拆成 {slashSegments(row).length} 段（
+                            {slashSegments(row)
+                              .map((seg) => `${seg.meters}m×${seg.pieces}片`)
+                              .join('，')}
+                            ），这一行合计 {formatCubic(row.cubic)} 立方 × {row.bundles || 1} 件
                           </td>
                         </tr>
                       )}
@@ -1878,7 +1968,9 @@ export default function Inbound({
                       <th>品牌</th>
                       <th>品名</th>
                       <th>等级</th>
-                      <th className="num">厚×宽×长</th>
+                      <th className="num">厚度 (mm)</th>
+                      <th className="num">宽度 (mm)</th>
+                      <th className="num">长度 (m)</th>
                       <th className="num">片数</th>
                       <th className="num">件数</th>
                       <th className="num">立方 (m³)</th>
@@ -1889,36 +1981,42 @@ export default function Inbound({
                     </tr>
                   </thead>
                   <tbody>
-                    {detail.items.map((item) => (
-                      <tr key={item.id}>
-                        <td>{item.brand || '—'}</td>
-                        <td>{item.species}</td>
-                        <td>{item.grade || '—'}</td>
-                        <td className="num">
-                          {item.thickness}×{item.width}×{item.length}
-                        </td>
-                        <td className="num">{item.pieces}</td>
-                        <td className="num">{item.bundles}</td>
-                        <td className="num">{formatCubic(item.cubic)}</td>
-                        {money && (
-                          <td className="num">{formatAmount(item.unit_price ?? 0)}</td>
-                        )}
-                        {money && (
-                          <td className="num strong">{formatAmount(item.amount ?? 0)}</td>
-                        )}
-                        <td>{item.bale_no || (item.bale_labels ?? []).join('、') || '—'}</td>
-                        <td>{item.box_no || '—'}</td>
-                      </tr>
-                    ))}
+                    {mergeItemsByBale(detail.items).map((group) => {
+                      const first = group[0]
+                      const cubic = group.reduce((sum, row) => sum + (row.cubic ?? 0), 0)
+                      const amount = group.reduce((sum, row) => sum + (row.amount ?? 0), 0)
+                      return (
+                        <tr key={group.map((row) => row.id).join('-')}>
+                          <td>{first.brand || '—'}</td>
+                          <td>{first.species}</td>
+                          <td>{first.grade || '—'}</td>
+                          <td className="num">{first.thickness}</td>
+                          <td className="num">{first.width}</td>
+                          {/* 混装包：这几段合成一行，长度 / 片数写斜杠串 */}
+                          <td className="num">{group.map((row) => row.length).join('/')}</td>
+                          <td className="num">{group.map((row) => row.pieces).join('/')}</td>
+                          <td className="num">{first.bundles}</td>
+                          <td className="num">{formatCubic(cubic)}</td>
+                          {money && (
+                            <td className="num">{formatAmount(first.unit_price ?? 0)}</td>
+                          )}
+                          {money && <td className="num strong">{formatAmount(amount)}</td>}
+                          <td>{first.bale_no || (first.bale_labels ?? []).join('、') || '—'}</td>
+                          <td>{first.box_no || '—'}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                   <tfoot>
                     <tr>
-                      <td colSpan={6}>合计</td>
+                      {/* 领先列：品牌 / 品名 / 等级 / 厚度 / 宽度 / 长度 / 片数 / 件数 */}
+                      <td colSpan={8}>合计</td>
                       <td className="num strong">{formatCubic(detail.total_cubic)}</td>
                       {money && <td />}
                       {money && (
                         <td className="num strong">{formatAmount(detail.total_amount)}</td>
                       )}
+                      {/* 包号 / 柜号 */}
                       <td colSpan={2} />
                     </tr>
                   </tfoot>
@@ -1939,7 +2037,9 @@ export default function Inbound({
                           <th>柜号</th>
                           <th>品名</th>
                           <th>等级</th>
-                          <th className="num">厚×宽×长</th>
+                          <th className="num">厚度 (mm)</th>
+                          <th className="num">宽度 (mm)</th>
+                          <th className="num">长度 (m)</th>
                           <th className="num">片数</th>
                           <th className="num">立方</th>
                           <th>状态</th>
@@ -1955,10 +2055,11 @@ export default function Inbound({
                             <td>{bale.box_no || '—'}</td>
                             <td>{bale.species}</td>
                             <td>{bale.grade || '—'}</td>
-                            <td className="num">
-                              {bale.thickness}×{bale.width}×{bale.length}
-                            </td>
-                            <td className="num">{bale.pieces}</td>
+                            {/* 混装包：长度 / 片数写斜杠串（别拿第一段 + 片数合计糊弄） */}
+                            <td className="num">{bale.thickness}</td>
+                            <td className="num">{bale.width}</td>
+                            <td className="num">{bale.length_text ?? bale.length}</td>
+                            <td className="num">{bale.pieces_text ?? bale.pieces}</td>
                             <td className="num">{formatCubic(bale.cubic)}</td>
                             <td>
                               <span
