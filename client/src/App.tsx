@@ -3,6 +3,7 @@ import type { ComponentType } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import RequireAuth from './components/RequireAuth'
+import RequireRole from './components/RequireRole'
 
 /**
  * 页面按需加载：首屏只下载登录页和外壳，
@@ -39,6 +40,7 @@ const Recycle = lazyPage(() => import('./pages/Recycle'))
 const Settlement = lazyPage(() => import('./pages/Settlement'))
 const Dict = lazyPage(() => import('./pages/Dict'))
 const LabelPrint = lazyPage(() => import('./pages/LabelPrint'))
+const Users = lazyPage(() => import('./pages/Users'))
 
 export default function App() {
   return (
@@ -74,6 +76,15 @@ export default function App() {
           <Route path="recycle" element={<Recycle />} />
           <Route path="settlement" element={<Settlement />} />
           <Route path="dict" element={<Dict />} />
+          {/* 用户管理：只有管理员进得去（菜单和路由都挡，后端还有 requireCap 兜底） */}
+          <Route
+            path="users"
+            element={
+              <RequireRole allow={['admin']}>
+                <Users />
+              </RequireRole>
+            }
+          />
           {/* 打印小标签：/label/print?ids=1,2,3&size=60x40 */}
           <Route path="label/print" element={<LabelPrint />} />
           <Route path="*" element={<Navigate to="/" replace />} />

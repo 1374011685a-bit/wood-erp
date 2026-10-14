@@ -15,6 +15,8 @@ import {
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
 
 const PAGE_SIZE = 20
 
@@ -75,6 +77,13 @@ const lineCubic = (line: RepackLine) => roundTo(line.cubic ?? 0, 4)
 const isPriceAmbiguous = (line: RepackLine) => Boolean(line.price_ambiguous)
 
 export default function Repack() {
+  /**
+   * 看不到金额的角色（仓管）：立方、损耗、损耗率照常显示，
+   * 单价 / 金额 / 改前改后金额全部不渲染，单价输入框也不给 ——
+   * 成本由后端按「改前总成本 ÷ 改后总方数」自己算，前端不碰。
+   */
+  const money = seesMoney(useRole())
+
   const [bales, setBales] = useState<RepackBale[]>([])
   const [baleId, setBaleId] = useState(0)
   // 选货弹窗
@@ -590,8 +599,9 @@ export default function Repack() {
                 <th>片数</th>
                 <th className="col-unit">立方 (m³)</th>
                 <th className="col-unit">单位</th>
-                <th>单价</th>
-                <th>金额</th>
+                {/* 仓管这类看不到金额的角色：单价 / 金额两列不显示，立方和损耗照旧 */}
+                {money && <th>单价</th>}
+                {money && <th>金额</th>}
                 <th className="col-code">条码号</th>
               </tr>
             </thead>
@@ -610,39 +620,45 @@ export default function Repack() {
                     <td>{line.pieces}</td>
                     <td className="col-unit num">{formatCubic(lineCubic(line))}</td>
                     <td className="col-unit">m³</td>
-                    <td className="num">
-                      {isPriceAmbiguous(line) && line.id !== undefined ? (
-                        <select
-                          className="sheet-input is-attention"
-                          value={beforePrices[line.id] ?? ''}
-                          onChange={(event) =>
-                            setBeforePrices((prev) => ({
-                              ...prev,
-                              [line.id as number]: event.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">请选择成本价</option>
-                          {(line.price_candidates ?? []).map((candidate) => (
-                            <option
-                              key={`${candidate.order_item_id}-${candidate.unit_price}`}
-                              value={String(candidate.unit_price)}
-                            >
-                              {formatAmount(candidate.unit_price)}
-                              {candidate.brand ? `（${candidate.brand}）` : ''}
-                              {candidate.count > 1 ? ` ×${candidate.count}` : ''}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        formatAmount(beforePriceOf(line))
-                      )}
-                    </td>
-                    <td className="num">
-                      {isPriceAmbiguous(line) && line.id !== undefined && !beforePrices[line.id]
-                        ? '—'
-                        : formatAmount(lineCubic(line) * beforePriceOf(line))}
-                    </td>
+                    {money && (
+                      <td className="num">
+                        {isPriceAmbiguous(line) && line.id !== undefined ? (
+                          <select
+                            className="sheet-input is-attention"
+                            value={beforePrices[line.id] ?? ''}
+                            onChange={(event) =>
+                              setBeforePrices((prev) => ({
+                                ...prev,
+                                [line.id as number]: event.target.value,
+                              }))
+                            }
+                          >
+                            <option value="">请选择成本价</option>
+                            {(line.price_candidates ?? []).map((candidate) => (
+                              <option
+                                key={`${candidate.order_item_id}-${candidate.unit_price}`}
+                                value={String(candidate.unit_price)}
+                              >
+                                {formatAmount(candidate.unit_price)}
+                                {candidate.brand ? `（${candidate.brand}）` : ''}
+                                {candidate.count > 1 ? ` ×${candidate.count}` : ''}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          formatAmount(beforePriceOf(line))
+                        )}
+                      </td>
+                    )}
+                    {money && (
+                      <td className="num">
+                        {isPriceAmbiguous(line) &&
+                        line.id !== undefined &&
+                        !beforePrices[line.id]
+                          ? '—'
+                          : formatAmount(lineCubic(line) * beforePriceOf(line))}
+                      </td>
+                    )}
                     <td className="col-code">{bale.barcode || '—'}</td>
                   </tr>
                 ))
@@ -661,8 +677,9 @@ export default function Repack() {
                 </td>
                 <td className="num">{formatCubic(beforeCubic)}</td>
                 <td>m³</td>
-                <td />
-                <td className="num">{formatAmount(beforeAmount)}</td>
+                {money && <td />}
+                {money && <td className="num">{formatAmount(beforeAmount)}</td>}
+                {/* 条码号那一列始终占位，不管看不看得到金额 */}
                 <td />
               </tr>
             </tfoot>
@@ -683,7 +700,9 @@ export default function Repack() {
             </button>
           <span className="spacer" />
           <span className="muted">
-            单价留空 = 按「改前总成本 ÷ 改后总方数」自动算；自己填了就以你填的为准
+            {money
+              ? '单价留空 = 按「改前总成本 ÷ 改后总方数」自动算；自己填了就以你填的为准'
+              : '成本由系统按「改前总成本 ÷ 改后总方数」自动算，改完立方和损耗就对了'}
           </span>
         </div>
 
@@ -702,8 +721,9 @@ export default function Repack() {
                 <th>片数</th>
                 <th className="col-unit">立方 (m³)</th>
                 <th className="col-unit">单位</th>
-                <th>单价{pinned ? '' : '（自动）'}</th>
-                <th>金额</th>
+                {/* 看不到金额的角色不显示单价输入：成本完全由后端按「改前总成本 ÷ 改后总方数」算 */}
+                {money && <th>单价{pinned ? '' : '（自动）'}</th>}
+                {money && <th>金额</th>}
                 {/* 这一列只放一个删行按钮，不写表头文字（免得被读成「操作✕」） */}
                 <th className="col-op" aria-label="操作" />
               </tr>
@@ -752,17 +772,25 @@ export default function Repack() {
                     ))}
                     <td className="col-unit num">{cubic ? formatCubic(cubic) : ''}</td>
                     <td className="col-unit">{cubic ? 'm³' : ''}</td>
-                    <td>
-                      <input
-                        className="sheet-input"
-                        type="text"
-                        inputMode="decimal"
-                        placeholder={derivedPrice ? String(derivedPrice) : '自动'}
-                        value={row.unitPrice}
-                        onChange={(event) => updateRow(row.key, 'unitPrice', event.target.value)}
-                      />
-                    </td>
-                    <td className="num">{cubic ? formatAmount(cubic * priceOf(row)) : ''}</td>
+                    {money && (
+                      <td>
+                        <input
+                          className="sheet-input"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder={derivedPrice ? String(derivedPrice) : '自动'}
+                          value={row.unitPrice}
+                          onChange={(event) =>
+                            updateRow(row.key, 'unitPrice', event.target.value)
+                          }
+                        />
+                      </td>
+                    )}
+                    {money && (
+                      <td className="num">
+                        {cubic ? formatAmount(cubic * priceOf(row)) : ''}
+                      </td>
+                    )}
                     <td className="col-op">
                       {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
                       <span
@@ -791,8 +819,8 @@ export default function Repack() {
                 </td>
                 <td className="num">{formatCubic(afterCubic)}</td>
                 <td>m³</td>
-                <td />
-                <td className="num">{formatAmount(afterAmount)}</td>
+                {money && <td />}
+                {money && <td className="num">{formatAmount(afterAmount)}</td>}
                 <td />
               </tr>
               <tr>
@@ -805,10 +833,12 @@ export default function Repack() {
                 <td>
                   {lossRate === null ? '—' : `${lossRate}% ${lossArrow}`}
                 </td>
-                <td />
-                <td className="num">
-                  {formatAmount(roundTo(afterAmount - beforeAmount, 2))}
-                </td>
+                {money && <td />}
+                {money && (
+                  <td className="num">
+                    {formatAmount(roundTo(afterAmount - beforeAmount, 2))}
+                  </td>
+                )}
                 <td />
               </tr>
             </tfoot>
@@ -921,8 +951,8 @@ export default function Repack() {
               <th>改后</th>
               <th className="num">改前立方</th>
               <th className="num">改后立方</th>
-              <th className="num">改前金额</th>
-              <th className="num">改后金额</th>
+              {money && <th className="num">改前金额</th>}
+              {money && <th className="num">改后金额</th>}
               <th className="num">损耗</th>
               <th className="num">损耗率</th>
               <th>摘要</th>
@@ -958,8 +988,8 @@ export default function Repack() {
                 </td>
                 <td className="num">{formatCubic(row.before_cubic)}</td>
                 <td className="num">{formatCubic(row.after_cubic)}</td>
-                <td className="num">{formatAmount(row.before_amount)}</td>
-                <td className="num">{formatAmount(row.after_amount)}</td>
+                {money && <td className="num">{formatAmount(row.before_amount)}</td>}
+                {money && <td className="num">{formatAmount(row.after_amount)}</td>}
                 <td className={row.loss_cubic < 0 ? 'num is-short' : 'num'}>
                   {formatCubic(row.loss_cubic)}
                   {row.loss_cubic > 0 ? ' ↑' : row.loss_cubic < 0 ? ' ↓' : ''}
@@ -991,8 +1021,8 @@ export default function Repack() {
               </td>
               <td className="num">{formatCubic(sums?.before_cubic ?? 0)}</td>
               <td className="num">{formatCubic(sums?.after_cubic ?? 0)}</td>
-              <td className="num">{formatAmount(sums?.before_amount ?? 0)}</td>
-              <td className="num">{formatAmount(sums?.after_amount ?? 0)}</td>
+              {money && <td className="num">{formatAmount(sums?.before_amount ?? 0)}</td>}
+              {money && <td className="num">{formatAmount(sums?.after_amount ?? 0)}</td>}
               <td className="num">{formatCubic(sums?.loss_cubic ?? 0)}</td>
               <td colSpan={4} />
             </tr>

@@ -1,5 +1,6 @@
 import express from 'express'
 import { db } from '../db.js'
+import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -38,7 +39,7 @@ router.get('/', (req, res) => {
 })
 
 /** 新增一个常用项（同类同名会去重） */
-router.post('/', (req, res) => {
+router.post('/', requireCap('dict.write'), (req, res) => {
   const kind = String(req.body?.kind ?? '').trim()
   const name = String(req.body?.name ?? '').trim()
 
@@ -64,7 +65,7 @@ router.post('/', (req, res) => {
 })
 
 /** 改名（排序位置不变） */
-router.put('/:id', (req, res) => {
+router.put('/:id', requireCap('dict.write'), (req, res) => {
   const id = Number(req.params.id)
   const row = Number.isInteger(id) && id > 0 ? findById.get(id) : undefined
   if (!row) return res.status(404).json({ error: '这一项不存在' })
@@ -87,7 +88,7 @@ router.put('/:id', (req, res) => {
 })
 
 /** 删除一个常用项（只影响下拉候选，不动已录的单据） */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('dict.write'), (req, res) => {
   const id = Number(req.params.id)
   const row = Number.isInteger(id) && id > 0 ? findById.get(id) : undefined
   if (!row) return res.status(404).json({ error: '这一项不存在' })

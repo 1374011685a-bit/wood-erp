@@ -14,6 +14,9 @@ import {
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
 import { roundTo, formatCubic } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
+import { can } from '../permissions'
 
 const PAGE_SIZE = 50
 
@@ -28,6 +31,15 @@ const STATUS_TEXT: Record<BaleRow['status'], string> = {
  * 下半部分是一包一行的明细，点进度表的某一行就直接筛这张合同。
  */
 export default function Bales() {
+  /**
+   * 看不到金额的角色：列表里本来就没有金额列，
+   * 这里只用来决定「保存后金额变了」那句提示要不要带上具体数字
+   * （后端不会把 amount_before / amount_after 给这些角色）。
+   */
+  const money = seesMoney(useRole())
+  /** 编辑 / 删除码单要 bale.write；打印标签是只读操作，谁都能用 */
+  const canWrite = can(useRole(), 'bale.write')
+
   const navigate = useNavigate()
   const [rows, setRows] = useState<BaleRow[]>([])
   const [total, setTotal] = useState(0)
@@ -181,13 +193,23 @@ export default function Bales() {
       })
       setEditOpen(false)
       if (result.amount_changed) {
-        // 财务字段变了就必须让用户看见
+        /**
+         * 财务字段变了就必须让用户看见。
+         * 但看不到金额的角色拿不到具体数字（后端把 amount_before / amount_after 删了），
+         * 这时只说「金额有变动」，不要打印 undefined。
+         */
         setError(
-          `注意：这次保存后这一包对应的入库金额变了：${result.amount_before} → ${result.amount_after} 元，` +
-            `请核对是不是自己改了单价（立方和单价都没动的话不会变）。`,
+          money && result.amount_before !== undefined
+            ? `注意：这次保存后这一包对应的入库金额变了：${result.amount_before} → ${result.amount_after} 元，` +
+                `请核对是不是自己改了单价（立方和单价都没动的话不会变）。`
+            : '注意：这次保存后这一包对应的入库金额有变动，请找管理员或财务核对该单金额。',
         )
       } else {
-        setNotice(`已保存包号 ${editNo.trim()}，库存与金额都没变`)
+        setNotice(
+          money
+            ? `已保存包号 ${editNo.trim()}，库存与金额都没变`
+            : `已保存包号 ${editNo.trim()}，库存没变`,
+        )
       }
       setReloadToken((n) => n + 1)
     } catch (err) {
@@ -444,15 +466,19 @@ export default function Bales() {
                     >
                       打印标签
                     </button>
-                    <button className="btn btn-sm" onClick={() => void openBaleEdit(row)}>
-                      编辑
-                    </button>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() => setBaleDeleteTarget(row)}
-                    >
-                      删除
-                    </button>
+                    {canWrite && (
+                      <>
+                        <button className="btn btn-sm" onClick={() => void openBaleEdit(row)}>
+                          编辑
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => setBaleDeleteTarget(row)}
+                        >
+                          删除
+                        </button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>

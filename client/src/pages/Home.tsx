@@ -7,6 +7,9 @@ import {
 } from '../api'
 import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
 import { formatCubic } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
+import { can } from '../permissions'
 
 const formatMoney = (value: number) =>
   value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -71,6 +74,17 @@ function DeltaChip({ label, percent }: { label: string; percent: number | null }
 }
 
 export default function Home() {
+  /**
+   * 看不到金额的角色：库存金额 / 应收应付 / 最近到货金额 / 流水金额 全都不渲染，
+   * 主视觉那颗大数字改成显示立方。
+   * 这些字段后端也不会返回（见 middleware/permissions.js 的 stripMoney）。
+   */
+  const money = seesMoney(useRole())
+  /** 首页那三个「新增…」按钮按能力显示 */
+  const role = useRole()
+  const canWrite = (cap: 'inbound.write' | 'outbound.write' | 'count.write') =>
+    can(role, cap)
+
   const navigate = useNavigate()
   const [summary, setSummary] = useState<HomeSummary | null>(null)
   const [loading, setLoading] = useState(false)
@@ -129,15 +143,22 @@ export default function Home() {
         subtitle="库存、出货与应收的整体概览"
         extra={
           <>
-            <button className="btn btn-sm" onClick={() => navigate('/inbound/new')}>
-              新增入库
-            </button>
-            <button className="btn btn-sm" onClick={() => navigate('/outbound/new')}>
-              新增出库
-            </button>
-            <button className="btn btn-sm" onClick={() => navigate('/count')}>
-              新增盘点
-            </button>
+            {/* 没权限的功能不给入口，免得点进去被弹回来 */}
+            {canWrite('inbound.write') && (
+              <button className="btn btn-sm" onClick={() => navigate('/inbound/new')}>
+                新增入库
+              </button>
+            )}
+            {canWrite('outbound.write') && (
+              <button className="btn btn-sm" onClick={() => navigate('/outbound/new')}>
+                新增出库
+              </button>
+            )}
+            {canWrite('count.write') && (
+              <button className="btn btn-sm" onClick={() => navigate('/count')}>
+                新增盘点
+              </button>
+            )}
             <button
               className="btn"
               onClick={() => void load(days, dimension)}
@@ -173,8 +194,9 @@ export default function Home() {
           </div>
 
           <div className="hero-value">
-            {summary ? formatMoney(heroAmount) : '—'}
-            <span className="hero-unit">元</span>
+            {/* 看不到金额的角色：主视觉改成「立方」，不然这个位置只能空着 */}
+            {summary ? (money ? formatMoney(heroAmount) : formatCubic(heroCubic)) : '—'}
+            <span className="hero-unit">{money ? '元' : '立方'}</span>
           </div>
 
           <div className="hero-meta">
@@ -210,9 +232,11 @@ export default function Home() {
               <>
                 <div className="arrival-main">
                   <span className="arrival-cubic">{formatCubic(arrival.cubic)} 立方</span>
-                  <span className="arrival-amount">
-                    {formatMoney(arrival.amount)} 元
-                  </span>
+                  {money && (
+                    <span className="arrival-amount">
+                      {formatMoney(arrival.amount)} 元
+                    </span>
+                  )}
                 </div>
                 <div className="arrival-meta">
                   <span>{arrival.order_no}</span>
@@ -237,27 +261,37 @@ export default function Home() {
 
         {/* 侧栏：钱 + 出货节奏 */}
         <div className="dash-side">
-          <button
-            type="button"
-            className="mini-card"
-            onClick={() => navigate('/settlement')}
-          >
-            <span className="mini-label">应收合计</span>
-            <span className="mini-value">
-              {summary ? formatMoney(receivable) : '—'}
-            </span>
-            <span className="mini-hint">去对账 ›</span>
-          </button>
+          {/*
+            应收 / 应付是纯金额卡片，点进去还是对账页 ——
+            看不到金额的角色这两张卡直接不给（他们本来也进不了对账页）
+          */}
+          {money && (
+            <>
+              <button
+                type="button"
+                className="mini-card"
+                onClick={() => navigate('/settlement')}
+              >
+                <span className="mini-label">应收合计</span>
+                <span className="mini-value">
+                  {summary ? formatMoney(receivable) : '—'}
+                </span>
+                <span className="mini-hint">去对账 ›</span>
+              </button>
 
-          <button
-            type="button"
-            className="mini-card"
-            onClick={() => navigate('/settlement')}
-          >
-            <span className="mini-label">应付合计</span>
-            <span className="mini-value">{summary ? formatMoney(payable) : '—'}</span>
-            <span className="mini-hint">去对账 ›</span>
-          </button>
+              <button
+                type="button"
+                className="mini-card"
+                onClick={() => navigate('/settlement')}
+              >
+                <span className="mini-label">应付合计</span>
+                <span className="mini-value">
+                  {summary ? formatMoney(payable) : '—'}
+                </span>
+                <span className="mini-hint">去对账 ›</span>
+              </button>
+            </>
+          )}
 
           <div className="mini-card is-static">
             <span className="mini-label">今日出库</span>
@@ -265,9 +299,11 @@ export default function Home() {
               {summary ? formatCubic(todayOut) : '—'}
               <small>立方</small>
             </span>
-            <span className="mini-hint">
-              {summary ? formatMoney(summary.today_out_amount) : '—'} 元
-            </span>
+            {money && (
+              <span className="mini-hint">
+                {summary ? formatMoney(summary.today_out_amount) : '—'} 元
+              </span>
+            )}
           </div>
 
           <div className="mini-card is-static">
@@ -412,7 +448,7 @@ export default function Home() {
               <th>单号</th>
               <th>供应商/客户</th>
               <th className="num">立方</th>
-              <th className="num">金额</th>
+              {money && <th className="num">金额</th>}
               <th className="num">明细数</th>
             </tr>
           </thead>
@@ -428,7 +464,9 @@ export default function Home() {
                 <td>{record.order_no}</td>
                 <td>{record.partner}</td>
                 <td className="num">{formatCubic(record.total_cubic)}</td>
-                <td className="num amount">{formatMoney(record.total_amount)}</td>
+                {money && (
+                  <td className="num amount">{formatMoney(record.total_amount)}</td>
+                )}
                 <td className="num">{record.item_count}</td>
               </tr>
             ))}

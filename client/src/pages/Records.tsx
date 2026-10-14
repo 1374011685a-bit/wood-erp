@@ -8,12 +8,17 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { formatCubic, formatAmount } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
 
 const typeLabel = (type: 'in' | 'out') => (type === 'in' ? '入库' : '出库')
 
 const PAGE_SIZE = 50
 
 export default function Records() {
+  // 看不到金额的角色：单价 / 金额两列不渲染（后端也不返回这两个字段）
+  const money = seesMoney(useRole())
+
   const [rows, setRows] = useState<RecordRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
@@ -155,8 +160,8 @@ export default function Records() {
               <th className="num">片数</th>
               <th className="num">件数</th>
               <th className="num">立方</th>
-              <th className="num">单价</th>
-              <th className="num">金额</th>
+              {money && <th className="num">单价</th>}
+              {money && <th className="num">金额</th>}
             </tr>
           </thead>
           <tbody>
@@ -182,8 +187,10 @@ export default function Records() {
                 <td className="num">{row.pieces}</td>
                 <td className="num">{row.bundles}</td>
                 <td className="num">{formatCubic(row.cubic)}</td>
-                <td className="num amount">{formatAmount(row.unit_price)}</td>
-                <td className="num amount">{formatAmount(row.amount)}</td>
+                {money && (
+                  <td className="num amount">{formatAmount(row.unit_price)}</td>
+                )}
+                {money && <td className="num amount">{formatAmount(row.amount)}</td>}
               </tr>
             ))}
           </tbody>

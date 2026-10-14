@@ -11,6 +11,9 @@ import {
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
 import { toNumber, formatAmount, todayLocal } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
+import { can } from '../permissions'
 
 const PAGE_SIZE = 20
 
@@ -48,6 +51,15 @@ const isItemEmpty = (row: ItemRow) =>
   !row.brand.trim() && !row.species.trim() && !row.grade.trim() && !row.quantity.trim()
 
 export default function Contracts() {
+  /**
+   * 看不到金额的角色：列表金额列、查看详情里的单价/金额、合同金额输入框都不显示。
+   * 但**编辑表单里的单价列保留** —— 录合同的人得自己填（方案 A：输入可见可填）。
+   * 编辑已有合同时前端拿不到原价，后端会把对得上的行原价补回去，不会清成 0。
+   */
+  const money = seesMoney(useRole())
+  /** 只读角色不给上传 / 编辑 / 删除入口 */
+  const canWrite = can(useRole(), 'contract.write')
+
   const [rows, setRows] = useState<ContractRow[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -261,9 +273,11 @@ export default function Contracts() {
         title="采购合同"
         subtitle="登记合同与明细（PDF 选填）；入库单填了合同号就能直接打开对应合同"
         extra={
-          <button className="btn btn-primary" onClick={openUpload}>
-            上传合同
-          </button>
+          canWrite ? (
+            <button className="btn btn-primary" onClick={openUpload}>
+              上传合同
+            </button>
+          ) : null
         }
       />
 
@@ -336,7 +350,7 @@ export default function Contracts() {
               <th>名称</th>
               <th>往来单位</th>
               <th>签订日期</th>
-              <th className="num">金额</th>
+              {money && <th className="num">金额</th>}
               <th>文件</th>
               <th>操作</th>
             </tr>
@@ -348,7 +362,7 @@ export default function Contracts() {
                 <td>{row.title || '—'}</td>
                 <td>{row.partner || '—'}</td>
                 <td>{row.sign_date}</td>
-                <td className="num amount">{formatAmount(row.amount)}</td>
+                {money && <td className="num amount">{formatAmount(row.amount)}</td>}
                 <td>
                   {row.has_file ? (
                     <button
@@ -368,15 +382,19 @@ export default function Contracts() {
                     <button className="btn btn-sm" onClick={() => void openView(row)}>
                       查看
                     </button>
-                    <button className="btn btn-sm" onClick={() => openEdit(row)}>
-                      编辑
-                    </button>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() => setDeleteTarget(row)}
-                    >
-                      删除
-                    </button>
+                    {canWrite && (
+                      <>
+                        <button className="btn btn-sm" onClick={() => openEdit(row)}>
+                          编辑
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() => setDeleteTarget(row)}
+                        >
+                          删除
+                        </button>
+                      </>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -461,17 +479,23 @@ export default function Contracts() {
               />
             </label>
 
-            <label className="field" style={{ marginTop: 14 }}>
-              <span>合同金额（元）</span>
-              <input
-                className="input"
-                inputMode="decimal"
-                value={form.amount}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, amount: event.target.value }))
-                }
-              />
-            </label>
+            {/*
+              合同金额是明细合计，后端会用明细重算，这里只是个方便核对输入框 ——
+              看不到金额的角色不显示（他们的明细里本来也没有原价可核）
+            */}
+            {money && (
+              <label className="field" style={{ marginTop: 14 }}>
+                <span>合同金额（元）</span>
+                <input
+                  className="input"
+                  inputMode="decimal"
+                  value={form.amount}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, amount: event.target.value }))
+                  }
+                />
+              </label>
+            )}
 
             <label className="field" style={{ marginTop: 14 }}>
               <span>备注</span>
@@ -509,8 +533,9 @@ export default function Contracts() {
                   <th>品名 *</th>
                   <th>等级</th>
                   <th>数量 (m³)</th>
+                  {/* 单价要留着：录合同的人得自己填（方案 A —— 输入可见可填） */}
                   <th>单价 (元/m³)</th>
-                  <th>金额 (元)</th>
+                  {money && <th>金额 (元)</th>}
                 </tr>
               </thead>
               <tbody>
@@ -553,7 +578,7 @@ export default function Contracts() {
                       </td>
                     ))}
                     <td className="num">
-                      {itemAmount(row) ? itemAmount(row).toFixed(2) : ''}
+                      {money && (itemAmount(row) ? itemAmount(row).toFixed(2) : '')}
                     </td>
                   </tr>
                 ))}
@@ -566,10 +591,13 @@ export default function Contracts() {
                   <td className="num">
                     {items.reduce((sum, row) => sum + toNumber(row.quantity), 0) || ''}
                   </td>
+                  {/* 单价列始终占位，金额列只有看得到金额的角色才有 */}
                   <td />
-                  <td className="num">
-                    {items.reduce((sum, row) => sum + itemAmount(row), 0).toFixed(2)}
-                  </td>
+                  {money && (
+                    <td className="num">
+                      {items.reduce((sum, row) => sum + itemAmount(row), 0).toFixed(2)}
+                    </td>
+                  )}
                 </tr>
               </tfoot>
             </table>
@@ -646,7 +674,7 @@ export default function Contracts() {
               <span>名称：{viewing.title || '—'}</span>
               <span>往来单位：{viewing.partner || '—'}</span>
               <span>签订日期：{viewing.sign_date || '—'}</span>
-              <span>合同金额：{formatAmount(viewing.amount)} 元</span>
+              {money && <span>合同金额：{formatAmount(viewing.amount)} 元</span>}
               <span>备注：{viewing.remark || '—'}</span>
               <span>
                 文件：
@@ -672,8 +700,8 @@ export default function Contracts() {
                     <th>品名</th>
                     <th>等级</th>
                     <th className="num">数量 (m³)</th>
-                    <th className="num">单价 (元/m³)</th>
-                    <th className="num">金额 (元)</th>
+                    {money && <th className="num">单价 (元/m³)</th>}
+                    {money && <th className="num">金额 (元)</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -683,8 +711,8 @@ export default function Contracts() {
                       <td>{item.species}</td>
                       <td>{item.grade || '—'}</td>
                       <td className="num">{formatAmount(item.quantity)}</td>
-                      <td className="num">{formatAmount(item.unit_price)}</td>
-                      <td className="num">{formatAmount(item.amount)}</td>
+                      {money && <td className="num">{formatAmount(item.unit_price)}</td>}
+                      {money && <td className="num">{formatAmount(item.amount)}</td>}
                     </tr>
                   ))}
                 </tbody>
@@ -696,8 +724,8 @@ export default function Contracts() {
                         viewing.items.reduce((sum, item) => sum + item.quantity, 0),
                       )}
                     </td>
-                    <td />
-                    <td className="num">{formatAmount(viewing.amount)}</td>
+                    {money && <td />}
+                    {money && <td className="num">{formatAmount(viewing.amount)}</td>}
                   </tr>
                 </tfoot>
               </table>

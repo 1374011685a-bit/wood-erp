@@ -8,6 +8,8 @@ client/dist/
 *.sqlite3
 server/data.db
 server/data.db.bak
+# 手工备份（改结构前留一份）：data.db.bak-20261014 这种，别误提交进仓库
+server/data.db.bak-*
 server/data.db.lock
 server/data.db.tmp-*
 server/data.db-wal

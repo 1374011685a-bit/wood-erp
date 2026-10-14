@@ -1,14 +1,19 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { login, setSession } from '../api'
 import { resetPassword } from '../api'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 
 export default function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  // 从别处跳回来时带的提示（比如改完密码要重新登录）——不是报错，用中性色
+  const [notice] = useState(
+    () => (location.state as { notice?: string } | null)?.notice ?? '',
+  )
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
@@ -71,7 +76,7 @@ export default function Login() {
     setError('')
     try {
       const result = await login(username.trim(), password)
-      setSession(result.token, result.username)
+      setSession(result.token, result.username, result.role)
       navigate('/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
@@ -110,6 +115,7 @@ export default function Login() {
             </label>
           </div>
 
+          {notice && !error && <p className="login-notice">{notice}</p>}
           {error && <p className="login-error">{error}</p>}
 
           <button

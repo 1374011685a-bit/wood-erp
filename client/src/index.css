@@ -2923,6 +2923,17 @@ section > .toolbar .btn-primary {
   white-space: pre-line;
 }
 
+/* 登录页的中性提示（不是报错，比如「密码已修改，请重新登录」） */
+.login-notice {
+  margin: 14px 0 0;
+  padding: 9px 12px;
+  border-radius: 10px;
+  background-color: #eef6ff;
+  color: #0b62c4;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .login-button {
   height: 46px;
   margin-top: 24px;

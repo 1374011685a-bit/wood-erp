@@ -17,6 +17,8 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { roundTo, formatCubic, formatAmount, todayLocal } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
 
 /** 本地日期 YYYY-MM-DD */
 type FormRow = {
@@ -55,6 +57,13 @@ const specKey = (row: {
   ].join('|')
 
 export default function Count() {
+  /**
+   * 看不到金额的角色（仓管）：单价列不显示，也就不往接口传单价。
+   * 后端在单价缺省时会自动用「该规格最近一次入库单价」估值（count.js 里已有逻辑），
+   * 所以盘盈盘亏照样能生成出入库单，成本由后台算。
+   */
+  const money = seesMoney(useRole())
+
   const [mode, setMode] = useState<'list' | 'create'>('list')
 
   const [list, setList] = useState<CountListRow[]>([])
@@ -474,8 +483,9 @@ export default function Count() {
                 <th className="num">实盘件数</th>
                 <th className="num">差异件数</th>
                 <th className="num">差异立方</th>
-                <th className="num">单价</th>
-                <th className="num">差异金额</th>
+                {/* 看不到金额的角色：单价留空交给后台按最近入库价算，这一列和差异金额都不显示 */}
+                {money && <th className="num">单价</th>}
+                {money && <th className="num">差异金额</th>}
                 <th>操作</th>
               </tr>
             </thead>
@@ -569,19 +579,23 @@ export default function Count() {
                       <td className={calc && calc.diffCubic < 0 ? 'num is-short' : 'num'}>
                         {calc ? formatCubic(calc.diffCubic) : '0'}
                       </td>
-                      <td>
-                        <input
-                          className="input input-cell"
-                          inputMode="decimal"
-                          value={row.unitPrice}
-                          onChange={(event) =>
-                            updateRow(row.key, { unitPrice: event.target.value })
-                          }
-                        />
-                      </td>
-                      <td className="num amount">
-                        {calc ? formatAmount(calc.diffAmount) : '0.00'}
-                      </td>
+                      {money && (
+                        <td>
+                          <input
+                            className="input input-cell"
+                            inputMode="decimal"
+                            value={row.unitPrice}
+                            onChange={(event) =>
+                              updateRow(row.key, { unitPrice: event.target.value })
+                            }
+                          />
+                        </td>
+                      )}
+                      {money && (
+                        <td className="num amount">
+                          {calc ? formatAmount(calc.diffAmount) : '0.00'}
+                        </td>
+                      )}
                       <td>
                         <button
                           className="btn btn-sm btn-danger"
@@ -618,7 +632,7 @@ export default function Count() {
           <div className="totals">
             <span>有差异 {totals.changed} 行</span>
             <span>合计差异立方：{formatCubic(totals.diffCubic)}</span>
-            <span>合计差异金额：{formatAmount(totals.diffAmount)}</span>
+            {money && <span>合计差异金额：{formatAmount(totals.diffAmount)}</span>}
           </div>
 
           <div className="row-tools">
@@ -672,7 +686,7 @@ export default function Count() {
                   <th className="num">差异件数</th>
                   <th className="num">账面立方</th>
                   <th className="num">差异立方</th>
-                  <th className="num">单价</th>
+                  {money && <th className="num">单价</th>}
                 </tr>
               </thead>
               <tbody>
@@ -693,7 +707,9 @@ export default function Count() {
                     <td className={item.diff_cubic < 0 ? 'num is-short' : 'num'}>
                       {formatCubic(item.diff_cubic)}
                     </td>
-                    <td className="num amount">{formatAmount(item.unit_price)}</td>
+                    {money && (
+                      <td className="num amount">{formatAmount(item.unit_price)}</td>
+                    )}
                   </tr>
                 ))}
               </tbody>

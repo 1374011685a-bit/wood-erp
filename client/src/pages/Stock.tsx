@@ -12,11 +12,16 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { roundTo, formatCubic } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
 
 const formatPrice = (value: number | null) =>
   value === null ? '—' : value.toFixed(2)
 
 export default function Stock() {
+  // 看不到金额的角色：库存均价整列不渲染（后端本来也不返回这个字段）
+  const money = seesMoney(useRole())
+
   const [rows, setRows] = useState<StockRow[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -135,8 +140,8 @@ export default function Stock() {
               <th className="num">当前件数</th>
               <th className="num">当前片数</th>
               <th className="num">当前立方</th>
-              {/* 加权平均成本价：Σ(入库立方×入库单价) ÷ Σ入库立方 */}
-              <th className="num">库存均价</th>
+              {/* 加权平均成本价：Σ(入库立方×入库单价) ÷ Σ入库立方。看不到金额的角色整列不显示 */}
+              {money && <th className="num">库存均价</th>}
             </tr>
           </thead>
           <tbody>
@@ -150,7 +155,7 @@ export default function Stock() {
                 <td className="num">{row.total_bundles}</td>
                 <td className="num">{row.total_pieces}</td>
                 <td className="num">{formatCubic(row.total_cubic)}</td>
-                <td className="num amount">{formatPrice(row.avg_unit_price)}</td>
+                {money && <td className="num amount">{formatPrice(row.avg_unit_price)}</td>}
               </tr>
             ))}
           </tbody>

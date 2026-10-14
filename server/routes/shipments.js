@@ -3,6 +3,7 @@ import { db } from '../db.js'
 import { pageParams } from '../utils/paging.js'
 import { contractError } from '../utils/contractGate.js'
 import { shipmentBaleInfo } from './bales.js'
+import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -197,7 +198,7 @@ const findContainerByNo = db.prepare(
   `SELECT id FROM containers WHERE container_no = ? AND deleted_at IS NULL`,
 )
 
-router.post('/', (req, res) => {
+router.post('/', requireCap('shipment.write'), (req, res) => {
   const body = req.body ?? {}
   const blNo = String(body.bl_no ?? '').trim()
   const contractNo = String(body.contract_no ?? '').trim()
@@ -241,7 +242,7 @@ router.post('/', (req, res) => {
 })
 
 /** 给已有提单补柜（后面又到了几个柜的情况） */
-router.post('/:id/containers', (req, res) => {
+router.post('/:id/containers', requireCap('shipment.write'), (req, res) => {
   const id = Number(req.params.id)
   const shipment = findShipmentStmt.get(id)
   if (!shipment) return res.status(404).json({ error: '提单不存在' })
@@ -276,7 +277,7 @@ router.post('/:id/containers', (req, res) => {
  * 删除提单：柜已经不是一层了，只看还有没有在库的包。
  * 有在库的包就不让删（货还在），全出完了才允许，连带把老柜记录一起软删掉。
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('shipment.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!findShipmentStmt.get(id)) {
     return res.status(404).json({ error: '提单不存在' })

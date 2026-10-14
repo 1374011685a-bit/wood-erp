@@ -40,6 +40,9 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
+import { can } from '../permissions'
 
 /* ---------- 立方预览：与 server/utils/cubic.js 同一公式 ---------- */
 
@@ -282,6 +285,17 @@ export default function Inbound({
   defaultMode?: 'method' | 'list'
 }) {
   const navigate = useNavigate()
+  /**
+   * 看不到金额的角色（业务员 / 仓管）：
+   *   - 明细表的「金额(元)」列、合计里的金额、详情弹窗的单价/金额都不显示；
+   *   - 「单价(元)」输入框**保留** —— 方案 A：录单的人得自己填；
+   *   - 改单时前端拿不到原价，后端会把对得上的行原价补回去，不会清成 0。
+   * 明细总列数跟着少一列，合计行的 colspan 是从列数倒推的，这里必须一起改。
+   */
+  const money = seesMoney(useRole())
+  /** 只读角色不给「新增 / 编辑 / 删除」的入口：后端也会 403，但按钮摆着点了必然失败 */
+  const canWrite = can(useRole(), 'inbound.write')
+
   const [mode, setMode] = useState<'method' | 'list' | 'create'>(defaultMode)
   // 入库方式：直接入库 / 关联采购合同
   const [method, setMethod] = useState<'direct' | 'contract'>('direct')
@@ -604,6 +618,16 @@ export default function Inbound({
     { key: 'amount', className: 'num', value: formatAmount(totals.amount) },
     { key: 'barcode', className: undefined, value: '' },
   ]
+
+  /**
+   * 看不到金额时，「金额」那一列整列不存在，合计行末尾也要少一格。
+   * 「单价」列保留（还是个要填的输入框），所以那一格空占位留着。
+   * 总列数同理减 1 —— 合计行的 colspan 是从它倒推的，不能写死。
+   */
+  const tailCells = money
+    ? totalTailCells
+    : totalTailCells.filter((cell) => cell.key !== 'amount')
+  const sheetColCount = SHEET_COL_COUNT - (money ? 0 : 1)
 
   // 当前选中的提单（条码号按这票提单的顺序排）
   const activeShipment = useMemo(
@@ -1062,9 +1086,11 @@ export default function Inbound({
               <button className="btn" onClick={handleExport} disabled={exporting}>
                 {exporting ? '导出中…' : '导出 Excel'}
               </button>
-              <button className="btn btn-primary" onClick={openCreate}>
-                新增采购
-              </button>
+              {canWrite && (
+                <button className="btn btn-primary" onClick={openCreate}>
+                  新增采购
+                </button>
+              )}
             </>
           ) : null
         }
@@ -1274,7 +1300,7 @@ export default function Inbound({
                 <th>仓库</th>
                 <th>合同号 / 提单号</th>
                 <th className="num">总立方</th>
-                <th className="num">总金额</th>
+                {money && <th className="num">总金额</th>}
                 <th className="num">明细数</th>
                 <th className="num">码单</th>
                 <th>操作</th>
@@ -1308,9 +1334,9 @@ export default function Inbound({
                     ) : null}
                   </td>
                   <td className="num">{formatCubic(order.total_cubic)}</td>
-                  <td className="num amount">
-                    {formatAmount(order.total_amount)}
-                  </td>
+                  {money && (
+                    <td className="num amount">{formatAmount(order.total_amount)}</td>
+                  )}
                   <td className="num">{order.item_count}</td>
                   <td className="num">
                     {order.bale_total > 0 ? (
@@ -1333,25 +1359,29 @@ export default function Inbound({
                       >
                         查看
                       </button>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() =>
-                          void openEdit({ id: order.id, order_no: order.order_no })
-                        }
-                      >
-                        编辑
-                      </button>
-                      <button
-                        className="btn btn-sm btn-danger"
-                        onClick={() =>
-                          setDeleteTarget({
-                            id: order.id,
-                            order_no: order.order_no,
-                          })
-                        }
-                      >
-                        删除
-                      </button>
+                      {canWrite && (
+                        <>
+                          <button
+                            className="btn btn-sm"
+                            onClick={() =>
+                              void openEdit({ id: order.id, order_no: order.order_no })
+                            }
+                          >
+                            编辑
+                          </button>
+                          <button
+                            className="btn btn-sm btn-danger"
+                            onClick={() =>
+                              setDeleteTarget({
+                                id: order.id,
+                                order_no: order.order_no,
+                              })
+                            }
+                          >
+                            删除
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -1508,7 +1538,7 @@ export default function Inbound({
                   <th className="col-unit">数量 (m³)</th>
                   <th className="col-unit">单位</th>
                   <th>单价 (元) *</th>
-                  <th>金额 (元)</th>
+                  {money && <th>金额 (元)</th>}
                   <th className="col-code">条码号</th>
                 </tr>
               </thead>
@@ -1623,19 +1653,21 @@ export default function Inbound({
                             }
                           />
                         </td>
-                        <td className="num">{filler ? '' : formatAmount(row.amount)}</td>
+                        {money && (
+                          <td className="num">{filler ? '' : formatAmount(row.amount)}</td>
+                        )}
                         <td className="col-code muted">{filler ? '' : '自动生成'}</td>
                       </tr>
                       {reasons.length > 0 && (
                         <tr className="is-error">
-                          <td colSpan={SHEET_COL_COUNT} className="row-error">
+                          <td colSpan={sheetColCount} className="row-error">
                             {reasons.join('；')}
                           </td>
                         </tr>
                       )}
                       {hint && reasons.length === 0 && (
                         <tr>
-                          <td colSpan={SHEET_COL_COUNT} className="row-hint">
+                          <td colSpan={sheetColCount} className="row-hint">
                             该规格已有库存 {formatCubic(hint.cubic)} 立方 / {hint.bundles} 件
                           </td>
                         </tr>
@@ -1647,12 +1679,12 @@ export default function Inbound({
               <tfoot>
                 <tr>
                   <td
-                    colSpan={SHEET_COL_COUNT - totalTailCells.length}
+                    colSpan={sheetColCount - tailCells.length}
                     className="sheet-total-label"
                   >
                     合计
                   </td>
-                  {totalTailCells.map((cell) => (
+                  {tailCells.map((cell) => (
                     <td key={cell.key} className={cell.className}>
                       {cell.value}
                     </td>
@@ -1770,25 +1802,29 @@ export default function Inbound({
               <div className="modal-actions">
                 {detail && (
                   <>
-                    <button
-                      className="btn btn-sm"
-                      onClick={() =>
-                        void openEdit({ id: detail.id, order_no: detail.order_no })
-                      }
-                    >
-                      编辑
-                    </button>
-                    <button
-                      className="btn btn-sm btn-danger"
-                      onClick={() =>
-                        setDeleteTarget({
-                          id: detail.id,
-                          order_no: detail.order_no,
-                        })
-                      }
-                    >
-                      删除
-                    </button>
+                    {canWrite && (
+                      <>
+                        <button
+                          className="btn btn-sm"
+                          onClick={() =>
+                            void openEdit({ id: detail.id, order_no: detail.order_no })
+                          }
+                        >
+                          编辑
+                        </button>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          onClick={() =>
+                            setDeleteTarget({
+                              id: detail.id,
+                              order_no: detail.order_no,
+                            })
+                          }
+                        >
+                          删除
+                        </button>
+                      </>
+                    )}
                   </>
                 )}
                 <button className="btn btn-quiet" onClick={closeDetail}>
@@ -1833,7 +1869,8 @@ export default function Inbound({
 
                 <h3 className="section-title" style={{ marginTop: 4 }}>
                   入库明细（{detail.items.length} 行 · 合计{' '}
-                  {formatCubic(detail.total_cubic)} m³ / {formatAmount(detail.total_amount)} 元）
+                  {formatCubic(detail.total_cubic)} m³
+                  {money ? ` / ${formatAmount(detail.total_amount)} 元）` : '）'}
                 </h3>
                 <table className="table">
                   <thead>
@@ -1845,8 +1882,8 @@ export default function Inbound({
                       <th className="num">片数</th>
                       <th className="num">件数</th>
                       <th className="num">立方 (m³)</th>
-                      <th className="num">单价 (元)</th>
-                      <th className="num">金额 (元)</th>
+                      {money && <th className="num">单价 (元)</th>}
+                      {money && <th className="num">金额 (元)</th>}
                       <th>包号</th>
                       <th>柜号</th>
                     </tr>
@@ -1863,8 +1900,12 @@ export default function Inbound({
                         <td className="num">{item.pieces}</td>
                         <td className="num">{item.bundles}</td>
                         <td className="num">{formatCubic(item.cubic)}</td>
-                        <td className="num">{formatAmount(item.unit_price ?? 0)}</td>
-                        <td className="num strong">{formatAmount(item.amount ?? 0)}</td>
+                        {money && (
+                          <td className="num">{formatAmount(item.unit_price ?? 0)}</td>
+                        )}
+                        {money && (
+                          <td className="num strong">{formatAmount(item.amount ?? 0)}</td>
+                        )}
                         <td>{item.bale_no || (item.bale_labels ?? []).join('、') || '—'}</td>
                         <td>{item.box_no || '—'}</td>
                       </tr>
@@ -1874,8 +1915,10 @@ export default function Inbound({
                     <tr>
                       <td colSpan={6}>合计</td>
                       <td className="num strong">{formatCubic(detail.total_cubic)}</td>
-                      <td />
-                      <td className="num strong">{formatAmount(detail.total_amount)}</td>
+                      {money && <td />}
+                      {money && (
+                        <td className="num strong">{formatAmount(detail.total_amount)}</td>
+                      )}
                       <td colSpan={2} />
                     </tr>
                   </tfoot>

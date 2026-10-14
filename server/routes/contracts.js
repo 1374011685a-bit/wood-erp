@@ -5,6 +5,8 @@ import multer from 'multer'
 import { db, storageDir } from '../db.js'
 import { toCents, fromCents } from '../utils/cubic.js'
 import { pageParams } from '../utils/paging.js'
+import { requireCap } from '../middleware/permissions.js'
+import { keepPricesFrom, contractItemKey } from '../utils/keepPrices.js'
 
 const router = express.Router()
 
@@ -411,7 +413,7 @@ const insertContract = db.prepare(
       @file_name, @file_original, @file_size)`,
 )
 
-router.post('/', upload.single('file'), (req, res) => {
+router.post('/', requireCap('contract.write'), upload.single('file'), (req, res) => {
   const body = req.body ?? {}
   const contractNo = String(body.contract_no ?? '').trim()
   const title = String(body.title ?? '').trim()
@@ -487,7 +489,7 @@ const updateContractStmt = db.prepare(
     WHERE id = ? AND deleted_at IS NULL`,
 )
 
-router.put('/:id', upload.single('file'), (req, res) => {
+router.put('/:id', requireCap('contract.write'), upload.single('file'), (req, res) => {
   const id = Number(req.params.id)
   const current = getContractStmt.get(id)
   if (!current) return res.status(404).json({ error: '合同不存在' })
@@ -504,7 +506,18 @@ router.put('/:id', upload.single('file'), (req, res) => {
   const rawItems = readRawItems(body)
   let items = []
   if (rawItems) {
-    const parsed = normalizeContractItems(rawItems)
+    /**
+     * 看不到金额的角色（业务员）改合同时看不到原单价，
+     * 表单里那一列是空的 —— 直接存回去会把整张合同的金额清成 0。
+     * 这里按「品牌 + 品名 + 等级」把能对上的行原价补回来。
+     */
+    const oldItems = listContractItems.all(id)
+    const parsed = normalizeContractItems(
+      keepPricesFrom(rawItems, oldItems, {
+        keyOf: contractItemKey,
+        priceOf: (row) => Number(row.unit_price_cents ?? 0),
+      }),
+    )
     if (parsed.problems.length > 0) {
       return res.status(400).json({ error: parsed.problems.join('\n') })
     }
@@ -567,7 +580,7 @@ router.put('/:id', upload.single('file'), (req, res) => {
 
 /* ---------- 删除（软删除，保留文件） ---------- */
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('contract.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '合同 ID 不合法' })

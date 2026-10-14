@@ -36,20 +36,38 @@ function recordFail(ip) {
 }
 
 const findByUsername = db.prepare(
-  `SELECT id, username, password_hash FROM users WHERE username = ?`,
+  `SELECT id, username, password_hash, role, active, token_version
+     FROM users WHERE username = ?`,
 )
-const findById = db.prepare(`SELECT id, username FROM users WHERE id = ?`)
+const findById = db.prepare(
+  `SELECT id, username, role, active FROM users WHERE id = ?`,
+)
 const findWithHashById = db.prepare(
-  `SELECT id, username, password_hash FROM users WHERE id = ?`,
+  `SELECT id, username, password_hash, token_version FROM users WHERE id = ?`,
 )
 const updatePassword = db.prepare(`UPDATE users SET password_hash = ? WHERE id = ?`)
+
+/**
+ * 改完密码把 token_version 加一：这个账号**所有**已经发出去的 token 立刻作废，
+ * 包括正在别的电脑上登录的那一份。用户下次请求会拿到 401，前端引导重新登录。
+ */
+const bumpTokenVersion = db.prepare(
+  `UPDATE users SET token_version = token_version + 1 WHERE id = ?`,
+)
 
 // 用户不存在时也跑一次 bcrypt 校验，避免通过响应时间反推用户名是否存在
 const DUMMY_HASH = bcrypt.hashSync('not-a-real-password', BCRYPT_ROUNDS)
 
 function signToken(user) {
   return jwt.sign(
-    { sub: user.id, username: user.username },
+    {
+      sub: user.id,
+      username: user.username,
+      // role 只是写在 token 里方便排查，真正的授权判断以数据库为准（见 middleware/auth.js）
+      role: user.role,
+      // tv = token_version：改密码 / 停用 / 改角色后自增，用来一键作废旧登录态
+      tv: Number(user.token_version ?? 0),
+    },
     process.env.JWT_SECRET,
     { expiresIn: TOKEN_TTL },
   )
@@ -74,16 +92,25 @@ router.post('/login', (req, res) => {
   }
   if (!matched) return fail()
 
-  res.json({ token: signToken(user), username: user.username })
+  // 停用账号连登录都不让过
+  if (!user.active) {
+    return res.status(403).json({ error: '这个账号已被停用，请联系管理员' })
+  }
+
+  res.json({
+    token: signToken(user),
+    username: user.username,
+    role: user.role,
+  })
 })
 
 // 当前登录用户
 router.get('/me', requireAuth, (req, res) => {
-  const user = findById.get(req.user.sub)
+  const user = findById.get(req.user.id)
   if (!user) {
     return res.status(401).json({ error: '未登录或登录已过期' })
   }
-  res.json({ username: user.username })
+  res.json({ username: user.username, role: user.role })
 })
 
 // 修改密码
@@ -98,7 +125,7 @@ router.post('/change-password', requireAuth, (req, res) => {
     return res.status(400).json({ error: '新密码至少 6 位' })
   }
 
-  const user = findWithHashById.get(req.user.sub)
+  const user = findWithHashById.get(req.user.id)
   if (!user) {
     return res.status(401).json({ error: '未登录或登录已过期' })
   }
@@ -107,6 +134,8 @@ router.post('/change-password', requireAuth, (req, res) => {
   }
 
   updatePassword.run(bcrypt.hashSync(newPassword, BCRYPT_ROUNDS), user.id)
+  // 旧 token 立刻失效（含本机这一份），前端收到 401 会引导重新登录
+  bumpTokenVersion.run(user.id)
   res.json({ ok: true })
 })
 
@@ -146,6 +175,7 @@ router.post('/reset-password', (req, res) => {
   }
 
   updatePassword.run(bcrypt.hashSync(newPassword, BCRYPT_ROUNDS), user.id)
+  bumpTokenVersion.run(user.id)
   resetFailsByIp.delete(ip)
   console.log(`[auth] 用户 ${user.username} 通过重置口令修改了密码（ip=${ip}）`)
   res.json({ ok: true, username: user.username })

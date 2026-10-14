@@ -38,8 +38,14 @@ const { dbPath, initDB, startDailySnapshots } = await load('./db.js', () =>
 const { requireAuth } = await load('./middleware/auth.js', () =>
   import('./middleware/auth.js'),
 )
+const { requireCap, moneyGuard } = await load('./middleware/permissions.js', () =>
+  import('./middleware/permissions.js'),
+)
 const authRouter = await load('./routes/auth.js', async () =>
   (await import('./routes/auth.js')).default,
+)
+const usersRouter = await load('./routes/users.js', async () =>
+  (await import('./routes/users.js')).default,
 )
 /**
  * 导出模块依赖 exceljs（很大，加载要 300ms 上下）。
@@ -144,7 +150,10 @@ app.use((err, _req, res, next) => {
   next(err)
 })
 
-// 认证接口：login 公开，me / change-password 在路由内部各自校验
+/**
+ * 认证接口：login 公开，me / change-password 在路由内部各自校验。
+ * 这里不挂 moneyGuard —— auth 的响应里本来就没有金额字段。
+ */
 app.use('/api/auth', authRouter)
 
 // 健康检查（同样需要登录）
@@ -152,26 +161,48 @@ app.get('/api/ping', requireAuth, (_req, res) => {
   res.json({ ok: true })
 })
 
-// 业务路由：统一走登录校验
-// 第一次请求导出时才加载 exceljs
-app.use('/api/export', requireAuth, (req, res, next) => {
-  getExportRouter()
-    .then((router) => router(req, res, next))
-    .catch(next)
-})
-app.use('/api/home', requireAuth, homeRouter)
-app.use('/api/inbound', requireAuth, inboundRouter)
-app.use('/api/outbound', requireAuth, outboundRouter)
-app.use('/api/stock', requireAuth, stockRouter)
-app.use('/api/records', requireAuth, recordsRouter)
-app.use('/api/count', requireAuth, countRouter)
-app.use('/api/recycle', requireAuth, recycleRouter)
-app.use('/api/settlement', requireAuth, settlementRouter)
-app.use('/api/contracts', requireAuth, contractsRouter)
-app.use('/api/bales', requireAuth, balesRouter)
-app.use('/api/shipments', requireAuth, shipmentsRouter)
-app.use('/api/dict', requireAuth, dictRouter)
-app.use('/api/repacks', requireAuth, repacksRouter)
+/**
+ * 业务路由的三道关，顺序不能换：
+ *   ① requireAuth —— 验签 + 回查用户（角色、停用、token_version）
+ *   ② moneyGuard  —— 看不到金额的角色，响应里的金额字段直接删掉
+ *   ③ requireCap  —— 这个角色能不能进这个模块
+ *
+ * 这里挂的是「读」的能力（xxx.view）；同一个前缀下的写操作
+ * （POST/PUT/DELETE）在各自的路由文件里再挂 requireCap('xxx.write')，
+ * 因为读和写的允许角色常常不一样。
+ */
+app.use(
+  '/api/export',
+  requireAuth,
+  moneyGuard,
+  requireCap('export.data'),
+  // 第一次请求导出时才加载 exceljs
+  (req, res, next) => {
+    getExportRouter()
+      .then((router) => router(req, res, next))
+      .catch(next)
+  },
+)
+app.use('/api/users', requireAuth, moneyGuard, requireCap('user.admin'), usersRouter)
+app.use('/api/home', requireAuth, moneyGuard, requireCap('home.view'), homeRouter)
+app.use('/api/inbound', requireAuth, moneyGuard, requireCap('inbound.view'), inboundRouter)
+app.use('/api/outbound', requireAuth, moneyGuard, requireCap('outbound.view'), outboundRouter)
+app.use('/api/stock', requireAuth, moneyGuard, requireCap('stock.view'), stockRouter)
+app.use('/api/records', requireAuth, moneyGuard, requireCap('records.view'), recordsRouter)
+app.use('/api/count', requireAuth, moneyGuard, requireCap('count.view'), countRouter)
+app.use('/api/recycle', requireAuth, moneyGuard, requireCap('recycle.view'), recycleRouter)
+app.use(
+  '/api/settlement',
+  requireAuth,
+  moneyGuard,
+  requireCap('settlement.view'),
+  settlementRouter,
+)
+app.use('/api/contracts', requireAuth, moneyGuard, requireCap('contract.view'), contractsRouter)
+app.use('/api/bales', requireAuth, moneyGuard, requireCap('bale.view'), balesRouter)
+app.use('/api/shipments', requireAuth, moneyGuard, requireCap('shipment.view'), shipmentsRouter)
+app.use('/api/dict', requireAuth, moneyGuard, requireCap('dict.view'), dictRouter)
+app.use('/api/repacks', requireAuth, moneyGuard, requireCap('repack.view'), repacksRouter)
 
 // 生产模式：同时把前端构建产物当静态资源服务（先执行 cd client && pnpm build）
 const clientDist = path.join(serverDir, '..', 'client', 'dist')

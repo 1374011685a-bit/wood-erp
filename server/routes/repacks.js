@@ -2,6 +2,8 @@ import express from 'express'
 import { db } from '../db.js'
 import { pageParams } from '../utils/paging.js'
 import { calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
+import { requireCap } from '../middleware/permissions.js'
+import { seesMoney } from '../permissions.js'
 import {
   baleItemsStmt,
   getBale,
@@ -85,13 +87,18 @@ function priceCandidates(orderId, item) {
  * - 匹配不到 → 0
  * - 只有一种价 → 用它
  * - 匹配到多种价 → null（要用户确认，不静默取第一条）
+ *
+ * @param {{ auto?: boolean }} [options]
+ *   auto = true：调用方是「看不到金额的角色」（仓管）。他们前端拿不到候选项，
+ *   没法在弹出的下拉里选，再返回 null 就变成了「怎么点都存不了」。
+ *   这种情况下取第一条候选价兜底 —— 有据可依、可复现，总比让人卡死强。
  */
-function resolvePriceCents(orderId, item) {
+function resolvePriceCents(orderId, item, { auto = false } = {}) {
   if (!orderId) return 0
   const candidates = priceCandidates(orderId, item)
   if (candidates.length === 0) return 0
   if (candidates.length === 1) return toCents(candidates[0].unit_price)
-  return null
+  return auto ? toCents(candidates[0].unit_price) : null
 }
 
 /** 用户在「改包前」里为某一行选的成本价（分），没选返回 undefined */
@@ -103,23 +110,23 @@ function overrideCents(overrides, baleItemId) {
   return Number.isFinite(cents) ? cents : undefined
 }
 
-function beforeCostCents(bale, overrides = {}) {
+function beforeCostCents(bale, overrides = {}, { auto = false } = {}) {
   if (!bale.inbound_order_id) return 0
   let cents = 0
   for (const item of baleItemsStmt.all(bale.id)) {
     const picked = overrideCents(overrides, item.id)
-    const unit = picked ?? resolvePriceCents(bale.inbound_order_id, item) ?? 0
+    const unit = picked ?? resolvePriceCents(bale.inbound_order_id, item, { auto }) ?? 0
     cents += calcAmountCents(roundTo(item.cubic ?? 0, 4), unit)
   }
   return cents
 }
 
 /** 改前每一行的成本价（分）：用户选过的按用户选的，否则按唯一价 */
-function beforePriceCentsList(bale, overrides = {}) {
+function beforePriceCentsList(bale, overrides = {}, { auto = false } = {}) {
   if (!bale.inbound_order_id) return baleItemsStmt.all(bale.id).map(() => 0)
   return baleItemsStmt.all(bale.id).map((item) => {
     const picked = overrideCents(overrides, item.id)
-    return picked ?? resolvePriceCents(bale.inbound_order_id, item) ?? 0
+    return picked ?? resolvePriceCents(bale.inbound_order_id, item, { auto }) ?? 0
   })
 }
 
@@ -339,9 +346,13 @@ const createRepack = db.transaction((payload) => {
   /**
    * 改前成本：同一规格在入库明细里匹配到多个价时，不静默取第一条。
    * 用户没在「改包前」里选 → 直接 400，把是哪一行、为什么说清楚。
+   *
+   * 例外：看不到金额的角色（仓管）前端根本看不到候选价，"选一个"这个动作
+   * 他们做不了，再拦就是死路 —— 这类请求走 auto 兜底（取第一条候选价）。
    */
+  const auto = payload.autoPickPrice === true
   const overrides = payload.beforePrices ?? {}
-  if (bale.inbound_order_id) {
+  if (bale.inbound_order_id && !auto) {
     const unresolved = beforeItems.findIndex(
       (item) =>
         resolvePriceCents(bale.inbound_order_id, item) === null &&
@@ -358,7 +369,7 @@ const createRepack = db.transaction((payload) => {
       throw error
     }
   }
-  const beforeCents = beforeCostCents(bale, overrides)
+  const beforeCents = beforeCostCents(bale, overrides, { auto })
 
   const afterCubic = roundTo(
     payload.items.reduce((sum, item) => sum + item.cubic, 0),
@@ -405,7 +416,7 @@ const createRepack = db.transaction((payload) => {
     price_pinned: pinned ? 1 : 0,
     before_json: snapshot(
       beforeItems,
-      beforePriceCentsList(bale, overrides),
+      beforePriceCentsList(bale, overrides, { auto }),
     ),
     after_json: snapshot(payload.items, afterPriceCents),
     // 留空就跟改前一致（真正写进记录，不只是显示）
@@ -427,7 +438,7 @@ const createRepack = db.transaction((payload) => {
   return { id: Number(lastInsertRowid), repack_no: payload.repackNo }
 })
 
-router.post('/', (req, res) => {
+router.post('/', requireCap('repack.write'), (req, res) => {
   const body = req.body ?? {}
   const baleId = Number(body.bale_id)
   if (!Number.isInteger(baleId) || baleId <= 0) {
@@ -453,6 +464,11 @@ router.post('/', (req, res) => {
       prices: rawItems.map((item) => item?.unit_price),
       // 「改包前」里为某一行手选的成本价：{ [bale_item_id]: 单价 }
       beforePrices: body.before_prices ?? {},
+      /**
+       * 看不到金额的角色没法在「改包前」里挑成本价（候选项不返回给他们），
+       * 交给后端取第一条候选价兜底，否则他们点保存只会一直报「请先选一个」。
+       */
+      autoPickPrice: !seesMoney(req.user.role),
       createdBy: req.user?.username ?? '',
     })
     res.json(result)
@@ -500,7 +516,7 @@ const removeRepack = db.transaction((id) => {
   return { repack_no: row.repack_no }
 })
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('repack.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '改包记录 ID 不合法' })

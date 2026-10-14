@@ -1,6 +1,7 @@
 import express from 'express'
 import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
+import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -205,7 +206,7 @@ const createCount = db.transaction(({ countDate, remark, lines }) => {
 
 /* ---------- 新增盘点单 ---------- */
 
-router.post('/', (req, res) => {
+router.post('/', requireCap('count.write'), (req, res) => {
   const body = req.body ?? {}
   const countDate = body.count_date ? String(body.count_date) : todayLocal()
   const remark = body.remark ? String(body.remark) : ''
@@ -483,7 +484,7 @@ const removeCount = db.transaction((id) => {
   return head
 })
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('count.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '盘点单 ID 不合法' })

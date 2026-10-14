@@ -619,11 +619,17 @@ const schema = `
   -- 入库单上的提单号
   -- （合同号那一列在 migrateOrderFields 里加，和操作员/仓库一起）
 
-  -- 系统用户（只做登录认证，暂无角色权限）
+  -- 系统用户：登录认证 + 角色权限
+  --   role          角色（admin/finance/sales/warehouse/viewer），见 server/permissions.js
+  --   active        停用开关：1 正常，0 停用（停用后连登录都不让过）
+  --   token_version 改密码 / 停用 / 改角色时自增，用来立刻作废旧 token
   CREATE TABLE IF NOT EXISTS users (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     username      TEXT    NOT NULL UNIQUE,
     password_hash TEXT    NOT NULL,
+    role          TEXT    NOT NULL DEFAULT 'viewer',
+    active        INTEGER NOT NULL DEFAULT 1,
+    token_version INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
   );
 
@@ -830,6 +836,39 @@ function migrateBrand() {
 function migrateRepackCreator() {
   const added = addColumnIfMissing('repacks', 'created_by', 'TEXT')
   if (added) writeLog('[db] 迁移：改包记录新增列 created_by（制单人）')
+}
+
+/**
+ * 用户角色与登录态控制。
+ *
+ * - role：角色。默认给 'viewer'（最小权限）—— 万一将来有人直接写 SQL 建了个用户，
+ *   他拿到的是「只读」，不会因为忘了设角色而白得写权限。
+ * - active：停用开关。管理员「停用账号」而不是删账号，created_by 那些审计字段还能追溯。
+ * - token_version：改密码 / 停用 / 改角色时自增，用来把已经发出去的 token 一键作废。
+ *   没有它就等于「停用了还要等他手上的令牌过期（7 天）」，等于没停用。
+ *
+ * 迁移完把已有的 admin 账号提成管理员（老库升级时它现在是默认角色）。
+ */
+function migrateUserRoles() {
+  const added = [
+    addColumnIfMissing('users', 'role', "TEXT NOT NULL DEFAULT 'viewer'"),
+    addColumnIfMissing('users', 'active', 'INTEGER NOT NULL DEFAULT 1'),
+    addColumnIfMissing('users', 'token_version', 'INTEGER NOT NULL DEFAULT 0'),
+  ].filter(Boolean)
+  if (added.length > 0) {
+    writeLog('[db] 迁移：用户表新增 role / active / token_version')
+  }
+
+  // 已有库里的 admin 一定是管理员（新库里 seedDefaultAdmin 也会带上这个角色）
+  const promoted = db
+    .prepare(
+      `UPDATE users SET role = 'admin'
+        WHERE username = ? AND role <> 'admin'`,
+    )
+    .run(DEFAULT_ADMIN.username)
+  if (promoted.changes > 0) {
+    writeLog(`[db] 迁移：账号 ${DEFAULT_ADMIN.username} 已设为管理员`)
+  }
 }
 
 function migrateBaleSoftDelete() {
@@ -1198,10 +1237,9 @@ function seedDefaultAdmin() {
   const total = db.prepare(`SELECT COUNT(*) AS total FROM users`).get().total
   if (total > 0) return
 
-  db.prepare(`INSERT INTO users (username, password_hash) VALUES (?, ?)`).run(
-    DEFAULT_ADMIN.username,
-    bcrypt.hashSync(DEFAULT_ADMIN.password, 10),
-  )
+  db.prepare(
+    `INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')`,
+  ).run(DEFAULT_ADMIN.username, bcrypt.hashSync(DEFAULT_ADMIN.password, 10))
   writeLog(
     `[users] 已创建默认账号 ${DEFAULT_ADMIN.username} / ${DEFAULT_ADMIN.password}，请尽快修改`,
   )
@@ -1366,6 +1404,7 @@ export function initDB() {
   migrateBaleSoftDelete()
   migrateOrderItemBaleNo()
   migrateRepackCreator()
+  migrateUserRoles()
   relinkBalesToShipment()
   // 补挂之后再看一遍：如果某张提单还是没货，就清掉
   cleanEmptyShipments()

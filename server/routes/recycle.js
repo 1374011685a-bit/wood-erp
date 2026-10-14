@@ -1,5 +1,6 @@
 import express from 'express'
 import { db } from '../db.js'
+import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -190,7 +191,7 @@ const restoreOrder = db.transaction((type, id) => {
   return order
 })
 
-router.post('/restore', (req, res) => {
+router.post('/restore', requireCap('recycle.write'), (req, res) => {
   const type = String(req.body?.type ?? '')
   const id = Number(req.body?.id)
 
@@ -267,7 +268,7 @@ const purgeOrder = db.transaction((type, id) => {
   return order
 })
 
-router.delete('/:type/:id', (req, res) => {
+router.delete('/:type/:id', requireCap('recycle.write'), (req, res) => {
   const type = String(req.params.type)
   const id = Number(req.params.id)
 

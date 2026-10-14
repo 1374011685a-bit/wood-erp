@@ -3,6 +3,7 @@ import { db } from '../db.js'
 import { toCents, fromCents } from '../utils/cubic.js'
 import { buildWorkbook } from '../utils/excel.js'
 import { pageParams } from '../utils/paging.js'
+import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -353,7 +354,7 @@ const insertPayment = db.prepare(
 )
 
 // 新增收款 / 付款
-router.post('/payments', (req, res) => {
+router.post('/payments', requireCap('settlement.write'), (req, res) => {
   const body = req.body ?? {}
   const key = sideKey(body.side)
   const cfg = SIDES[key]
@@ -390,7 +391,7 @@ router.post('/payments', (req, res) => {
 const deletePaymentStmt = db.prepare(`DELETE FROM payments WHERE id = ?`)
 
 // 删除收付款记录（记错了删掉重记，只是一条流水，不涉及库存）
-router.delete('/payments/:id', (req, res) => {
+router.delete('/payments/:id', requireCap('settlement.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '记录 ID 不合法' })

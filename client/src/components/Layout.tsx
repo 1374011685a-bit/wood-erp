@@ -8,6 +8,8 @@ import {
   resetPassword,
 } from '../api'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useRole } from '../hooks/useRole'
+import { canVisit } from '../permissions'
 import { applyTableLabels } from '../utils/tableLabels'
 import { Loading, ToastHost, type ToastItem } from './Ui'
 
@@ -191,6 +193,17 @@ const navGroups: NavGroup[] = [
       </>
     ),
       },
+      {
+        to: '/users',
+        label: '用户管理',
+        icon: (
+          <>
+            <circle cx="9.5" cy="8.5" r="3.2" />
+            <path d="M3.8 19.5c0-3.1 2.6-5.2 5.7-5.2s5.7 2.1 5.7 5.2" />
+            <path d="M16.2 6.4h4.2M18.3 4.3v4.2" />
+          </>
+        ),
+      },
     ],
   },
 ]
@@ -209,6 +222,18 @@ function labelOf(path: string) {
 export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
+  const role = useRole()
+  /**
+   * 菜单按角色过滤：没权限的分组和菜单项直接不渲染。
+   * 空分组（比如只读角色看不到「财务」「系统」里的任何一项）整组去掉，
+   * 免得留一个点开是空的分组标题。
+   */
+  const visibleGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => canVisit(role, item.to)),
+    }))
+    .filter((group) => group.items.length > 0)
   // 打开的功能标签（点一个功能就像开一个网页，可以来回切、可以关）
   const [tabs, setTabs] = useState<{ path: string; label: string }[]>(() => [
     location.pathname === '/'
@@ -285,12 +310,32 @@ export default function Layout() {
   // 切到没打开过的功能就补一个标签（首页不做索引）
   useEffect(() => {
     if (location.pathname === '/') return
+    // 没权限的页面不留标签（手敲地址进来的情况）
+    if (!canVisit(role, location.pathname)) return
     setTabs((prev) =>
       prev.some((tab) => tab.path === location.pathname)
         ? prev
         : [...prev, { path: location.pathname, label: labelOf(location.pathname) }],
     )
-  }, [location.pathname])
+  }, [location.pathname, role])
+
+  /**
+   * 路由守卫：当前角色进不了的页面，直接送回首页。
+   * 后端也会拦（403），但让页面停在半路、报一堆错更难看。
+   */
+  useEffect(() => {
+    if (canVisit(role, location.pathname)) return
+    setToast({
+      id: 'no-permission',
+      kind: 'error',
+      message: '你没有这个功能的权限，请联系管理员',
+      onClose: () => setToast(null),
+    })
+    navigate('/', { replace: true })
+  }, [location.pathname, role, navigate])
+
+  // 角色变过之后，之前开着的、现在没权限的标签也要拿掉
+  const visibleTabs = tabs.filter((tab) => canVisit(role, tab.path))
 
   // 当前功能所在的分组要是被收起了，进来时自动展开
   useEffect(() => {
@@ -366,13 +411,15 @@ export default function Layout() {
         await changePassword(oldPassword, newPassword)
       }
       setPasswordOpen(false)
-      setToast({
-        id: 'password-changed',
-        kind: 'success',
-        message: useResetCode
-          ? '密码已通过重置口令修改，下次请用新密码登录'
-          : '密码已修改，下次请用新密码登录',
-        onClose: () => setToast(null),
+      /**
+       * 改密码会让服务端把这个账号的 token_version 加一，
+       * 也就是**当前这个 token 立刻作废**。所以不能只弹个提示继续用，
+       * 必须清掉本地登录态、回登录页用新密码重登。
+       */
+      clearSession()
+      navigate('/login', {
+        replace: true,
+        state: { notice: '密码已修改，请用新密码重新登录' },
       })
     } catch (err) {
       setToast({
@@ -415,7 +462,7 @@ export default function Layout() {
             <span>{homeItem.label}</span>
           </NavLink>
 
-          {navGroups.map((group) => {
+          {visibleGroups.map((group) => {
             const open = Boolean(openGroups[group.key])
             return (
               <div key={group.key} className={open ? 'nav-group is-open' : 'nav-group'}>
@@ -594,9 +641,9 @@ export default function Layout() {
         </div>
 
         {/* 功能索引：点开过的功能都在这里，像浏览器标签一样切换（首页不做索引） */}
-        {tabs.length > 0 && (
+        {visibleTabs.length > 0 && (
         <nav className="tabbar" aria-label="已打开的功能">
-          {tabs.map((tab) => (
+          {visibleTabs.map((tab) => (
             <div
               key={tab.path}
               className={

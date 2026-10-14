@@ -2,11 +2,24 @@ import express from 'express'
 import { db } from '../db.js'
 import { fromCents } from '../utils/cubic.js'
 import { buildWorkbook } from '../utils/excel.js'
+import { seesMoney } from '../permissions.js'
 
 const router = express.Router()
 
 const roundTo = (value, digits) => Number((value ?? 0).toFixed(digits))
 const pad = (value) => String(value).padStart(2, '0')
+
+/**
+ * 导出走的是 res.send(buffer)，不经过 moneyGuard（那个拦的是 res.json），
+ * 所以这里必须自己按角色删列 —— 否则业务员点一下导出，Excel 里单价金额全在。
+ *
+ * 是「整列去掉」而不是「留空列」：留一列空表头反而更奇怪。
+ * buildWorkbook 是按 columns 逐列渲染的，列不在数组里，表头和合计都不会出现。
+ */
+const dropMoneyColumns = (columns, role) =>
+  seesMoney(role)
+    ? columns
+    : columns.filter((column) => column.key !== 'unit_price' && column.key !== 'amount')
 
 /** 文件名用的时间戳：20261012_194530 */
 function fileStamp(date = new Date()) {
@@ -124,13 +137,16 @@ router.get('/inbound', async (req, res) => {
       }
     })
 
-  // 入库明细多一列「品牌」，放在「品名」前面
-  const columns = ORDER_ITEM_COLUMNS.map((column) =>
-    column.key === 'partner' ? { ...column, header: '供应商' } : column,
-  ).flatMap((column) =>
-    column.key === 'species'
-      ? [{ key: 'brand', header: '品牌', type: 'text' }, column]
-      : [column],
+  // 入库明细多一列「品牌」，放在「品名」前面；无金额角色再去掉「单价」「金额」
+  const columns = dropMoneyColumns(
+    ORDER_ITEM_COLUMNS.map((column) =>
+      column.key === 'partner' ? { ...column, header: '供应商' } : column,
+    ).flatMap((column) =>
+      column.key === 'species'
+        ? [{ key: 'brand', header: '品牌', type: 'text' }, column]
+        : [column],
+    ),
+    req.user.role,
   )
   const totals = {
     order_no: '合计',
@@ -209,8 +225,11 @@ router.get('/outbound', async (req, res) => {
       }
     })
 
-  const columns = ORDER_ITEM_COLUMNS.map((column) =>
-    column.key === 'partner' ? { ...column, header: '客户' } : column,
+  const columns = dropMoneyColumns(
+    ORDER_ITEM_COLUMNS.map((column) =>
+      column.key === 'partner' ? { ...column, header: '客户' } : column,
+    ),
+    req.user.role,
   )
   const totals = {
     order_no: '合计',
@@ -288,7 +307,8 @@ router.get('/stock', async (req, res) => {
       }
     })
 
-  const columns = [
+  // 库存表的「库存均价 / 库存金额」两列同样按角色去掉
+  const columns = dropMoneyColumns([
     { key: 'species', header: '品名', type: 'text' },
     { key: 'grade', header: '等级', type: 'text' },
     { key: 'thickness', header: '厚度(mm)', type: 'number', decimals: 0 },
@@ -299,7 +319,7 @@ router.get('/stock', async (req, res) => {
     { key: 'cubic', header: '当前立方', type: 'number', decimals: 4 },
     { key: 'unit_price', header: '库存均价', type: 'number', decimals: 2 },
     { key: 'amount', header: '库存金额', type: 'number', decimals: 2 },
-  ]
+  ], req.user.role)
 
   const totals = {
     species: '合计',

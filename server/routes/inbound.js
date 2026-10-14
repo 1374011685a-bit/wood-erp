@@ -4,6 +4,8 @@ import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.j
 import { validateItems } from '../utils/validateItems.js'
 import { pageParams } from '../utils/paging.js'
 import { createBalesForItem, preflightBales } from './bales.js'
+import { requireCap } from '../middleware/permissions.js'
+import { keepPricesFrom, orderItemKey } from '../utils/keepPrices.js'
 
 const router = express.Router()
 
@@ -195,7 +197,7 @@ const createInbound = db.transaction(
 )
 
 // 新增入库单
-router.post('/', (req, res) => {
+router.post('/', requireCap('inbound.write'), (req, res) => {
   const body = req.body ?? {}
   const supplier = String(body.supplier ?? '').trim()
   const orderDate = body.order_date ? String(body.order_date) : todayLocal()
@@ -470,7 +472,7 @@ const updateInbound = db.transaction(
 )
 
 // 修改入库单（明细整体替换，单号不变）
-router.put('/:id', (req, res) => {
+router.put('/:id', requireCap('inbound.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '入库单 ID 不合法' })
@@ -497,7 +499,25 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: '至少需要一行明细' })
   }
 
-  const items = normalizeItems(rawItems)
+  /**
+   * 看不到金额的角色（业务员 / 仓管）打开编辑时，详情接口不会给单价，
+   * 表单里那一列是空的。这里先把「没填单价、但能和原行对上号」的行的原价补回去，
+   * 免得一次「改个备注」把所有金额清成 0。
+   */
+  const oldItems = db
+    .prepare(
+      `SELECT * FROM order_items
+        WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL
+        ORDER BY id`,
+    )
+    .all(id)
+
+  const items = normalizeItems(
+    keepPricesFrom(rawItems, oldItems, {
+      keyOf: orderItemKey,
+      priceOf: (row) => Number(row.unit_price_cents ?? Math.round((row.unit_price ?? 0) * 100)),
+    }),
+  )
   const problems = validateItems(items)
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
@@ -933,7 +953,7 @@ const removeInbound = db.transaction((id) => {
 })
 
 // 删除入库单
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('inbound.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '入库单 ID 不合法' })

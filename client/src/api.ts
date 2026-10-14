@@ -1,3 +1,6 @@
+import { clearStoredRole, setStoredRole } from './permissions'
+import type { Role } from './permissions'
+
 /** 分页列表的统一返回结构 */
 export type Paged<T> = {
   total: number
@@ -144,9 +147,10 @@ export function getStoredUsername() {
   return localStorage.getItem(USERNAME_KEY) ?? ''
 }
 
-export function setSession(token: string, username: string) {
+export function setSession(token: string, username: string, role: Role) {
   localStorage.setItem(TOKEN_KEY, token)
   localStorage.setItem(USERNAME_KEY, username)
+  setStoredRole(role)
 }
 
 export function setStoredUsername(username: string) {
@@ -156,6 +160,7 @@ export function setStoredUsername(username: string) {
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY)
   localStorage.removeItem(USERNAME_KEY)
+  clearStoredRole()
 }
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -185,6 +190,11 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
         window.location.replace('/login')
       }
     }
+    /**
+     * 403 不清登录态：那是「登录着，但没这个权限」，
+     * 把用户踢回登录页反而让他以为是密码错了。
+     * 后端统一回「你没有这个操作的权限，请联系管理员」，这里原样抛给调用方弹提示。
+     */
 
     throw new Error(message)
   }
@@ -194,7 +204,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
 /* ---------- 认证接口 ---------- */
 
-export type LoginResult = { token: string; username: string }
+export type LoginResult = { token: string; username: string; role: Role }
 
 export function login(username: string, password: string) {
   return request<LoginResult>('/api/auth/login', {
@@ -205,14 +215,60 @@ export function login(username: string, password: string) {
 }
 
 export function fetchMe() {
-  return request<{ username: string }>('/api/auth/me')
+  return request<{ username: string; role: Role }>('/api/auth/me')
 }
 
+/** 改密码成功后所有旧 token 作废，调用方要重新登录 */
 export function changePassword(oldPassword: string, newPassword: string) {
   return request<{ ok: boolean }>('/api/auth/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ oldPassword, newPassword }),
+  })
+}
+
+/* ---------- 用户管理（仅管理员） ---------- */
+
+export type UserRow = {
+  id: number
+  username: string
+  role: Role
+  role_label: string
+  active: boolean
+  created_at: string
+}
+
+export type UserListResult = {
+  roles: { value: Role; label: string }[]
+  rows: UserRow[]
+}
+
+export function fetchUsers() {
+  return request<UserListResult>('/api/users')
+}
+
+export function createUser(payload: { username: string; password: string; role: Role }) {
+  return request<UserRow>('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+/** 改角色 / 停用启用。只传要改的字段即可 */
+export function updateUser(id: number, payload: { role?: Role; active?: boolean }) {
+  return request<UserRow>(`/api/users/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+}
+
+export function resetUserPassword(id: number, newPassword: string) {
+  return request<{ ok: boolean; username: string }>(`/api/users/${id}/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newPassword }),
   })
 }
 

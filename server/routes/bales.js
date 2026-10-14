@@ -4,6 +4,7 @@ import { calcCubic } from '../utils/cubic.js'
 import { pageParams } from '../utils/paging.js'
 import { calcAmountCents, fromCents, toCents } from '../utils/cubic.js'
 import { writeLog } from '../boot-log.js'
+import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
 
@@ -924,7 +925,7 @@ const updateBale = db.transaction((id, baleNo, boxNo, items) => {
   }
 })
 
-router.put('/:id', (req, res) => {
+router.put('/:id', requireCap('bale.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '码单 ID 不合法' })
@@ -993,7 +994,7 @@ const removeBale = db.transaction((id) => {
   return { bale_no: bale.bale_no }
 })
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('bale.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '码单 ID 不合法' })

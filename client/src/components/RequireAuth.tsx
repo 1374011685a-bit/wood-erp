@@ -7,6 +7,7 @@ import {
   getToken,
   setStoredUsername,
 } from '../api'
+import { setStoredRole } from '../permissions'
 import { Loading } from './Ui'
 
 type Status = 'checking' | 'ok' | 'anonymous'
@@ -25,6 +26,8 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
       .then((me) => {
         if (cancelled) return
         setStoredUsername(me.username)
+        // 角色存下来，页面里的 useRole() 直接读；以服务端返回的为准
+        setStoredRole(me.role)
         setStatus('ok')
       })
       .catch(() => {

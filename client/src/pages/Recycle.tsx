@@ -7,10 +7,15 @@ import {
 } from '../api'
 import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
 import { formatCubic, formatAmount } from '../utils/num'
+import { useRole } from '../hooks/useRole'
+import { seesMoney } from '../permissions'
 
 const typeLabel = (type: RecycleRow['type']) => (type === 'in' ? '入库' : '出库')
 
 export default function Recycle() {
+  // 看不到金额的角色：金额列不渲染（后端也不返回 total_amount）
+  const money = seesMoney(useRole())
+
   const [rows, setRows] = useState<RecycleRow[]>([])
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -107,7 +112,7 @@ export default function Recycle() {
               <th>供应商/客户</th>
               <th>单据日期</th>
               <th className="num">立方</th>
-              <th className="num">金额</th>
+              {money && <th className="num">金额</th>}
               <th className="num">明细数</th>
               <th>删除时间</th>
               <th>操作</th>
@@ -125,7 +130,9 @@ export default function Recycle() {
                 <td>{row.partner || '—'}</td>
                 <td>{row.order_date}</td>
                 <td className="num">{formatCubic(row.total_cubic)}</td>
-                <td className="num amount">{formatAmount(row.total_amount)}</td>
+                {money && (
+                  <td className="num amount">{formatAmount(row.total_amount)}</td>
+                )}
                 <td className="num">{row.item_count}</td>
                 <td>{row.deleted_at}</td>
                 <td>

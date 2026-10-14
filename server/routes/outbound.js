@@ -3,6 +3,8 @@ import { db } from '../db.js'
 import { calcCubic, calcAmountCents, toCents, fromCents } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
 import { pageParams } from '../utils/paging.js'
+import { requireCap } from '../middleware/permissions.js'
+import { keepPricesFrom, orderItemKey } from '../utils/keepPrices.js'
 
 const router = express.Router()
 
@@ -328,7 +330,7 @@ const createOutbound = db.transaction(
 )
 
 // 新增出库单
-router.post('/', (req, res) => {
+router.post('/', requireCap('outbound.write'), (req, res) => {
   const body = req.body ?? {}
   const customer = String(body.customer ?? '').trim()
   const orderDate = body.order_date ? String(body.order_date) : todayLocal()
@@ -586,7 +588,7 @@ const updateOutbound = db.transaction(
 )
 
 // 修改出库单（明细整体替换，单号不变）
-router.put('/:id', (req, res) => {
+router.put('/:id', requireCap('outbound.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '出库单 ID 不合法' })
@@ -610,7 +612,21 @@ router.put('/:id', (req, res) => {
     return res.status(400).json({ error: '至少需要一行明细' })
   }
 
-  const items = normalizeItems(rawItems)
+  /** 同入库：看不到金额的角色编辑出库单时，把没填单价的行按原行原价补齐 */
+  const oldItems = db
+    .prepare(
+      `SELECT * FROM order_items
+        WHERE order_type = 'out' AND order_id = ? AND deleted_at IS NULL
+        ORDER BY id`,
+    )
+    .all(id)
+
+  const items = normalizeItems(
+    keepPricesFrom(rawItems, oldItems, {
+      keyOf: orderItemKey,
+      priceOf: (row) => Number(row.unit_price_cents ?? Math.round((row.unit_price ?? 0) * 100)),
+    }),
+  )
   const problems = validateItems(items, { requirePositiveCubic: true })
   if (problems.length > 0) {
     return res.status(400).json({ error: problems.join('\n') })
@@ -854,7 +870,7 @@ const removeOutbound = db.transaction((id) => {
 })
 
 // 删除出库单
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireCap('outbound.write'), (req, res) => {
   const id = Number(req.params.id)
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '出库单 ID 不合法' })
