@@ -327,7 +327,13 @@ type RowField =
   | 'pieces'
   | 'bundles'
 
-const rowFields: { field: RowField; label: string }[] = [
+/**
+ * 可输入列。
+ *
+ * `label` 尽量短（表头改成 `white-space: nowrap` 之后，表头文字宽度直接决定列宽，
+ * 太长会把整张表顶宽）；说不完的提示放 `hint`，渲染成 `title` 兜底。
+ */
+const rowFields: { field: RowField; label: string; hint?: string }[] = [
   { field: 'baleLabel', label: '包号' },
   { field: 'boxNo', label: '柜号' },
   { field: 'brand', label: '品牌' },
@@ -336,8 +342,8 @@ const rowFields: { field: RowField; label: string }[] = [
   { field: 'thickness', label: '厚度 (mm)' },
   { field: 'width', label: '宽度 (mm)' },
   // 混装包：这两个都能用「/」写多段（1800/2100/2400 配 17/30/247）
-  { field: 'length', label: '长度 (m) / 可多段' },
-  { field: 'pieces', label: '片数 (片) / 可多段' },
+  { field: 'length', label: '长度 (m)', hint: '可多段：混装包写 1.8/2.1/2.4' },
+  { field: 'pieces', label: '片数 (片)', hint: '可多段：混装包写 17/30/247' },
   { field: 'bundles', label: '件数 (件)' },
 ]
 
@@ -1695,7 +1701,8 @@ export default function Inbound({
           </div>
 
           <div className="sheet-scroll">
-            <table className="sheet-table">
+            {/* sheet-inbound：只在桌面端冻结「# + 操作」两列（横滑时钉在左边） */}
+            <table className="sheet-table sheet-inbound">
               <thead>
                 <tr>
                   <th className="col-no">#</th>
@@ -1718,10 +1725,11 @@ export default function Inbound({
                       }
                     />
                   </th>
-                  {rowFields.map(({ field, label }) => (
+                  {rowFields.map(({ field, label, hint }) => (
                     <th
                       key={field}
                       className={field === 'species' ? 'col-name' : undefined}
+                      title={hint ? `${label}　${hint}` : undefined}
                     >
                       {label}
                     </th>
@@ -2325,8 +2333,9 @@ export default function Inbound({
 
             <div className="toolbar">
               <input
-                className="input"
+                className="input input-wide"
                 placeholder="合同号 / 合同名称 / 供应商"
+                title="合同号 / 合同名称 / 供应商"
                 value={pickerKeyword}
                 onChange={(event) => setPickerKeyword(event.target.value)}
                 onKeyDown={(event) => {

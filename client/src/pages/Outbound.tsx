@@ -1581,8 +1581,9 @@ export default function Outbound({
 
             <div className="toolbar">
               <input
-                className="input"
+                className="input input-wide"
                 placeholder="包号 / 条码号 / 提单号 / 合同号 / 品名"
+                title="包号 / 条码号 / 提单号 / 合同号 / 品名"
                 value={pickerKeyword}
                 onChange={(event) => setPickerKeyword(event.target.value)}
                 onKeyDown={(event) => {

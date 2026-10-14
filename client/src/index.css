@@ -423,6 +423,189 @@ input[inputmode='decimal'] {
   background-color: rgba(0, 0, 0, 0.06);
 }
 
+/*
+ * 表格行内的「⋯」菜单。
+ *
+ * 和右上角账号菜单同一套外观，但用 **fixed** 定位：卡片（.card）是横向滚动容器，
+ * 里面绝对定位的下拉会被 `overflow-x: auto` 裁掉。落点由按钮的 getBoundingClientRect 算。
+ */
+.row-menu {
+  position: fixed;
+  min-width: 140px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--border-panel);
+  background-color: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08), 0 22px 48px rgba(0, 0, 0, 0.16);
+  z-index: 60;
+  animation: menu-in 0.14s ease-out;
+}
+
+.row-menu-danger {
+  color: var(--red);
+}
+
+/* 「⋯」按钮本身窄一点：这一列原来 230px，现在 ~150px */
+.row-more {
+  padding: 0 9px;
+  letter-spacing: 1px;
+  line-height: 1;
+}
+
+/* ---------- 冻结左列（只在桌面端）---------- */
+
+/*
+ * 横滑时把左边几列钉住不跟着跑。
+ *
+ * 两个注意点：
+ *   1) sticky 的 `left` 是绝对值，所以被钉的那几列**列宽必须写死**
+ *      （第一列多宽，第二列的 left 就得是多少）—— 否则列宽一变就错位。
+ *   2) 钉住的格子必须有**不透明底色**，不然横滑时下面的内容会透上来。
+ *      表体用面板白，表头用表头灰，hover / 报错行各补一条同色规则。
+ *   只作用在 `thead th` 和 `tbody td`：tfoot 里是 colSpan 合并格，钉它会散架。
+ */
+@media (min-width: 768px) {
+  /* 入库明细：# 40px + 操作 170px = 冻结 210px */
+  .sheet-inbound thead th:nth-child(1),
+  .sheet-inbound tbody td:nth-child(1) {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    width: 40px;
+    min-width: 40px;
+    max-width: 40px;
+  }
+  .sheet-inbound thead th:nth-child(2),
+  .sheet-inbound tbody td:nth-child(2) {
+    position: sticky;
+    left: 40px;
+    z-index: 4;
+    width: 170px;
+    min-width: 170px;
+  }
+  .sheet-inbound tbody td:nth-child(-n + 2) {
+    background-color: var(--panel);
+  }
+  .sheet-inbound thead th:nth-child(-n + 2) {
+    background-color: #f5f5f7;
+  }
+  /*
+   * 冻结区右边那条分界线：用 `::after` 画一条 1px 竖线，**不占列宽**
+   * （挂 border-right 会给列宽 +1px，后面 sticky 的 left 偏移就全错位了；
+   *   用 box-shadow 画线本质上还是阴影，按要求不用）。
+   */
+  .sheet-inbound thead th:nth-child(2)::after,
+  .sheet-inbound tbody td:nth-child(2)::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #c9c9cf;
+  }
+  .sheet-inbound tbody tr:hover td:nth-child(-n + 2) {
+    background-color: #fafafc;
+  }
+  .sheet-inbound tbody tr.is-error td:nth-child(-n + 2) {
+    background-color: #fff5f5;
+  }
+
+  /* 采购入库明细：勾选 44px + 包号 64px = 冻结 108px */
+  .bales-table thead th:nth-child(1),
+  .bales-table tbody td:nth-child(1) {
+    position: sticky;
+    left: 0;
+    z-index: 4;
+    width: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    padding: 0 6px;
+  }
+  .bales-table thead th:nth-child(2),
+  .bales-table tbody td:nth-child(2) {
+    position: sticky;
+    left: 44px;
+    z-index: 4;
+    width: 64px;
+    min-width: 64px;
+    padding: 0 10px;
+  }
+  .bales-table tbody td:nth-child(-n + 2) {
+    background-color: var(--panel);
+  }
+  .bales-table thead th:nth-child(-n + 2) {
+    background-color: #fafafc;
+  }
+  .bales-table thead th:nth-child(2)::after,
+  .bales-table tbody td:nth-child(2)::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1px;
+    background-color: #c9c9cf;
+  }
+  .bales-table tbody tr:hover td:nth-child(-n + 2) {
+    background-color: #fafafb;
+  }
+}
+
+/*
+ * 改包记录 / 流水 两张宽表的紧凑化 —— **只在桌面端**（手机端是卡片式，一点都别动）。
+ *
+ * 共同点：单元格内边距收一档。`.table th/td` 是 16px，两张表列多，
+ * 12~13 列 × 省下的 8px 就是 100 多像素，正好把最后那截让出来。
+ * ⚠️ 选择器必须带 `.table`（specificity 压过 `.table th`），否则内边距改不动。
+ */
+@media (min-width: 768px) {
+  .table.repack-list th,
+  .table.repack-list td {
+    padding: 0 8px;
+  }
+
+  /* 改前 / 改后 装的是品名串，可能很长：列里截断显示，鼠标悬停看全文（title） */
+  .repack-list .col-spec {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 操作列三个按钮（查看 / 编辑 / 撤销）收紧一档：这列的宽度直接决定整张表要不要横滑 */
+  .table.repack-list .row-actions {
+    gap: 6px;
+  }
+  .table.repack-list .row-actions .btn {
+    padding: 0 9px;
+  }
+
+  /* 流水表：13 列，内边距 16 → 12px */
+  .table.records-table th,
+  .table.records-table td {
+    padding: 0 12px;
+  }
+}
+
+/*
+ * 操作按钮的两种形态互斥显示：
+ *   桌面（≥768px）→ 「打印标签 + ⋯」（省宽度，1366 屏也放得下）
+ *   手机（<768px） → 「打印标签 + 编辑 + 删除」（卡片底部横排，维持手机端原样）
+ */
+@media (min-width: 768px) {
+  .row-edit-btn {
+    display: none !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .row-more {
+    display: none !important;
+  }
+}
+
 .account-menu-item:hover .account-menu-icon,
 .account-menu-item:focus-visible .account-menu-icon {
   color: var(--text);
@@ -1412,6 +1595,16 @@ button.mini-card:hover {
   flex: 1;
 }
 
+/**
+ * 筛选 / 搜索框：placeholder 比较长的（"包号 / 条码号 / 柜号 / 提单号 / 合同号" 这种）
+ * 给宽一点 —— 默认 189px 会把提示文字截成省略号，用户根本看不出这个框能搜什么。
+ * 手机上靠 max-width 兜底，不会顶出屏幕。
+ */
+.input-wide {
+  width: 280px;
+  max-width: 100%;
+}
+
 /* 列表页顶部的筛选条直接坐在页面背景上，给它一个面板边界才不会「飘」 */
 section > .toolbar {
   background-color: var(--panel);
@@ -1897,8 +2090,12 @@ section > .toolbar .btn-primary {
   border-radius: 20px;
   padding: 24px;
   border: 1px solid var(--border-panel);
-  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 6px 16px rgba(0, 0, 0, 0.1),
-    0 30px 70px rgba(0, 0, 0, 0.22);
+  /*
+   * 只留两层真正的投影。原来最前面那层 `0 0 0 0.5px rgba(0,0,0,.05)` 是拿阴影
+   * 当**描边**用的（0 偏移 0 模糊 = 一圈线），而这个弹窗本来就有
+   * `border: 1px solid var(--border-panel)`，那圈线是多余的 —— 描边交给 border。
+   */
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.1), 0 30px 70px rgba(0, 0, 0, 0.22);
   animation: modal-in 0.2s ease-out;
   overflow-x: auto;
 }
@@ -1987,6 +2184,55 @@ section > .toolbar .btn-primary {
 
 .modal-alert .confirm-actions .btn {
   height: 40px;
+}
+
+/* 撤销改包：源包号被别人占了，就地让用户改号 */
+.undo-clash {
+  margin: -6px 0 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: var(--panel-soft);
+  text-align: left;
+}
+
+.undo-clash-tip {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.undo-clash-row {
+  display: block;
+  margin-bottom: 10px;
+}
+
+.undo-clash-row:last-child {
+  margin-bottom: 0;
+}
+
+.undo-clash-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.undo-clash-row .input {
+  width: 100%;
+}
+
+/* 改包后：新包号全留空的提醒（这样保存会拆成 N 包，不是合并） */
+.group-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #f0c98a;
+  border-radius: 10px;
+  background: #fff8ec;
+  color: #8a5a00;
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 /* 表单类弹层：底部操作条与内容之间加一条分隔线 */
@@ -3306,7 +3552,13 @@ section > .toolbar .btn-primary {
 
 .sheet-table {
   width: 100%;
-  min-width: 1180px;
+  /*
+   * 明细表的地板宽度。
+   * 原来是 1180px —— 1366 屏内容区只有 1052px，于是**每一张**明细表都必然要横滑 128px
+   * （跟它有几列、内容多少无关）。表头文案缩短、行内按钮收紧之后，内容本身已经落到
+   * 1100 上下，这里跟着降到 1040，能放下的屏就不用滑了。
+   */
+  min-width: 1040px;
   border-collapse: collapse;
   font-size: 13px;
   color: var(--text);
@@ -3314,7 +3566,11 @@ section > .toolbar .btn-primary {
 
 .sheet-table th {
   height: 38px;
-  padding: 0 8px;
+  /*
+   * 内边距 8 → 6：表头是 nowrap，列宽 = 文字宽 + 左右内边距。
+   * 18 列的明细表光这一项就省下 70 多像素（内容一点没少）。
+   */
+  padding: 0 6px;
   border: 1px solid #e6e6eb;
   background-color: #f5f5f7;
   color: var(--text-2);
@@ -3325,7 +3581,7 @@ section > .toolbar .btn-primary {
 
 .sheet-table td {
   height: 34px;
-  padding: 0 8px;
+  padding: 0 6px;
   border: 1px solid #e6e6eb;
   vertical-align: middle;
 }
@@ -3362,6 +3618,8 @@ section > .toolbar .btn-primary {
 .sheet-table th.col-op {
   /* 三个带文字的行内按钮（+ 加行 / 复制 / ✕ 删行）并排要占这么宽，窄了会折成两行 */
   width: 120px;
+  /* 列宽吃紧：单元格内边距和按钮外边距都收紧一档（按钮本身仍是带文字的三个） */
+  padding: 0 4px;
   text-align: center;
   white-space: nowrap;
 }
@@ -3398,7 +3656,9 @@ section > .toolbar .btn-primary {
 
 /* 有输入框的格子给个下限宽度，别把数字截掉（3.985 不能显示成 3.98） */
 .sheet-table td:has(.sheet-input) {
-  min-width: 72px;
+  /* 72 → 60：输入框自己只有 3px 内边距，60px 仍放得下 5 位数字（如 0.1452）。
+     18 列的明细表里有 11 个输入列，一档就是 130 多像素。 */
+  min-width: 60px;
 }
 
 /* 改包页：区块标签、选包下拉、空行提示 */
@@ -4054,8 +4314,9 @@ section > .toolbar .btn-primary {
  */
 .sheet-act {
   display: inline-block;
-  margin: 0 2px;
-  padding: 3px 7px;
+  /* 收紧一档：三个按钮并排时能给整张表省下 20 多像素 */
+  margin: 0 1px;
+  padding: 3px 4px;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
   background-color: #fff;

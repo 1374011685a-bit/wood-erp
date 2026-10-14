@@ -1030,7 +1030,14 @@ router.post('/', requireCap('repack.write'), (req, res) => {
 
 /* ---------- 撤销改包 ---------- */
 
-const removeRepack = db.transaction((id) => {
+/**
+ * 撤销一条改包记录。
+ *
+ * `options.renames`（可选）：`{ [源包 id]: '新包号' }`。
+ * 只在「源包号被别人占了」这条路上用到 —— 前端拿到 409 的冲突清单后，
+ * 让用户当场填新号，再带着这份 renames 重发一次。
+ */
+const removeRepack = db.transaction((id, options = {}) => {
   const row = db.prepare(`SELECT * FROM repacks WHERE id = ?`).get(id)
   if (!row) {
     const error = new Error('这条改包记录不存在')
@@ -1075,6 +1082,71 @@ const removeRepack = db.transaction((id) => {
     /* 快照里没带规格行的话（极少见），退回用 before_json 里那一份摊平 */
     const fallbackItems = itemsFromSnapshot(parseSnapshot(row.before_json))
 
+    /**
+     * ── 源包号的查重 + 改号 ──
+     *
+     * 撤销要把源包原样重建回来，包号也得回来。但那个号可能已经被别人占了
+     * （单子改包之后那个号腾出来了，别处又拿去用了）—— 直接重建会撞全局唯一索引。
+     *
+     * 这种时候不再硬报一句「包号 X 已经存在，请换一个」把人晾住（撤销弹窗里
+     * 根本没有包子号输入框），而是回 409 带上冲突清单（`code: 'BALE_NO_TAKEN'`），
+     * 让前端**当场让用户填新号**，填完带 `renames` 重发。
+     *
+     * 查重放在删新包之前（fail fast，一行都不写），但要把「这次拆出来的新包」
+     * 排除掉：改包时允许把源包号给新包用，不排除就会把它们当成占位者，
+     * 导致永远撤不回去。
+     */
+    const renames = options.renames ?? {}
+    const plan = snaps.map((snap) => {
+      const originalNo = String(snap.bale_no ?? '').trim()
+      const baleNo =
+        renames[snap.id] === undefined ? originalNo : String(renames[snap.id] ?? '').trim()
+      return { snap, originalNo, baleNo }
+    })
+
+    const clashes = []
+    const seenNos = new Set()
+    for (const one of plan) {
+      // 包号留空 = 不占号，随便几个都能并存
+      if (!one.baleNo) continue
+      // 组内重名（两个源包被改成同一个号）：库里还没有这两行，查重查不到，自己看
+      if (seenNos.has(one.baleNo)) {
+        clashes.push({
+          bale_id: one.snap.id,
+          bale_no: one.baleNo,
+          original_bale_no: one.originalNo,
+          reason: 'duplicate',
+        })
+        continue
+      }
+      seenNos.add(one.baleNo)
+      try {
+        assertBaleNoAvailable(one.baleNo, { excludeBaleIds: newBaleIds })
+      } catch (err) {
+        if (err?.status !== 400) throw err
+        clashes.push({
+          bale_id: one.snap.id,
+          bale_no: one.baleNo,
+          original_bale_no: one.originalNo,
+          reason: 'taken',
+        })
+      }
+    }
+
+    if (clashes.length > 0) {
+      const names = clashes.map((one) => one.bale_no).join('、')
+      const hasDuplicate = clashes.some((one) => one.reason === 'duplicate')
+      const error = new Error(
+        hasDuplicate
+          ? `撤销失败：源包号 ${names} 里有重号，请给其中一个换一个包号再撤销`
+          : `撤销失败：源包号 ${names} 已经被别的包用了，请换一个包号再撤销`,
+      )
+      error.status = 409
+      error.code = 'BALE_NO_TAKEN'
+      error.clashes = clashes
+      throw error
+    }
+
     // ① 新包从入库明细里扣掉
     for (const bale of newBales) detachBaleFromOrder(bale)
     // ② 删掉新包
@@ -1090,18 +1162,18 @@ const removeRepack = db.transaction((id) => {
      *    包号查重放在**删完新包之后**：改包时允许把源包号给新包用（那时源包已被排除），
      *    提前查会把「自己拆出来的包」当成占位者，导致永远撤不回去。
      */
-    const restored = snaps.map((snap) => {
+    const restored = plan.map(({ snap, baleNo }) => {
       const items = itemsFromSnapshot(
         Array.isArray(snap.items) && snap.items.length > 0 ? snap.items : fallbackItems,
       )
-      if (snap.bale_no) assertBaleNoAvailable(snap.bale_no)
 
-      // 条码号万一被新包复用走了，重新取一个，别撞号
+      /**
+       * 条码号万一被别的包用了（含**软删**的包 —— 它进回收站后一恢复就会"复活"，
+       * 让新包拿走同一个号就会变成两个活包同号），重新取一个，别撞号。
+       */
       let restoredBarcode = snap.barcode
       const barcodeTaken = restoredBarcode
-        ? db
-            .prepare(`SELECT id FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
-            .get(restoredBarcode)
+        ? db.prepare(`SELECT id FROM bales WHERE barcode = ?`).get(restoredBarcode)
         : null
       if (!restoredBarcode || barcodeTaken) {
         const shipment = snap.shipment_id ? blNoOfShipment.get(snap.shipment_id) : null
@@ -1116,7 +1188,7 @@ const removeRepack = db.transaction((id) => {
       }
 
       const bale = insertBaleWithItems({
-        baleNo: snap.bale_no,
+        baleNo,
         barcode: restoredBarcode,
         boxNo: snap.box_no,
         shipmentId: snap.shipment_id,
@@ -1171,9 +1243,24 @@ router.delete('/:id', requireCap('repack.write'), (req, res) => {
   if (!Number.isInteger(id) || id <= 0) {
     return res.status(400).json({ error: '改包记录 ID 不合法' })
   }
+
+  /** 撤销时给源包改号：`{ renames: { [源包 id]: '新包号' } }`（可选） */
+  const rawRenames = req.body?.renames
+  const renames = {}
+  if (rawRenames && typeof rawRenames === 'object') {
+    for (const [key, value] of Object.entries(rawRenames)) {
+      const baleId = Number(key)
+      if (Number.isInteger(baleId) && baleId > 0) renames[baleId] = String(value ?? '').trim()
+    }
+  }
+
   try {
-    res.json({ ok: true, ...removeRepack(id) })
+    res.json({ ok: true, ...removeRepack(id, { renames }) })
   } catch (err) {
+    /** 源包号被占：把冲突清单一起带回去，前端就地让用户填新号 */
+    if (err.status === 409) {
+      return res.status(409).json({ error: err.message, code: err.code, clashes: err.clashes })
+    }
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })
     }

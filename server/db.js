@@ -1032,6 +1032,115 @@ function migrateShipmentBlNoUnique() {
   )
 }
 
+/**
+ * 合同号：和提单号同一个坑 —— 表上是列级 `UNIQUE(contract_no)`（精确匹配），
+ * 它连**软删**的行也占着号；而应用层查重（contracts.js 的新建 / 编辑两处）
+ * 是带 `deleted_at IS NULL` 的。两边口径不一致，结果就是：
+ *   查重说「这个号没人用」→ 插库撞唯一约束 → 报「合同号 X 已存在」，
+ *   用户拿着一个明明已经删掉的号，怎么都建不回来。
+ *
+ * 列级 UNIQUE 生成的是 `sqlite_autoindex_*`，**不能 DROP**
+ * （`index associated with UNIQUE or PRIMARY KEY constraint cannot be dropped`），
+ * 所以只能重建表 —— 和 `migrateShipmentDropInlineUnique` 一模一样的做法。
+ *
+ * 合同是按**号（字符串）**关联的，不是按 id：`inbound_orders.contract_no`、
+ * `shipments.contract_no`、`containers.contract_no` 都存的是号，所以重建表
+ * 只要把 `contract_no` 的值原样搬过去，这些地方都不用动。
+ */
+function migrateContractDropInlineUnique() {
+  const tableSql =
+    db
+      .prepare(`SELECT sql FROM sqlite_master WHERE type='table' AND name='contracts'`)
+      .get()?.sql ?? ''
+  if (!/contract_no\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(tableSql)) return
+
+  db.exec(`
+    CREATE TABLE contracts_new (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      contract_no   TEXT    NOT NULL,
+      title         TEXT,
+      partner       TEXT,
+      sign_date     TEXT,
+      amount_cents  INTEGER NOT NULL DEFAULT 0,
+      remark        TEXT,
+      file_name     TEXT,
+      file_original TEXT,
+      file_size     INTEGER NOT NULL DEFAULT 0,
+      deleted_at    TEXT,
+      created_at    TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+    INSERT INTO contracts_new
+      (id, contract_no, title, partner, sign_date, amount_cents, remark,
+       file_name, file_original, file_size, deleted_at, created_at)
+      SELECT id, trim(contract_no), title, partner, sign_date, amount_cents, remark,
+             file_name, file_original, file_size, deleted_at, created_at
+        FROM contracts;
+    DROP TABLE contracts;
+    ALTER TABLE contracts_new RENAME TO contracts;
+    CREATE INDEX IF NOT EXISTS idx_contracts_no ON contracts (contract_no);
+    CREATE INDEX IF NOT EXISTS idx_contracts_partner ON contracts (partner);
+  `)
+  writeLog(
+    '[db] 迁移：重建 contracts 表（去掉列级 UNIQUE，改用「大小写不敏感 + 去空格 + 软删不占号」的唯一索引）',
+  )
+}
+
+/**
+ * 合同号唯一索引：`lower(trim(contract_no)) WHERE deleted_at IS NULL`。
+ *
+ * 口径和 `migrateShipmentBlNoUnique` 完全一致：
+ *   1) 先把存量号两边的空格去掉（`'A11 '` → `'A11'`），不然按 `'A11'` 查会查不到它；
+ *   2) 自检非软删的重号 —— 确实有（只是大小写 / 空格不同）就**不建唯一索引**，
+ *      打日志列出来让人先合并，避免启动直接失败；这时退化成普通索引，查询不会变慢。
+ *
+ * 口径必须和 `contracts.js` 的查重 SQL 一致（那两处都带 `deleted_at IS NULL`），
+ * 否则又会变成「查重放过、插库报错」这一对。
+ */
+function migrateContractNoUnique() {
+  // 先确保表上没有「列级 UNIQUE」—— 它连软删的行也占着号（见上一个迁移）
+  const trimmed = db
+    .prepare(
+      `UPDATE contracts SET contract_no = trim(contract_no)
+        WHERE trim(contract_no) <> contract_no`,
+    )
+    .run()
+
+  const dupes = db
+    .prepare(
+      `SELECT lower(trim(contract_no)) AS key, COUNT(*) AS n, group_concat(id) AS ids
+         FROM contracts
+        WHERE deleted_at IS NULL
+        GROUP BY lower(trim(contract_no))
+       HAVING COUNT(*) > 1`,
+    )
+    .all()
+
+  if (dupes.length > 0) {
+    writeLog(`[db] ⚠️ 合同号有 ${dupes.length} 组重号（只是大小写 / 空格不同），本次不建唯一索引：`)
+    for (const one of dupes) writeLog(`       「${one.key}」→ id ${one.ids}`)
+    writeLog('[db]       合并这些合同后重启，会自动补上唯一索引')
+    db.exec(
+      `CREATE INDEX IF NOT EXISTS idx_contracts_no_lookup ON contracts (lower(trim(contract_no)))`,
+    )
+    return
+  }
+
+  const exists = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_contracts_no_global'`)
+    .get()
+  if (exists) return
+
+  db.exec(
+    `CREATE UNIQUE INDEX idx_contracts_no_global
+       ON contracts (lower(trim(contract_no)))
+     WHERE deleted_at IS NULL`,
+  )
+  writeLog(
+    '[db] 迁移：合同号唯一索引（大小写不敏感 + 去空格，软删不占号）' +
+      (trimmed.changes > 0 ? `；顺手去空格 ${trimmed.changes} 行` : ''),
+  )
+}
+
 function migrateBaleSoftDelete() {
   const added = addColumnIfMissing('bales', 'deleted_at', 'TEXT')
   db.exec(`CREATE INDEX IF NOT EXISTS idx_bales_deleted ON bales (deleted_at)`)
@@ -1600,6 +1709,8 @@ export function initDB() {
   migrateDropContainerLayer()
   migrateShipmentDropInlineUnique()
   migrateShipmentBlNoUnique()
+  migrateContractDropInlineUnique()
+  migrateContractNoUnique()
   migrateBoxNo()
   migrateBrand()
   migrateBaleItemPrice()

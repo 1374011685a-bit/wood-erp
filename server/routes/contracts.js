@@ -441,8 +441,16 @@ router.post('/', requireCap('contract.write'), upload.single('file'), (req, res)
   }
   if (amountCents < 0) return res.status(400).json({ error: '金额不能为负数' })
 
+  /**
+   * 合同号查重：**大小写不敏感 + 两边去空格 + 软删的不算**。
+   * 口径必须和 db.js 的 `migrateContractNoUnique`（`lower(trim(contract_no)) WHERE
+   * deleted_at IS NULL` 唯一索引）完全一致，否则又会变成「查重放过、插库报错」。
+   */
   const exists = db
-    .prepare(`SELECT id FROM contracts WHERE contract_no = ? AND deleted_at IS NULL`)
+    .prepare(
+      `SELECT id FROM contracts
+        WHERE lower(trim(contract_no)) = lower(trim(?)) AND deleted_at IS NULL`,
+    )
     .get(contractNo)
   if (exists) return res.status(400).json({ error: `合同号 ${contractNo} 已存在` })
 
@@ -462,7 +470,10 @@ router.post('/', requireCap('contract.write'), upload.single('file'), (req, res)
     })
     if (rawItems) {
       const row = db
-        .prepare(`SELECT id FROM contracts WHERE contract_no = ? AND deleted_at IS NULL`)
+        .prepare(
+          `SELECT id FROM contracts
+            WHERE lower(trim(contract_no)) = lower(trim(?)) AND deleted_at IS NULL`,
+        )
         .get(contractNo)
       if (row?.id) replaceContractItems(row.id, items)
     }
@@ -534,7 +545,8 @@ router.put('/:id', requireCap('contract.write'), upload.single('file'), (req, re
   const duplicate = db
     .prepare(
       `SELECT id FROM contracts
-        WHERE contract_no = ? AND deleted_at IS NULL AND id <> ?`,
+        WHERE lower(trim(contract_no)) = lower(trim(?))
+          AND deleted_at IS NULL AND id <> ?`,
     )
     .get(contractNo, id)
   if (duplicate) return res.status(400).json({ error: `合同号 ${contractNo} 已存在` })

@@ -241,6 +241,8 @@ export type ApiError = Error & {
     code?: string
     /** `code: 'BL_HAS_ORDER'` 时带上那张已在用这个提单号的入库单 */
     order?: { id: number; order_no: string; cubic: number }
+    /** `code: 'BALE_NO_TAKEN'` 时带上被占用的源包号（撤销改包要就地改号） */
+    clashes?: BaleNoClash[]
   } | null
 }
 
@@ -250,6 +252,29 @@ export function isBlHasOrderError(err: unknown): err is ApiError {
     err instanceof Error &&
     (err as ApiError).status === 409 &&
     (err as ApiError).payload?.code === 'BL_HAS_ORDER'
+  )
+}
+
+/** 撤销改包时「源包号已经被别人占了 / 自己重号」的一条冲突 */
+export type BaleNoClash = {
+  /** 源包在改包前快照里的 id —— 回复新号时按它对应 */
+  bale_id: number
+  /** 这次要用的号（第一次就是原号） */
+  bale_no: string
+  /** 改包前的原包号 */
+  original_bale_no: string
+  reason?: 'taken' | 'duplicate'
+}
+
+/**
+ * 撤销改包撞上「源包号被别人占了」的 409。
+ * 前端要就地弹出输入框让用户改号，改完带着 `renames` 重发。
+ */
+export function isBaleNoTakenError(err: unknown): err is ApiError {
+  return (
+    err instanceof Error &&
+    (err as ApiError).status === 409 &&
+    (err as ApiError).payload?.code === 'BALE_NO_TAKEN'
   )
 }
 
@@ -1316,14 +1341,29 @@ export function createRepack(payload: {
   })
 }
 
-export function deleteRepack(id: number) {
+/**
+ * 撤销一条改包记录。
+ *
+ * `renames`（可选）：`{ [源包 id]: '新包号' }` —— 只在后端回了
+ * `BALE_NO_TAKEN`（源包号被别人占了）之后用：让用户当场改号，再带上来重发。
+ */
+export function deleteRepack(id: number, renames?: Record<number, string>) {
+  const hasRenames = renames && Object.keys(renames).length > 0
   return request<{
     ok: boolean
     repack_no: string
     /** 撤销后回来的源包（新 id）——「编辑」用它把源包重新选回来 */
     restored_bales?: Array<{ id: number; bale_no: string; barcode: string }>
     restored_bale?: string
-  }>(`/api/repacks/${id}`, { method: 'DELETE' })
+  }>(`/api/repacks/${id}`, {
+    method: 'DELETE',
+    ...(hasRenames
+      ? {
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ renames }),
+        }
+      : {}),
+  })
 }
 
 // 新增 / 修改合同（multipart，含 PDF 文件）

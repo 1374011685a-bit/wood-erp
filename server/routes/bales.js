@@ -221,24 +221,49 @@ function maxSequence(barcodes) {
 }
 
 /**
- * 这张提单（或这张入库单）下一个该用的条码号流水。
+ * 这个提单号下，下一个该用的条码号流水。
  *
- * 注意不能按 COUNT(*) 算：删掉中间某包之后 COUNT 会变小，
- * 再生成的号就会和已经在用的号撞上。
- * 所以按「已有号里的最大流水 + 1」，删过号也不会重复。
+ * 三条规矩：
+ *   1) 不能按 COUNT(*) 算 —— 删掉中间某包之后 COUNT 会变小，再生成的号会和在用的撞上。
+ *      所以按「已有号里的最大流水 + 1」。
+ *   2) **软删的包也要算进来** —— 所以这里**不带** `deleted_at IS NULL`。
+ *      只数活包的话，删掉一包再入同一张提单的货，新包会拿到刚删掉的那个号 ——
+ *      而老包是"软删"，回收站一恢复就变成两个活包同号（条码号没有唯一索引，静默重号），
+ *      贴出去的标签、扫出来的码就串了。和入库单号（RK/CK）一个口径：删过的号不重用。
+ *   3) **按"提单号"数，不按 `shipment_id` 数**。删掉最后一张入库单时提单会被软删，
+ *      同一票货再入库会**新建一张同名提单**（新 id）—— 按 id 数就会从 001 重新开始，
+ *      和那张软删提单里已经贴出去的标签撞号。统一按 bl_no（含软删的历史提单）数，
+ *      这条流水才能跨"删了再建"保持连续。
  */
+export function nextSequenceOfBlNo(blNo) {
+  const key = String(blNo ?? '').trim()
+  if (!key) return 1
+  const rows = db
+    .prepare(
+      `SELECT b.barcode AS barcode
+         FROM bales b
+         JOIN shipments s ON s.id = b.shipment_id
+        WHERE lower(trim(s.bl_no)) = lower(trim(?))`,
+    )
+    .all(key)
+  return maxSequence(rows.map((row) => row.barcode)) + 1
+}
+
+const blNoOfShipmentStmt = db.prepare(`SELECT bl_no FROM shipments WHERE id = ?`)
+
 export function nextBaleSequence(shipmentId, inboundOrderNo) {
   if (shipmentId) {
-    const rows = db
-      .prepare(`SELECT barcode FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`)
-      .all(shipmentId)
+    const blNo = String(blNoOfShipmentStmt.get(shipmentId)?.bl_no ?? '').trim()
+    if (blNo) return nextSequenceOfBlNo(blNo)
+    // 查不到提单号（脏数据）就退回按这一张提单数，仍然算上软删的包
+    const rows = db.prepare(`SELECT barcode FROM bales WHERE shipment_id = ?`).all(shipmentId)
     return maxSequence(rows.map((row) => row.barcode)) + 1
   }
 
   const rows = db
     .prepare(
       `SELECT barcode FROM bales
-        WHERE deleted_at IS NULL AND shipment_id IS NULL AND inbound_order_id IN
+        WHERE shipment_id IS NULL AND inbound_order_id IN
               (SELECT id FROM inbound_orders WHERE order_no = ?)`,
     )
     .all(inboundOrderNo)
@@ -255,10 +280,16 @@ export function shipmentBaleInfo(shipmentId) {
   const boxes = new Set(
     rows.map((row) => String(row.box_no ?? '').trim().toLowerCase()).filter(Boolean),
   )
+  /*
+   * next_seq 必须和 nextBaleSequence 同一口径（按提单号数、算上软删的包），
+   * 否则表单上提示"下一个 X-001"，真保存下去却拿到 X-002。
+   * count / box_count 仍只看活包 —— 它们回答的是"这张提单现在贴着几张码单"。
+   */
+  const blNo = String(blNoOfShipmentStmt.get(shipmentId)?.bl_no ?? '').trim()
   return {
     count: rows.length,
     box_count: boxes.size,
-    next_seq: maxSequence(rows.map((row) => row.barcode)) + 1,
+    next_seq: blNo ? nextSequenceOfBlNo(blNo) : maxSequence(rows.map((row) => row.barcode)) + 1,
   }
 }
 
@@ -424,7 +455,12 @@ export function preflightBales({ shipmentId, inboundOrderId, items, excludeOrder
     }
   })
 }
-const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ? AND deleted_at IS NULL`)
+/**
+ * 条码号查重：**软删的包也算用过**（所以不带 `deleted_at IS NULL`）。
+ * 口径和 `nextSequenceOfBlNo` 一致：条码号是贴在实物上的，删单只是把它放进回收站，
+ * 回收站一恢复这个号就会"复活"—— 让新包拿走它会变成两个活包同号。
+ */
+const findBaleByBarcode = db.prepare(`SELECT * FROM bales WHERE barcode = ?`)
 const insertBaleItem = db.prepare(
   `INSERT INTO bale_items
      (bale_id, brand, species, grade, thickness, width, length, pieces, cubic, unit_price_cents,

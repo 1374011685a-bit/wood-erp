@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   deleteBale,
@@ -49,6 +49,30 @@ export default function Bales() {
   const [error, setError] = useState('')
   // 勾选要批量打印标签的包
   const [labelPicked, setLabelPicked] = useState<number[]>([])
+  /**
+   * 行内「⋯」菜单开在哪一行（存这一包的 id）。
+   *
+   * 操作列原来挂着「打印标签 / 编辑 / 删除」三个文字按钮，光这一列就占 230px ——
+   * 1366 屏下整列都在屏幕外，要横滑才能点到。现在只把最常用的「打印标签」留在明面上，
+   * 编辑 / 删除收进「⋯」里。
+   */
+  const [menuPos, setMenuPos] = useState<{ id: number; x: number; y: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement | null>(null)
+
+  /** 点空白处 / 滚动表格都收起「⋯」菜单（和右上角账号菜单一样的苹果式行为） */
+  useEffect(() => {
+    if (!menuPos) return
+    const closeOnOutside = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuPos(null)
+    }
+    const closeOnScroll = () => setMenuPos(null)
+    document.addEventListener('mousedown', closeOnOutside)
+    window.addEventListener('scroll', closeOnScroll, true)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside)
+      window.removeEventListener('scroll', closeOnScroll, true)
+    }
+  }, [menuPos])
 
   const [progress, setProgress] = useState<ContractPickerRow[]>([])
   const [progressLoading, setProgressLoading] = useState(false)
@@ -353,8 +377,9 @@ export default function Bales() {
       {/* 包明细 */}
       <div className="toolbar">
         <input
-          className="input"
+          className="input input-wide"
           placeholder="包号 / 条码号 / 柜号 / 提单号 / 合同号"
+          title="包号 / 条码号 / 柜号 / 提单号 / 合同号"
           value={input.keyword}
           onChange={(event) => setInput((prev) => ({ ...prev, keyword: event.target.value }))}
           onKeyDown={(event) => {
@@ -397,7 +422,8 @@ export default function Bales() {
       </div>
 
       <div className="card">
-        <table className="table">
+        {/* bales-table：只在桌面端冻结「勾选 + 包号」两列（横滑时钉在左边） */}
+        <table className="table bales-table">
           <thead>
             <tr>
               <th className="col-check">
@@ -471,11 +497,39 @@ export default function Bales() {
                     </button>
                     {canWrite && (
                       <>
-                        <button className="btn btn-sm" onClick={() => void openBaleEdit(row)}>
+                        {/*
+                          桌面（≥768px）：操作列去 1366 屏下会跑到屏幕外，收成「⋯」省宽度。
+                          手机（<768px）：这一列在卡片底部，横着摆三个文字按钮正好，
+                          手机端维持原样不动 —— 两个按钮由 CSS 媒体查询互斥显示。
+                        */}
+                        <button
+                          type="button"
+                          className="btn btn-sm row-more"
+                          title="更多操作（编辑 / 删除）"
+                          aria-haspopup="menu"
+                          aria-expanded={menuPos?.id === row.id}
+                          onClick={(event) => {
+                            if (menuPos?.id === row.id) {
+                              setMenuPos(null)
+                              return
+                            }
+                            const rect = event.currentTarget.getBoundingClientRect()
+                            // 菜单用 fixed 定位：卡片是横向滚动容器，绝对定位会被裁掉
+                            setMenuPos({ id: row.id, x: rect.right, y: rect.bottom + 6 })
+                          }}
+                        >
+                          ⋯
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm row-edit-btn"
+                          onClick={() => void openBaleEdit(row)}
+                        >
                           编辑
                         </button>
                         <button
-                          className="btn btn-sm btn-danger"
+                          type="button"
+                          className="btn btn-sm btn-danger row-edit-btn"
                           onClick={() => setBaleDeleteTarget(row)}
                         >
                           删除
@@ -500,6 +554,44 @@ export default function Bales() {
           unit="个包"
         />
       </div>
+
+      {/* 行内「⋯」菜单：fixed 定位，避开卡片的横向滚动裁切 */}
+      {menuPos &&
+        (() => {
+          const row = rows.find((one) => one.id === menuPos.id)
+          if (!row) return null
+          return (
+            <div
+              className="row-menu"
+              ref={menuRef}
+              role="menu"
+              style={{ top: menuPos.y, left: Math.max(8, menuPos.x - 140) }}
+            >
+              <button
+                type="button"
+                className="account-menu-item"
+                role="menuitem"
+                onClick={() => {
+                  setMenuPos(null)
+                  void openBaleEdit(row)
+                }}
+              >
+                编辑
+              </button>
+              <button
+                type="button"
+                className="account-menu-item row-menu-danger"
+                role="menuitem"
+                onClick={() => {
+                  setMenuPos(null)
+                  setBaleDeleteTarget(row)
+                }}
+              >
+                删除
+              </button>
+            </div>
+          )
+        })()}
 
       {editOpen && (
         <div className="overlay" onClick={() => setEditOpen(false)}>

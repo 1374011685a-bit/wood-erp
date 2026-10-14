@@ -147,7 +147,8 @@ export default function Records() {
       </div>
 
       <div className="card">
-        <table className="table">
+        {/* records-table：13 列，单元格内边距单独收紧一档（见 index.css） */}
+        <table className="table records-table">
           <thead>
             <tr>
               <th>类型</th>
@@ -156,8 +157,8 @@ export default function Records() {
               <th>供应商/客户</th>
               <th>品名</th>
               <th>等级</th>
-              <th className="num">厚度 (mm)</th>
-              <th className="num">宽度 (mm)</th>
+              {/* 厚度 + 宽度 合并成「规格」：33×22 —— 两列并一列，14 列压到 13 列 */}
+              <th className="num">规格 (mm)</th>
               <th className="num">长度 (m)</th>
               <th className="num">片数</th>
               <th className="num">件数</th>
@@ -178,13 +179,15 @@ export default function Records() {
                     {typeLabel(row.order_type)}
                   </span>
                 </td>
-                <td>{row.created_at}</td>
+                {/* 时间只显示到分（秒挂在 title 上）：这一列原来是 159px，是流水表里最宽的一列 */}
+                <td title={row.created_at}>{String(row.created_at ?? '').slice(0, 16)}</td>
                 <td>{row.order_no}</td>
                 <td>{row.partner}</td>
                 <td>{row.species}</td>
                 <td>{row.grade || '—'}</td>
-                <td className="num">{row.thickness}</td>
-                <td className="num">{row.width}</td>
+                <td className="num" title={`厚度 ${row.thickness} mm × 宽度 ${row.width} mm`}>
+                  {row.thickness}×{row.width}
+                </td>
                 <td className="num">{row.length}</td>
                 <td className="num">{row.pieces}</td>
                 <td className="num">{row.bundles}</td>

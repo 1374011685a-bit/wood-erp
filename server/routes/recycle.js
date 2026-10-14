@@ -1,5 +1,7 @@
 import express from 'express'
 import { db } from '../db.js'
+import { assertBaleNoAvailable } from './bales.js'
+import { writeLog } from '../boot-log.js'
 import { requireCap } from '../middleware/permissions.js'
 
 const router = express.Router()
@@ -109,6 +111,25 @@ const orderItemsStmt = db.prepare(
 )
 
 /**
+ * 恢复入库单之前要看的三个东西：
+ *   1) 这张单下面、目前还是软删状态的包（恢复时它们会一起活过来）
+ *   2) 这张单挂的那张提单（拿它的号去查重）
+ *   3) 库里活着的同名提单（大小写不敏感 + 去空格，排除自己这张）
+ */
+const deletedBalesStmt = db.prepare(
+  `SELECT id, bale_no, barcode
+     FROM bales
+    WHERE inbound_order_id = ? AND deleted_at IS NOT NULL
+    ORDER BY id`,
+)
+const shipmentByIdStmt = db.prepare(`SELECT id, bl_no, deleted_at FROM shipments WHERE id = ?`)
+const liveShipmentByBlNoStmt = db.prepare(
+  `SELECT id, bl_no FROM shipments
+    WHERE lower(trim(bl_no)) = lower(trim(?))
+      AND deleted_at IS NULL AND id <> ?`,
+)
+
+/**
  * 恢复单据。
  *
  * 恢复入库单只会把货加回来，永远安全；
@@ -174,6 +195,47 @@ const restoreOrder = db.transaction((type, id) => {
     }
   }
 
+  /**
+   * 恢复入库单前先查重（包号 / 提单号）。
+   *
+   * 包号和提单号都是「软删不占号」的口径 —— 索引是
+   * `... WHERE deleted_at IS NULL` 的部分唯一索引。单子躺在回收站里的时候，
+   * 它的包号和提单号是**腾出来**的，别人完全可以拿去用；一旦恢复，
+   * 那两行同时「活」过来，唯一索引当场就炸，用户看到的是
+   * `UNIQUE constraint failed: bales.bale_no` 这种原始英文报错。
+   *
+   * 所以在写库之前先按同一套口径查一遍，命中就给一句能照着做的中文提示。
+   * （放在 `restoreItemsStmt` 之前：这时候还没写任何东西，出错直接回滚。）
+   */
+  if (type === 'in') {
+    for (const bale of deletedBalesStmt.all(id)) {
+      const key = String(bale.bale_no ?? '').trim()
+      if (!key) continue
+      try {
+        // 口径复用 bales.js 那一份，别在这里另写一套
+        assertBaleNoAvailable(key, { excludeBaleId: bale.id })
+      } catch (err) {
+        if (err?.status !== 400) throw err
+        const error = new Error(`包号 ${key} 已经被别的包用了，请先改包再恢复这张单`)
+        error.status = 400
+        throw error
+      }
+    }
+
+    const shipment = order.shipment_id ? shipmentByIdStmt.get(order.shipment_id) : null
+    const blNo = String(shipment?.bl_no ?? '').trim()
+    if (blNo) {
+      const clash = liveShipmentByBlNoStmt.get(blNo, order.shipment_id)
+      if (clash) {
+        const error = new Error(
+          `提单号 ${blNo} 已经有一张活着的提单了，请先合并或改名再恢复这张单`,
+        )
+        error.status = 400
+        throw error
+      }
+    }
+  }
+
   restoreItemsStmt[type].run(id)
   restoreOrderStmt[type].run(id)
 
@@ -208,6 +270,18 @@ router.post('/restore', requireCap('recycle.write'), (req, res) => {
   } catch (err) {
     if (err.status === 400 || err.status === 404) {
       return res.status(err.status).json({ error: err.message })
+    }
+    /**
+     * 兜底：万一还有没预检到的唯一约束（以后又加了别的部分唯一索引之类），
+     * 别把 `UNIQUE constraint failed: xxx` 这种原始英文直接丢给用户。
+     */
+    if (String(err?.message ?? '').includes('UNIQUE')) {
+      writeLog(`[recycle] 恢复时撞唯一约束：${err.message}`)
+      return res.status(400).json({
+        error:
+          '恢复不了：这张单里的包号 / 提单号已经被别的记录用着了，' +
+          '请先处理掉冲突（改包或合并提单）再恢复',
+      })
     }
     res.status(500).json({ error: err.message })
   }

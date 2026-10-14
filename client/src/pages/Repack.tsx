@@ -4,9 +4,11 @@ import {
   fetchBaleDetail,
   fetchBales,
   deleteRepack,
+  isBaleNoTakenError,
   fetchRepackBales,
   fetchRepackList,
   fetchDict,
+  type BaleNoClash,
   type BaleRow,
   type RepackBale,
   type RepackLine,
@@ -34,6 +36,15 @@ type AfterRow = {
    * 「一键拆包」出来的三行（包号都空）就是三包 —— 跟手动一行一行填的结果完全一致。
    */
   baleNo: string
+  /**
+   * 这一行是哪个按钮铺出来的（只用于「保存前要不要再确认一次」，不参与分组、
+   * 也不发给后端）：
+   *   - `'split'`：「一键拆包」出来的 —— 用户已经明确表态要拆，保存时不再问
+   *   - `'copy'`：「复制改包前数据」出来的 —— 意图不确定（可能想合并），
+   *     多行又都留空包号时要确认一次「这会拆成 N 包」
+   *   - 手填的行没有这个字段 → 和 `'copy'` 一样按「意图不确定」处理
+   */
+  fromAction?: 'split' | 'copy'
   /**
    * 这一行是从哪个源包搬过来的（「复制改包前数据」「一键拆包」自动带上，
    * 手填的行没有）。保存时发给后端，用来把这一行的账落回原本那张入库单。
@@ -93,6 +104,19 @@ const BEFORE_COLS = 14
 const BEFORE_LEAD_COLS = 9
 const AFTER_COLS = 15
 const AFTER_LEAD_COLS = 11
+
+/**
+ * 改包记录列表里「改前 / 改后」那一列的文字：品牌/品名/等级 用「、」串起来。
+ * 一串可能很长，列表里靠 CSS 截断 + `title` 悬停看全（见 `.repack-list .col-spec`）。
+ */
+const repackSpecText = (items: RepackLine[]) =>
+  items
+    .map(
+      (line) =>
+        `${line.brand ? `${line.brand}/` : ''}${line.species}` +
+        `${line.grade ? `/${line.grade}` : ''}`,
+    )
+    .join('、') || '—'
 
 /** 斜杠串拆成各段（`1.8/2.1/2.4` → ['1.8','2.1','2.4']；单值 → 一段） */
 const slashSegments = (text: string) =>
@@ -194,6 +218,22 @@ export default function Repack() {
   const [loading, setLoading] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const [undoTarget, setUndoTarget] = useState<RepackRow | null>(null)
+  /**
+   * 撤销时「源包号被别的包占了」的冲突清单 + 用户当场填的新号。
+   *
+   * 只有后端回 409（`code: 'BALE_NO_TAKEN'`）时才有内容：这时候撤销弹窗
+   * 不关，就地长出一排输入框让用户改号，改完带 `renames` 重发。
+   */
+  const [undoClashes, setUndoClashes] = useState<BaleNoClash[]>([])
+  const [undoRenames, setUndoRenames] = useState<Record<number, string>>({})
+  /**
+   * 「改包后有多行、新包号却全留空」的保存确认。
+   *
+   * 这种表按规则会变成「一行 = 一包」（拆开），而不是用户想要的「合并」。
+   * 仓管在「复制改包前数据」之后很容易忘了填包号直接保存，
+   * 所以保存前弹一次确认，点确认才真提交。
+   */
+  const [splitConfirm, setSplitConfirm] = useState<{ count: number } | null>(null)
   /** 「查看」：只看这条改包的改前 / 改后明细，不改任何东西 */
   const [viewTarget, setViewTarget] = useState<RepackRow | null>(null)
   const [dict, setDict] = useState<{ species: string[]; grade: string[] }>({
@@ -472,6 +512,7 @@ export default function Repack() {
         const first = one.items[0]
         return {
           ...createRow(),
+          fromAction: 'copy' as const,
           baleNo: one.bale_no ?? '',
           srcBaleId: one.id,
           brand: first.brand ?? '',
@@ -517,6 +558,8 @@ export default function Repack() {
       const next = [...prev]
       next.splice(index + 1, 0, {
         ...createRow(),
+        // 复制的还是同一批货，「是从哪来的」跟着走（一键拆包的行复制出来也还是拆）
+        fromAction: row.fromAction,
         // 复制本行 = 还是同一包来的货，来源跟着走
         srcBaleId: row.srcBaleId,
         brand: row.brand,
@@ -552,6 +595,8 @@ export default function Repack() {
     const next = pickedBales.flatMap((one) =>
       one.items.map((line) => ({
         ...rowFromLine(line),
+        // 用户已经明确表态要拆，保存时不再问一次（见 handleSave 的确认条件）
+        fromAction: 'split' as const,
         baleNo: '',
         srcBaleId: one.id,
       })),
@@ -589,6 +634,24 @@ export default function Repack() {
 
     return groups
   }
+
+  /**
+   * 「多行 + 新包号全留空 + 不是一键拆包来的」—— 这种保存其实是在把货拆成 N 包。
+   *
+   * 仓管在「复制改包前数据」之后很容易忘了填包号直接保存，以为自己填的是"合并"，
+   * 结果悄悄拆成了 N 包。所以这种情况要提醒 + 保存前确认一次。
+   *
+   * 「一键拆包」出来的行不算 —— 用户按那个按钮就是明确表态要拆，再问是啰嗦。
+   */
+  const needsSplitConfirm = (list: AfterRow[]) =>
+    list.length > 1 &&
+    list.every((row) => !row.baleNo.trim()) &&
+    !list.some((row) => row.fromAction === 'split')
+
+  const filledPreview = rows.filter((row) => row.species.trim())
+  const allNosBlank = needsSplitConfirm(filledPreview)
+  // 包号都空 = 一行一包，有几行就是几包
+  const perRowGroupCount = allNosBlank ? filledPreview.length : 0
 
   const handleSave = async () => {
     setError('')
@@ -646,6 +709,21 @@ export default function Repack() {
       return
     }
 
+    /**
+     * 多行 + 新包号全留空 = 每行各自成一包（拆开），不是合并。
+     * 保存前确认一次，避免仓管「想合并」却悄悄拆成了 N 包。
+     * 「一键拆包」出来的行豁免（用户已经明确要拆）。
+     */
+    if (needsSplitConfirm(filled)) {
+      setSplitConfirm({ count: filled.length })
+      return
+    }
+
+    await submitRepack(filled)
+  }
+
+  /** 真正提交（确认框点「确认继续」也走这里） */
+  const submitRepack = async (filled: AfterRow[]) => {
     setSaving(true)
     try {
       const result = await createRepack({
@@ -704,20 +782,56 @@ export default function Repack() {
     }
   }
 
+  /** 打开撤销弹窗（每次都把上一次的改号状态清干净） */
+  const openUndo = (row: RepackRow) => {
+    setUndoClashes([])
+    setUndoRenames({})
+    setUndoTarget(row)
+  }
+
+  const closeUndo = () => {
+    setUndoTarget(null)
+    setUndoClashes([])
+    setUndoRenames({})
+  }
+
   const confirmUndo = async () => {
     if (!undoTarget) return
+    const renames: Record<number, string> = {}
+    for (const [key, value] of Object.entries(undoRenames)) {
+      renames[Number(key)] = value.trim()
+    }
     try {
-      await deleteRepack(undoTarget.id)
+      await deleteRepack(undoTarget.id, Object.keys(renames).length > 0 ? renames : undefined)
       setNotice(
         undoTarget.kind === 'split'
           ? `已撤销拆包 ${undoTarget.repack_no}，拆出来的包已删掉，原包回来了`
           : `已撤销改包 ${undoTarget.repack_no}，这一包的规格回到改包前`,
       )
-      setUndoTarget(null)
+      closeUndo()
       setReloadToken((n) => n + 1)
     } catch (err) {
+      /**
+       * 源包号被别人占了：撤销弹窗**不关**，就地长出输入框让用户改号。
+       * （以前这里只弹一句「包号 A3 已经存在，请换一个」就把弹窗关了，
+       *   用户拿着这句提示无处下手，这条记录就永久卡死。）
+       */
+      if (isBaleNoTakenError(err) && err.payload?.clashes?.length) {
+        const clashes = err.payload.clashes
+        setUndoClashes(clashes)
+        setUndoRenames((prev) => {
+          const next = { ...prev }
+          for (const clash of clashes) {
+            // 第一次进入时预填原号，用户直接在上面改
+            if (next[clash.bale_id] === undefined) next[clash.bale_id] = clash.bale_no
+          }
+          return next
+        })
+        setError(err.message)
+        return
+      }
       setError(err instanceof Error ? err.message : '撤销失败')
-      setUndoTarget(null)
+      closeUndo()
     }
   }
 
@@ -797,6 +911,21 @@ export default function Repack() {
       }))
       setFormOpen(true)
     } catch (err) {
+      /**
+       * 「编辑」= 先撤销这条记录再重做。如果撤销那一步撞上「源包号被占用」，
+       * 直接把撤销弹窗开出来让用户改号（改完撤销成功，点一次「编辑」就能继续）。
+       * 不然这条记录在「编辑」这条路上同样是个死胡同。
+       */
+      if (isBaleNoTakenError(err) && err.payload?.clashes?.length) {
+        const clashes = err.payload.clashes
+        setUndoClashes(clashes)
+        setUndoRenames(
+          Object.fromEntries(clashes.map((clash) => [clash.bale_id, clash.bale_no])),
+        )
+        setUndoTarget(row)
+        setError(err.message)
+        return
+      }
       setError(err instanceof Error ? err.message : '打开编辑失败')
     }
   }
@@ -1155,6 +1284,17 @@ export default function Repack() {
           </span>
         </div>
 
+        {/*
+          「复制改包前数据」出来多行、新包号又全留空 → 保存等于把货拆成 N 包。
+          想合并的人容易漏填包号，这里常驻一句提醒（填了包号就自动消失）。
+        */}
+        {allNosBlank && (
+          <p className="group-hint">
+            注意：包号都留空 = 每行各自成一包（本次会拆成 {perRowGroupCount} 个独立包），
+            <strong>不会合并</strong>。要合并请把它们填成同一个包号。
+          </p>
+        )}
+
         <div className="sheet-scroll">
           <table className="sheet-table">
             <thead>
@@ -1424,7 +1564,16 @@ export default function Repack() {
           </button>
         </div>
 
-        <table className="table">
+        {/*
+          改包记录列表：**只出现在这个列表里**的紧凑列 —— 原来 17 列、1945px，
+          1366 屏下要横滑 893px 才看得到操作按钮。这里按「合并同类项」压到 12 列：
+            · 改前立方 / 改后立方 / 损耗 / 损耗率  → 「立方」+「损耗」两列
+            · 改前金额 / 改后金额                  → 「金额」一列
+            · 摘要 / 制单人                        → 移进「查看」弹窗（列表里用不着留痕字段）
+            · 改前 / 改后 的品名串                → 截断 + 悬停看全（title）
+          列一多就必须横滑，而这些"改前改后并排"的信息用 `3 → 3` 表示反而更好读。
+        */}
+        <table className="table repack-list">
           <thead>
             <tr>
               <th>日期</th>
@@ -1433,16 +1582,11 @@ export default function Repack() {
               <th>包数</th>
               <th>条码号</th>
               <th>提单号</th>
-              <th>改前</th>
-              <th>改后</th>
-              <th className="num">改前立方</th>
-              <th className="num">改后立方</th>
-              {money && <th className="num">改前金额</th>}
-              {money && <th className="num">改后金额</th>}
+              <th className="col-spec">改前</th>
+              <th className="col-spec">改后</th>
+              <th className="num">立方 (m³)</th>
+              {money && <th className="num">金额 (元)</th>}
               <th className="num">损耗</th>
-              <th className="num">损耗率</th>
-              <th>摘要</th>
-              <th>制单人</th>
               <th>操作</th>
             </tr>
           </thead>
@@ -1461,44 +1605,29 @@ export default function Repack() {
                 </td>
                 <td>{row.barcode || '—'}</td>
                 <td>{row.bl_no || '—'}</td>
-                <td>
-                  {row.before_items
-                    .map(
-                      (line) =>
-                        `${line.brand ? `${line.brand}/` : ''}${line.species}` +
-                        `${line.grade ? `/${line.grade}` : ''}`,
-                    )
-                    .join('、') || '—'}
+                {/* 品名串可能很长，列里截断显示，鼠标悬停看全文 */}
+                <td className="col-spec" title={repackSpecText(row.before_items)}>
+                  {repackSpecText(row.before_items)}
                 </td>
-                <td>
-                  {row.after_items
-                    .map(
-                      (line) =>
-                        `${line.brand ? `${line.brand}/` : ''}${line.species}` +
-                        `${line.grade ? `/${line.grade}` : ''}`,
-                    )
-                    .join('、') || '—'}
+                <td className="col-spec" title={repackSpecText(row.after_items)}>
+                  {repackSpecText(row.after_items)}
                 </td>
-                <td className="num">{formatCubic(row.before_cubic)}</td>
-                <td className="num">{formatCubic(row.after_cubic)}</td>
-                {money && <td className="num">{formatAmount(row.before_amount)}</td>}
-                {money && <td className="num">{formatAmount(row.after_amount)}</td>}
+                {/* 四列并一列：立方 3 → 3 */}
+                <td className="num">
+                  {formatCubic(row.before_cubic)} → {formatCubic(row.after_cubic)}
+                </td>
+                {money && (
+                  <td className="num">
+                    {formatAmount(row.before_amount)} → {formatAmount(row.after_amount)}
+                  </td>
+                )}
+                {/* 损耗 + 损耗率并一列 */}
                 <td className={row.loss_cubic < 0 ? 'num is-short' : 'num'}>
                   {formatCubic(row.loss_cubic)}
                   {row.loss_cubic > 0 ? ' ↑' : row.loss_cubic < 0 ? ' ↓' : ''}
-                </td>
-                <td className="num">
+                  {' · '}
                   {row.loss_rate === null ? '—' : `${row.loss_rate}%`}
-                  {row.loss_rate === null
-                    ? ''
-                    : row.loss_rate > 0
-                      ? ' ↑'
-                      : row.loss_rate < 0
-                        ? ' ↓'
-                        : ''}
                 </td>
-                <td>{row.summary || '—'}</td>
-                <td>{row.created_by || '—'}</td>
                 <td>
                   <div className="row-actions">
                     <button className="btn btn-sm" onClick={() => setViewTarget(row)}>
@@ -1507,7 +1636,7 @@ export default function Repack() {
                     <button className="btn btn-sm" onClick={() => void editRepack(row)}>
                       编辑
                     </button>
-                    <button className="btn btn-sm btn-danger" onClick={() => setUndoTarget(row)}>
+                    <button className="btn btn-sm btn-danger" onClick={() => openUndo(row)}>
                       撤销
                     </button>
                   </div>
@@ -1521,13 +1650,20 @@ export default function Repack() {
               <td colSpan={8} className="sheet-total-label">
                 合计
               </td>
-              <td className="num">{formatCubic(sums?.before_cubic ?? 0)}</td>
-              <td className="num">{formatCubic(sums?.after_cubic ?? 0)}</td>
-              {money && <td className="num">{formatAmount(sums?.before_amount ?? 0)}</td>}
-              {money && <td className="num">{formatAmount(sums?.after_amount ?? 0)}</td>}
+              {/* 立方：改前 → 改后（原来拆成两列） */}
+              <td className="num">
+                {formatCubic(sums?.before_cubic ?? 0)} → {formatCubic(sums?.after_cubic ?? 0)}
+              </td>
+              {/* 金额：改前 → 改后（原来拆成两列） */}
+              {money && (
+                <td className="num">
+                  {formatAmount(sums?.before_amount ?? 0)} → {formatAmount(sums?.after_amount ?? 0)}
+                </td>
+              )}
+              {/* 损耗（损耗率那列已经并进这一列，合计行只给方数） */}
               <td className="num">{formatCubic(sums?.loss_cubic ?? 0)}</td>
-              {/* 损耗率 / 摘要 / 制单人 / 操作 */}
-              <td colSpan={4} />
+              {/* 操作 */}
+              <td />
             </tr>
           </tfoot>
         </table>
@@ -1606,8 +1742,41 @@ export default function Repack() {
         </div>
       )}
 
+      {/* 多行 + 新包号全空：保存前再确认一次「会拆成 N 包」 */}
+      {splitConfirm && (
+        <div className="overlay" onClick={() => setSplitConfirm(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="modal-title">包号都留空了</h2>
+            <p className="confirm-text">
+              本次会把 {splitConfirm.count} 行拆成 {splitConfirm.count} 个独立包（每行一包），
+              <strong>不是合并</strong>。
+              <br />
+              确认继续？
+            </p>
+            <div className="confirm-actions">
+              <button className="btn" onClick={() => setSplitConfirm(null)}>
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setSplitConfirm(null)
+                  // 重新按当前表格取一遍行，走同一条提交路径
+                  void submitRepack(rows.filter((row) => row.species.trim()))
+                }}
+              >
+                确认继续
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {undoTarget && (
-        <div className="overlay" onClick={() => setUndoTarget(null)}>
+        <div className="overlay" onClick={closeUndo}>
           <div
             className="modal modal-narrow modal-alert"
             onClick={(event) => event.stopPropagation()}
@@ -1618,12 +1787,43 @@ export default function Repack() {
               （{undoTarget.before_items.map((line) => line.species).join('、') || '—'}），
               库存跟着改回去，这条记录也会删掉。
             </p>
+
+            {/*
+              源包号被别人占了：不关弹窗，就地让用户改号。
+              后端把冲突清单（哪个源包的哪个号被占了）一起带回来，
+              这里一个号一个输入框，改完点「改号并撤销」带着新号重发。
+            */}
+            {undoClashes.length > 0 && (
+              <div className="undo-clash">
+                <p className="undo-clash-tip">
+                  撤销要把原包重建回来，但下面这些包号现在被别人占着（包号全局唯一）。
+                  给它们换个号就能撤销；留空 = 不要包号。
+                </p>
+                {undoClashes.map((clash) => (
+                  <label key={clash.bale_id} className="undo-clash-row">
+                    <span className="undo-clash-label">
+                      原包号 {clash.original_bale_no || '（空）'}
+                      {clash.reason === 'duplicate' ? ' · 和上面的新号重了' : ' · 已被占用'}
+                    </span>
+                    <input
+                      className="input"
+                      value={undoRenames[clash.bale_id] ?? ''}
+                      placeholder="改成别的包号（留空 = 不要包号）"
+                      onChange={(event) =>
+                        setUndoRenames((prev) => ({ ...prev, [clash.bale_id]: event.target.value }))
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            )}
+
             <div className="confirm-actions">
-              <button className="btn" onClick={() => setUndoTarget(null)}>
+              <button className="btn" onClick={closeUndo}>
                 取消
               </button>
               <button className="btn btn-danger-solid" onClick={() => void confirmUndo()}>
-                确认撤销
+                {undoClashes.length > 0 ? '改号并撤销' : '确认撤销'}
               </button>
             </div>
           </div>
@@ -1643,8 +1843,9 @@ export default function Repack() {
 
             <div className="toolbar">
               <input
-                className="input"
+                className="input input-wide"
                 placeholder="包号 / 品名 / 等级 / 柜号 / 提单号"
+                title="包号 / 品名 / 等级 / 柜号 / 提单号"
                 value={pickerQuery.keyword}
                 onChange={(event) =>
                   setPickerQuery((prev) => ({ ...prev, keyword: event.target.value }))
