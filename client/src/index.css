@@ -24,6 +24,8 @@
   --red: #ff3b30;
   --green: #34c759;
   --orange: #ff9500;
+  /* 品牌主色（深棕）：手机底部 Tab 的选中态用 */
+  --brand: #6b4a2f;
 
   /* 圆角 */
   --r-card: 16px;
@@ -4676,5 +4678,180 @@ section > .toolbar .btn-primary {
   }
   to {
     transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   底部 Tab 栏（只在手机端）
+
+   导航分工：
+     PC（≥ 768px）  → 左侧边栏 + 顶部栏（一点没动）
+     手机（< 768px）→ 侧边栏整个收起，导航全走底部这一条
+
+   放在文件最后：这些规则要压过上面同名的移动端规则。
+   ============================================================ */
+
+/* 桌面端不显示 —— 这是基类，移动端媒体查询里才铺开 */
+.bottom-nav {
+  display: none;
+}
+
+/* 「单据」/「我的」两个入口页的列表（桌面端也用同一套样式） */
+.entry-list {
+  padding: 6px 8px;
+}
+
+.entry-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.entry-item:last-child {
+  border-bottom: 0;
+}
+
+.entry-item:hover {
+  background-color: var(--panel-soft);
+}
+
+.entry-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-label {
+  display: block;
+  font-size: 15px;
+  line-height: 1.4;
+}
+
+.entry-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.entry-arrow {
+  flex: none;
+  color: var(--text-3);
+  font-size: 19px;
+  line-height: 1;
+}
+
+.entry-item-danger .entry-label {
+  color: var(--red);
+}
+
+/* 「我的」页顶部的账号卡 */
+.me-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.me-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background-color: var(--panel-soft);
+  color: var(--brand);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.me-profile-text {
+  min-width: 0;
+}
+
+.me-name {
+  display: block;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.me-role {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+@media (max-width: 767px) {
+  /*
+   * 手机端不再用侧边栏 —— 抽屉也一起去掉，导航全部走底部 Tab。
+   * 用 !important 压过上面那几条移动端规则里的 `display: grid` / `transform`。
+   */
+  .sidebar,
+  .sidebar-mask,
+  .topbar .menu-toggle {
+    display: none !important;
+  }
+
+  /* 内容区底部给 Tab 栏让出位置：56px 栏高 + 一点余量 + 安全区 */
+  .content {
+    padding-bottom: calc(76px + env(safe-area-inset-bottom));
+  }
+}
+
+/*
+ * `screen` 限定：打印（哪怕是窄窗口触发）时不要印出这条 Tab 栏。
+ */
+@media screen and (max-width: 767px) {
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 45;
+    /* 56px 内容高 + iPhone 底部横条的安全区 */
+    height: calc(56px + env(safe-area-inset-bottom));
+    padding-bottom: env(safe-area-inset-bottom);
+    background-color: rgba(255, 255, 255, 0.94);
+    backdrop-filter: blur(16px) saturate(180%);
+    -webkit-backdrop-filter: blur(16px) saturate(180%);
+    /* 顶部一条 1px 分隔线 */
+    border-top: 1px solid var(--line);
+  }
+
+  .bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 56px;
+    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .bottom-nav-item.is-active {
+    color: var(--brand);
+    font-weight: 600;
+  }
+
+  .bottom-nav-icon {
+    width: 24px;
+    height: 24px;
   }
 }

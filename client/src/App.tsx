@@ -41,6 +41,9 @@ const Settlement = lazyPage(() => import('./pages/Settlement'))
 const Dict = lazyPage(() => import('./pages/Dict'))
 const LabelPrint = lazyPage(() => import('./pages/LabelPrint'))
 const Users = lazyPage(() => import('./pages/Users'))
+// 手机端底部 Tab 的「单据」和「我的」两个入口页
+const Documents = lazyPage(() => import('./pages/Documents'))
+const Me = lazyPage(() => import('./pages/Me'))
 
 export default function App() {
   return (
@@ -78,6 +81,9 @@ export default function App() {
           <Route path="recycle" element={<Recycle />} />
           <Route path="settlement" element={<Settlement />} />
           <Route path="dict" element={<Dict />} />
+          {/* 手机端底部 Tab 的路由（PC 端也能直接打开） */}
+          <Route path="documents" element={<Documents />} />
+          <Route path="me" element={<Me />} />
           {/* 用户管理：只有管理员进得去（菜单和路由都挡，后端还有 requireCap 兜底） */}
           <Route
             path="users"

@@ -11,6 +11,7 @@ import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useRole } from '../hooks/useRole'
 import { canVisit } from '../permissions'
 import { applyTableLabels } from '../utils/tableLabels'
+import BottomNav from './BottomNav'
 import { Loading, ToastHost, type ToastItem } from './Ui'
 
 type NavItem = {
@@ -210,12 +211,19 @@ const navGroups: NavGroup[] = [
 
 const navItems: NavItem[] = [homeItem, ...navGroups.flatMap((group) => group.items)]
 
+/** 不在左侧菜单里、但顶栏标题 / 功能标签要用到的页面名 */
+const EXTRA_LABELS: Record<string, string> = {
+  '/documents': '单据',
+  '/me': '我的',
+}
+
 /** 路由 → 标签名（和左侧菜单同名） */
 function labelOf(path: string) {
   // /inbound/new、/outbound/new 这类「直接进录入」的地址，标签跟它所属的功能同名
   const base = path.replace(/\/new$/, '')
   const hit = navItems.find((item) => item.to === base)
   if (hit) return hit.label
+  if (EXTRA_LABELS[base]) return EXTRA_LABELS[base]
   return base.replace(/^\//, '') || '首页'
 }
 
@@ -389,6 +397,18 @@ export default function Layout() {
     clearSession()
     navigate('/login', { replace: true })
   }
+
+  /**
+   * 「我的」页（手机端底部 Tab）点「修改密码」时，派发 `wood:open-password` 事件，
+   * 由这里打开下面那个密码弹窗 —— 免得在两个地方各写一份表单。
+   * 依赖数组留空：openPassword 只调 setState，闭包不会过期。
+   */
+  useEffect(() => {
+    const onOpenPassword = () => openPassword()
+    window.addEventListener('wood:open-password', onOpenPassword)
+    return () => window.removeEventListener('wood:open-password', onOpenPassword)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const openPassword = () => {
     setOldPassword('')
@@ -675,6 +695,12 @@ export default function Layout() {
           <Outlet />
         </Suspense>
       </main>
+
+      {/*
+        手机端底部 Tab 栏。PC 端不显示（组件基类就是 display: none，
+        只有 <768px 的媒体查询里才铺开），桌面端照旧用左边那条侧边栏。
+      */}
+      <BottomNav />
 
       {passwordOpen && (
         <div className="overlay" onClick={() => setPasswordOpen(false)}>
