@@ -1031,7 +1031,13 @@ export function fetchBales(query: BaleQuery = {}) {
   if (query.limit) search.set('limit', String(query.limit))
   if (query.offset) search.set('offset', String(query.offset))
   const qs = search.toString()
-  return request<Paged<BaleRow>>(`/api/bales${qs ? `?${qs}` : ''}`)
+  return request<
+    Paged<BaleRow> & {
+      /** 当前筛选范围内的在库包数 / 在库立方（列表头那句「共 N 包（在库 M）· 合计 X m³」用的） */
+      total_in_stock: number
+      cubic_in_stock: number
+    }
+  >(`/api/bales${qs ? `?${qs}` : ''}`)
 }
 
 /** 包号查重：范围是「这张提单内」或「这张散货入库单内」 */
@@ -1467,7 +1473,7 @@ export function formatFileSize(bytes: number) {
 }
 
 export type RecycleRow = {
-  type: 'in' | 'out'
+  type: 'in' | 'out' | 'contract'
   id: number
   order_no: string
   partner: string | null
@@ -1475,16 +1481,17 @@ export type RecycleRow = {
   deleted_at: string
   total_cubic: number
   total_amount: number
+  /** 入库/出库单 = 明细行数；合同 = 这张合同下的入库单张数 */
   item_count: number
 }
 
-// 回收站列表：被软删除的入库 / 出库单
+// 回收站列表：被软删除的合同 / 入库 / 出库单
 export function fetchRecycleList() {
   return request<RecycleRow[]>('/api/recycle')
 }
 
 // 恢复单据（恢复出库单时库存不够会返回 400，错误信息原样展示）
-export function restoreRecycleOrder(type: 'in' | 'out', id: number) {
+export function restoreRecycleOrder(type: RecycleRow['type'], id: number) {
   return request<{ ok: boolean }>('/api/recycle/restore', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1493,7 +1500,7 @@ export function restoreRecycleOrder(type: 'in' | 'out', id: number) {
 }
 
 // 彻底删除（连明细一起物理删掉，删完不可恢复）
-export function purgeRecycleOrder(type: 'in' | 'out', id: number) {
+export function purgeRecycleOrder(type: RecycleRow['type'], id: number) {
   return request<{ ok: boolean }>(`/api/recycle/${type}/${id}`, {
     method: 'DELETE',
   })

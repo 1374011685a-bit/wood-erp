@@ -1014,7 +1014,8 @@ router.get('/:id', (req, res) => {
               ) AS own_cubic,
               o.order_no AS outbound_order_no
          FROM bales b
-         LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
+         -- 撤销出库后包回到在库，但出库单指针还留着（恢复那张单要用），只给已出库的行显示单号
+         LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id AND b.status = 'shipped'
         WHERE b.inbound_order_id = ? AND b.deleted_at IS NULL
         ORDER BY b.bale_no`,
     )

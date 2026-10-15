@@ -1008,6 +1008,36 @@ input[inputmode='decimal'] {
   border-bottom: none;
 }
 
+/*
+ * L2 提单表（.ship-list，只在桌面端）：行高压紧 + 三列宽度定住。
+ *
+ * 原来的行高是全局 `.table td { height: 56px }`，这张表一行就 56px 有点奢侈；
+ * 列宽原来全是自适应的（实测 提单号 123 / 包数·在库 90，随内容浮动），
+ * 这里给出目标宽度，省下的横向空间交给供应商 / 到货日期 / 原 / 现在 / 状态。
+ *
+ * ⚠️ 用 `min-width` 而不是 `max-width`：包号后面可能会跟「混提单」标签，
+ * 卡死 120px 会把标签挤到第二行、42px 的行高就放不下了。
+ */
+@media (min-width: 768px) {
+  .drill-panel .ship-list td {
+    height: 42px;
+  }
+
+  .drill-panel .ship-list th:nth-child(1),
+  .drill-panel .ship-list td:nth-child(1) {
+    width: 120px;
+    min-width: 120px;
+  }
+
+  .drill-panel .ship-list th:nth-child(4),
+  .drill-panel .ship-list td:nth-child(4),
+  .drill-panel .ship-list th:nth-child(5),
+  .drill-panel .ship-list td:nth-child(5) {
+    width: 80px;
+    min-width: 80px;
+  }
+}
+
 /* L3 的表头行：标题 + 「共 N 包」副标题 */
 .l3-head {
   display: flex;
@@ -1953,11 +1983,37 @@ section > .toolbar .btn-primary {
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.09);
 }
 
-.btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
+/*
+ * 禁用态统一：**灰底灰字**，不是"把原色减淡"。
+ *
+ * 原来只有一句 `opacity: 0.45`：主按钮（棕）/ 危险按钮（红）禁用之后
+ * 还是一坨有色块，看着像能点，点了没反应。
+ * 现在四种底色（白 / 棕 / 红边 / 实心红）的按钮禁用后长得一样：
+ * 灰底 #f2f2f4 + 灰字 #9a9aa2 + 灰边 + 禁止光标。
+ *
+ * hover / active 也一起盖掉 —— 不然鼠标划过禁用按钮还会变色（`.btn:hover`
+ * 和这条同样具体度，不写就按源码顺序打架）。
+ */
+.btn:disabled,
+.btn:disabled:hover,
+.btn:disabled:active,
+.btn-primary:disabled,
+.btn-primary:disabled:hover,
+.btn-primary:disabled:active,
+.btn-danger:disabled,
+.btn-danger:disabled:hover,
+.btn-danger:disabled:active,
+.btn-danger-solid:disabled,
+.btn-danger-solid:disabled:hover,
+.btn-danger-solid:disabled:active {
+  background-color: #f2f2f4;
+  background-image: none;
+  border-color: #e3e3e8;
+  color: #9a9aa2;
+  opacity: 1;
   box-shadow: none;
+  transform: none;
+  cursor: not-allowed;
 }
 
 .btn-sm {
@@ -2156,7 +2212,12 @@ section > .toolbar .btn-primary {
 }
 
 .pager-btn:disabled {
-  opacity: 0.4;
+  /* 和 .btn 的禁用态一个口径：灰底灰字 + 禁止光标 */
+  background-color: #f2f2f4;
+  border-color: #e3e3e8;
+  color: #9a9aa2;
+  opacity: 1;
+  box-shadow: none;
   cursor: not-allowed;
 }
 
@@ -2248,6 +2309,13 @@ section > .toolbar .btn-primary {
   color: #a15c00;
   background-color: rgba(255, 149, 0, 0.14);
   border-color: rgba(255, 149, 0, 0.26);
+}
+
+/* 合同（回收站里的整串条目）：中性偏蓝，和入库/出库区分开 */
+.tag-contract {
+  color: #1d4ed8;
+  background-color: rgba(0, 113, 227, 0.1);
+  border-color: rgba(0, 113, 227, 0.22);
 }
 
 /*
@@ -5204,6 +5272,14 @@ section > .toolbar .btn-primary {
   color: var(--text-2);
 }
 
+/* 「我的」页底部的版本号：一行灰字，不抢戏 */
+.me-version {
+  margin: 18px 0 4px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
 @media (max-width: 767px) {
   /*
    * 手机端不再用侧边栏 —— 抽屉也一起去掉，导航全部走底部 Tab。
@@ -5265,5 +5341,229 @@ section > .toolbar .btn-primary {
   .bottom-nav-icon {
     width: 24px;
     height: 24px;
+  }
+}
+
+/* ============================================================
+   手机端 App 版首页：4 张数字卡 + 6 个功能入口（< 768px 才铺开）
+   ============================================================ */
+
+/* 桌面端不显示 —— 这是基类，移动端媒体查询里才铺开 */
+.app-home {
+  display: none;
+}
+
+/*
+ * 手机端首页只留：4 张数字卡 → 6 宫格 → 出库走势 → 库存构成 → 最近流水。
+ * 桌面那套收起来的两块：
+ *   1) .dash（主视觉「当前库存」大卡 + 应收/应付 + 今日出库/近 30 天）—— 和 4 张卡重复
+ *   2) 页头那排按钮（新增入库 / 新增出库 / 新增盘点 / 刷新）—— 宫格里都有，刷新下拉即可
+ * 只作用于首页：其它页面的 .page-head 和 .modal-actions 一点没动。
+ */
+@media screen and (max-width: 767px) {
+  .page-home .dash {
+    display: none;
+  }
+
+  /* 页头只收「新增入库/新增出库/新增盘点」，刷新留着（手机上要能手动刷） */
+  .page-home .home-new-actions {
+    display: none;
+  }
+}
+
+/* 三个「新增…」按钮在桌面端是挤在一个 flex 行里的（和 .modal-actions 的间距一致） */
+.home-new-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ============================================================
+   L2 提单层：手机端一行一条（桌面端不渲染，走那张八列的表）
+   ============================================================ */
+
+/* 桌面端不显示 —— 这是基类，移动端媒体查询里才铺开 */
+.ship-compact {
+  display: none;
+}
+
+@media screen and (max-width: 767px) {
+  /*
+   * 手机端不套内层卡片：L2 原来是「浅底块 + 左侧引导线」的一张小卡，
+   * 里面再放一行一条，就成了卡里套卡。手机端把它的边框/底色都去掉，
+   * 靠标题和缩进表达"往里钻"，三层看起来才干净。
+   */
+  .drill-panel {
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background-color: transparent;
+    margin-bottom: 18px;
+  }
+
+  .drill-panel .ship-list {
+    display: none;
+  }
+
+  .ship-compact {
+    display: block;
+  }
+
+  .ship-compact-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .ship-compact-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px 10px;
+    width: 100%;
+    padding: 11px 4px 11px 10px;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    background: none;
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .ship-compact-list li:last-child .ship-compact-row {
+    border-bottom: 0;
+  }
+
+  .ship-compact-row.is-active {
+    border-left-color: var(--brand);
+    background-color: #fdf8f2;
+  }
+
+  .ship-compact-no {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .ship-compact-cubic {
+    flex: 0 0 auto;
+    font-size: 12px;
+    color: var(--text-2);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ship-compact-cubic b {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .ship-compact-status {
+    flex: 0 0 auto;
+  }
+
+  /* 状态标签在小屏上收一档，好让「提单号 + 数字 + 状态」挤进一行 */
+  .ship-compact-status .tag {
+    padding: 2px 8px;
+    font-size: 11.5px;
+  }
+
+  /* 未关联合同那一段的小标题 */
+  .ship-compact-group {
+    margin: 14px 0 2px;
+    font-size: 12.5px;
+    color: var(--text-3);
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .app-home {
+    display: block;
+    margin-bottom: 16px;
+  }
+
+  .app-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .app-card {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-panel);
+    border-radius: 14px;
+    background-color: var(--panel);
+  }
+
+  .app-card-label {
+    font-size: 12.5px;
+    color: var(--text-2);
+  }
+
+  .app-card-value {
+    font-size: 21px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .app-card-value small {
+    margin-left: 3px;
+    font-size: 12px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--text-3);
+  }
+
+  .app-card-hint {
+    font-size: 12px;
+    color: var(--text-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .app-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 12px;
+  }
+
+  .app-tile {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 13px 4px 11px;
+    border: 1px solid var(--border-panel);
+    border-radius: 14px;
+    background-color: var(--panel);
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
+    line-height: 1.2;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app-tile:active {
+    background-color: var(--panel-soft);
+  }
+
+  .app-tile-icon {
+    width: 23px;
+    height: 23px;
+    color: var(--brand);
   }
 }

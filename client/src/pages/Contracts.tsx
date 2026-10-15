@@ -256,11 +256,11 @@ export default function Contracts() {
     setDeleting(true)
     try {
       await deleteContract(deleteTarget.id)
-      setNotice(`已删除合同 ${deleteTarget.contract_no}`)
+      setNotice(`已把合同 ${deleteTarget.contract_no} 移入回收站`)
       setDeleteTarget(null)
       setReloadToken((n) => n + 1)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '删除失败')
+      setError(err instanceof Error ? err.message : '移入回收站失败')
       setDeleteTarget(null)
     } finally {
       setDeleting(false)
@@ -389,9 +389,10 @@ export default function Contracts() {
                         </button>
                         <button
                           className="btn btn-sm btn-danger"
+                          title="移入回收站，可在回收站恢复"
                           onClick={() => setDeleteTarget(row)}
                         >
-                          删除
+                          移入回收站
                         </button>
                       </>
                     )}
@@ -740,10 +741,13 @@ export default function Contracts() {
             className="modal modal-narrow modal-alert"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="modal-title">删除合同</h2>
+            <h2 className="modal-title">移入回收站</h2>
             <p className="confirm-text">
-              确认删除合同 {deleteTarget.contract_no}
-              {deleteTarget.title ? `（${deleteTarget.title}）` : ''}？文件会保留在服务器上。
+              确认把合同 {deleteTarget.contract_no}
+              {deleteTarget.title ? `（${deleteTarget.title}）` : ''} 移入回收站？
+              <br />
+              这张合同下面的提单、入库单和包会一起移进去（回收站里能整串恢复）；
+              合同文件保留在服务器上。
             </p>
             <div className="confirm-actions">
               <button
@@ -758,7 +762,7 @@ export default function Contracts() {
                 onClick={() => void confirmDelete()}
                 disabled={deleting}
               >
-                {deleting ? '删除中…' : '确认删除'}
+                {deleting ? '处理中…' : '移入回收站'}
               </button>
             </div>
           </div>

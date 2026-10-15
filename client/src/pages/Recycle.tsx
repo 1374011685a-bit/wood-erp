@@ -10,7 +10,15 @@ import { formatCubic, formatAmount } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 
-const typeLabel = (type: RecycleRow['type']) => (type === 'in' ? '入库' : '出库')
+const typeLabel = (type: RecycleRow['type']) =>
+  type === 'in' ? '入库' : type === 'out' ? '出库' : '合同'
+
+/** 各种类型在文案里怎么说（「恢复入库单 X」/「彻底删除合同 X」） */
+const orderWord = (type: RecycleRow['type']) =>
+  type === 'in' ? '入库单' : type === 'out' ? '出库单' : '合同'
+
+const tagClass = (type: RecycleRow['type']) =>
+  type === 'in' ? 'tag tag-in' : type === 'out' ? 'tag tag-out' : 'tag tag-contract'
 
 export default function Recycle() {
   // 看不到金额的角色：金额列不渲染（后端也不返回 total_amount）
@@ -43,7 +51,7 @@ export default function Recycle() {
     setError('')
     try {
       await restoreRecycleOrder(row.type, row.id)
-      setNotice(`已恢复${typeLabel(row.type)}单 ${row.order_no}`)
+      setNotice(`已恢复${orderWord(row.type)} ${row.order_no}`)
       await load()
     } catch (err) {
       // 恢复出库单可能因为库存不够被拦，后端原文展示
@@ -122,7 +130,7 @@ export default function Recycle() {
             {rows.map((row) => (
               <tr key={`${row.type}-${row.id}`}>
                 <td>
-                  <span className={row.type === 'in' ? 'tag tag-in' : 'tag tag-out'}>
+                  <span className={tagClass(row.type)}>
                     {typeLabel(row.type)}
                   </span>
                 </td>
@@ -133,7 +141,10 @@ export default function Recycle() {
                 {money && (
                   <td className="num amount">{formatAmount(row.total_amount)}</td>
                 )}
-                <td className="num">{row.item_count}</td>
+                {/* 合同那条：这里是这张合同下的入库单张数，不是明细行数 */}
+                <td className="num">
+                  {row.type === 'contract' ? `${row.item_count} 张入库单` : row.item_count}
+                </td>
                 <td>{row.deleted_at}</td>
                 <td>
                   <div className="row-actions">
@@ -173,8 +184,11 @@ export default function Recycle() {
           >
             <h2 className="modal-title">彻底删除</h2>
             <p className="confirm-text">
-              确认彻底删除{typeLabel(purgeTarget.type)}单 {purgeTarget.order_no}？
-              明细会一起删掉，此操作不可恢复。
+              确认彻底删除{orderWord(purgeTarget.type)} {purgeTarget.order_no}？
+              {purgeTarget.type === 'contract'
+                ? '它下面的提单、入库单、明细、包会一起物理删掉，合同文件也会删掉，' +
+                  '此操作不可恢复。'
+                : '明细会一起删掉，此操作不可恢复。'}
             </p>
             <div className="confirm-actions">
               <button

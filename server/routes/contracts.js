@@ -138,7 +138,13 @@ function writeFile(contractNo, file) {
   return name
 }
 
-function removeFile(name) {
+/**
+ * 删掉合同 PDF。
+ *
+ * 只给「彻底删除」用（回收站的物理删）：普通删合同是移入回收站，
+ * 文件必须留着，恢复之后还能点开看。
+ */
+export function removeContractFile(name) {
   if (!name) return
   try {
     fs.unlinkSync(path.join(contractDir, name))
@@ -479,7 +485,7 @@ router.post('/', requireCap('contract.write'), upload.single('file'), (req, res)
     }
     res.json({ ok: true, contract_no: contractNo })
   } catch (err) {
-    removeFile(fileName)
+    removeContractFile(fileName)
     if (String(err.message).includes('UNIQUE')) {
       return res.status(400).json({ error: `合同号 ${contractNo} 已存在` })
     }
@@ -578,11 +584,11 @@ router.put('/:id', requireCap('contract.write'), upload.single('file'), (req, re
     )
 
     // 换了文件才删旧的，避免更新失败把原文件弄丢
-    if (newFile && current.file_name) removeFile(current.file_name)
+    if (newFile && current.file_name) removeContractFile(current.file_name)
     if (rawItems) replaceContractItems(id, items)
     res.json({ ok: true, contract_no: contractNo })
   } catch (err) {
-    removeFile(newFile)
+    removeContractFile(newFile)
     if (String(err.message).includes('UNIQUE')) {
       return res.status(400).json({ error: `合同号 ${contractNo} 已存在` })
     }
@@ -590,7 +596,99 @@ router.put('/:id', requireCap('contract.write'), upload.single('file'), (req, re
   }
 })
 
-/* ---------- 删除（软删除，保留文件） ---------- */
+/* ---------- 删除（整串移入回收站，保留文件） ---------- */
+
+/**
+ * 删合同 = **整串移入回收站**。
+ *
+ * 一条合同下面挂着一串东西：提单 → 入库单 → 入库明细 → 包。
+ * 以前只给 contracts 打删除标记，结果是「合同没了、货还在」——
+ * 那些包在单据列表里成了没头没主的孤儿。现在整串一起软删，
+ * 回收站里也有一条「合同」记录，恢复时整串还原。
+ *
+ * 拦一道：合同下的货**已经出库**（包还挂在实际发出的状态上）就不让删 ——
+ * 那批货的账已经进了对方那边，删掉合同等于抹掉来源。
+ * ⚠️ 口径就是 `bales.status = 'shipped'`：出库单被"移入回收站"时，包会立刻
+ * 回到 `in_stock`（outbound.js 的 releaseBalesStmt），所以撤过出库的合同
+ * 不会被误拦 —— 这正是我们要的行为。
+ */
+const shippedCubicStmt = db.prepare(
+  `SELECT ROUND(COALESCE(SUM(b.cubic), 0), 4) AS cubic
+     FROM bales b
+     JOIN inbound_orders o ON o.id = b.inbound_order_id
+    WHERE o.contract_no = ? AND b.status = 'shipped' AND b.deleted_at IS NULL`,
+)
+const liveOrderIdsStmt = db.prepare(
+  `SELECT id FROM inbound_orders WHERE contract_no = ? AND deleted_at IS NULL`,
+)
+const softDeleteContractStmt = db.prepare(
+  `UPDATE contracts SET deleted_at = datetime('now', 'localtime')
+    WHERE id = ? AND deleted_at IS NULL`,
+)
+const softDeleteContractShipmentsStmt = db.prepare(
+  `UPDATE shipments SET deleted_at = datetime('now', 'localtime')
+    WHERE contract_no = ? AND deleted_at IS NULL`,
+)
+
+const removeContract = db.transaction((id) => {
+  const contract = db
+    .prepare(`SELECT id, contract_no FROM contracts WHERE id = ? AND deleted_at IS NULL`)
+    .get(id)
+  if (!contract) {
+    const error = new Error('合同不存在')
+    error.status = 404
+    throw error
+  }
+
+  const shipped = Number(shippedCubicStmt.get(contract.contract_no)?.cubic ?? 0)
+  if (shipped > 0) {
+    const error = new Error(`这张合同下的货已经出库（${shipped} 方），不能删`)
+    error.status = 400
+    throw error
+  }
+
+  /*
+   * 入库单 id 是本库里查出来的整数，拼 IN 列表安全。
+   * contract_items 没有 deleted_at（那张表一直是物理删），所以不用管：
+   * 合同行恢复之后，它下面的明细自然还在。
+   */
+  const orderIds = liveOrderIdsStmt.all(contract.contract_no).map((row) => row.id)
+  const list = orderIds.join(',')
+  const baleCount =
+    orderIds.length > 0
+      ? Number(
+          db
+            .prepare(
+              `SELECT COUNT(*) AS n FROM bales
+                WHERE inbound_order_id IN (${list}) AND deleted_at IS NULL`,
+            )
+            .get()?.n ?? 0,
+        )
+      : 0
+
+  softDeleteContractStmt.run(id)
+  softDeleteContractShipmentsStmt.run(contract.contract_no)
+  if (orderIds.length > 0) {
+    db.prepare(
+      `UPDATE inbound_orders SET deleted_at = datetime('now', 'localtime')
+        WHERE id IN (${list}) AND deleted_at IS NULL`,
+    ).run()
+    db.prepare(
+      `UPDATE order_items SET deleted_at = datetime('now', 'localtime')
+        WHERE order_type = 'in' AND order_id IN (${list}) AND deleted_at IS NULL`,
+    ).run()
+    db.prepare(
+      `UPDATE bales SET deleted_at = datetime('now', 'localtime')
+        WHERE inbound_order_id IN (${list}) AND deleted_at IS NULL`,
+    ).run()
+  }
+
+  return {
+    contract_no: contract.contract_no,
+    order_count: orderIds.length,
+    bale_count: baleCount,
+  }
+})
 
 router.delete('/:id', requireCap('contract.write'), (req, res) => {
   const id = Number(req.params.id)
@@ -598,17 +696,14 @@ router.delete('/:id', requireCap('contract.write'), (req, res) => {
     return res.status(400).json({ error: '合同 ID 不合法' })
   }
 
-  const result = db
-    .prepare(
-      `UPDATE contracts SET deleted_at = datetime('now', 'localtime')
-        WHERE id = ? AND deleted_at IS NULL`,
-    )
-    .run(id)
-
-  if (result.changes === 0) {
-    return res.status(404).json({ error: '合同不存在' })
+  try {
+    res.json({ ok: true, ...removeContract(id) })
+  } catch (err) {
+    if (err.status === 400 || err.status === 404) {
+      return res.status(err.status).json({ error: err.message })
+    }
+    res.status(500).json({ error: err.message })
   }
-  res.json({ ok: true })
 })
 
 export default router

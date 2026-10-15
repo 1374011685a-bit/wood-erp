@@ -1046,10 +1046,19 @@ const softDeleteOrderStmt = db.prepare(
     WHERE id = ? AND deleted_at IS NULL`,
 )
 
-// 撤销出库：发走的码单要退回在库，货才算回到库里
+/*
+ * 撤销出库：发走的码单要退回在库，货才算回到库里。
+ *
+ * ⚠️ 这里**故意不清空 outbound_order_id**：
+ * 清空之后「这张出库单当初发走了哪几包」就没有任何记录了，从回收站恢复这张单时
+ * 包回不到「已出库」—— 库存数字扣回去了，包却还是「在库」，两边对不上
+ * （还能被再发一次，重扣一遍）。指针留着，状态才是唯一口径：
+ * 在库 = status='in_stock'（列表里的「出库单号」也只在 shipped 行显示）。
+ * 撤销 / 恢复是对称的两步，见 recycle.js 的恢复分支。
+ */
 const releaseBalesStmt = db.prepare(
   `UPDATE bales
-      SET status = 'in_stock', outbound_order_id = NULL, shipped_at = NULL
+      SET status = 'in_stock', shipped_at = NULL
     WHERE outbound_order_id = ?`,
 )
 

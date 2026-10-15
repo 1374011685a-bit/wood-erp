@@ -78,7 +78,10 @@ const listSql = (where) => `
          o.order_no AS outbound_order_no
     FROM bales b
     LEFT JOIN shipments s       ON s.id = b.shipment_id
-    LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id
+    -- 只有「已出库」的包才显示出库单号：撤销出库后包回到在库，
+    -- 但 outbound_order_id 指针还留着（恢复那张出库单要用，见 outbound.js），
+    -- 这时候不该再显示那张单的单号
+    LEFT JOIN outbound_orders o ON o.id = b.outbound_order_id AND b.status = 'shipped'
    WHERE b.deleted_at IS NULL ${where}
    ORDER BY b.status = 'in_stock' DESC, b.id DESC
 `
@@ -169,15 +172,22 @@ router.get('/', (req, res) => {
   }
 
   const where = conditions.join(' ')
+  /*
+   * 除了总数，再顺手算「其中在库几个 / 在库多少方」——
+   * 列表头那句「共 N 包（在库 M）· 合计 X m³」要的是**筛选范围内**的口径，
+   * 不是当前页的口径（翻页时数字不应该跳）。
+   * 同一个 WHERE、同一次查询，不额外增加往返。
+   */
   const countSql = `
-    SELECT COUNT(*) AS total
+    SELECT COUNT(*)                                                        AS total,
+           SUM(CASE WHEN b.status = 'in_stock' THEN 1     ELSE 0 END)      AS total_in_stock,
+           SUM(CASE WHEN b.status = 'in_stock' THEN b.cubic ELSE 0 END)    AS cubic_in_stock
       FROM bales b
       LEFT JOIN shipments s ON s.id = b.shipment_id
      WHERE b.deleted_at IS NULL ${where}
   `
-  const total = Number(
-    db.prepare(countSql).get(...params)?.total ?? 0,
-  )
+  const counts = db.prepare(countSql).get(...params) ?? {}
+  const total = Number(counts.total ?? 0)
   const { limit, offset } = pageParams(req.query)
 
   const rows = db
@@ -210,7 +220,14 @@ router.get('/', (req, res) => {
       shipped_at: row.shipped_at,
     }))
 
-  res.json({ total, limit, offset, rows })
+  res.json({
+    total,
+    total_in_stock: Number(counts.total_in_stock ?? 0),
+    cubic_in_stock: roundTo(counts.cubic_in_stock ?? 0, 4),
+    limit,
+    offset,
+    rows,
+  })
 })
 
 /* ---------- 给入库单生成码单 ---------- */

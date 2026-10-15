@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   fetchHomeSummary,
@@ -8,8 +8,7 @@ import {
 import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
 import { formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
-import { seesMoney } from '../permissions'
-import { can } from '../permissions'
+import { can, canVisit, seesMoney } from '../permissions'
 
 const formatMoney = (value: number) =>
   value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -26,6 +25,86 @@ const DIMENSIONS: Array<{ key: HomeCompositionDimension; label: string }> = [
   { key: 'spec', label: '按规格' },
   { key: 'species', label: '按品名' },
   { key: 'grade', label: '按等级' },
+]
+
+/**
+ * 手机端首页的 6 个功能入口（桌面端不渲染 —— 侧边栏里本来就都有）。
+ *
+ * 口径和「单据」入口页一样：进得去才给格子。
+ *   入库 / 出库 是**录单**（今天主要干的活），所以直接进表单，要写权限；
+ *   码单 / 合同 / 库存 是**看**（所有登录角色都能进）。
+ */
+type AppTileCap = 'inbound.write' | 'outbound.write' | 'repack.write'
+
+const APP_TILES: { to: string; label: string; cap?: AppTileCap; icon: ReactNode }[] = [
+  {
+    to: '/inbound/new',
+    label: '入库',
+    cap: 'inbound.write',
+    icon: (
+      <>
+        <path d="M12 3.6v9.8" />
+        <path d="M8.4 9.8 12 13.4l3.6-3.6" />
+        <path d="M4.6 16.4v2.4a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6v-2.4" />
+      </>
+    ),
+  },
+  {
+    to: '/outbound/new',
+    label: '出库',
+    cap: 'outbound.write',
+    icon: (
+      <>
+        <path d="M12 13.4V3.6" />
+        <path d="M8.4 7.2 12 3.6l3.6 3.6" />
+        <path d="M4.6 16.4v2.4a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6v-2.4" />
+      </>
+    ),
+  },
+  {
+    to: '/bales',
+    label: '码单',
+    icon: (
+      <>
+        <path d="M11.5 3.9h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-.3.7l-7.2 7.2a1 1 0 0 1-1.4 0l-6.6-6.6a1 1 0 0 1 0-1.4l6.9-6.9a1 1 0 0 1 .7-.3z" />
+        <circle cx="15.6" cy="8.4" r="1.3" />
+      </>
+    ),
+  },
+  {
+    to: '/repack',
+    label: '改包',
+    cap: 'repack.write',
+    icon: (
+      <>
+        <path d="M7 8.6h8.4a3 3 0 0 1 0 6H7" />
+        <path d="M9.5 6 7 8.6l2.5 2.6" />
+        <path d="M14.5 18 17 15.4l-2.5-2.6" />
+      </>
+    ),
+  },
+  {
+    to: '/contracts',
+    label: '合同',
+    icon: (
+      <>
+        <path d="M6.6 3.5h7.1l4.3 4.3v12.7H6.6z" />
+        <path d="M13.6 3.5v4.4h4.4" />
+        <path d="M9.4 13h5.2M9.4 16.4h5.2" />
+      </>
+    ),
+  },
+  {
+    to: '/stock',
+    label: '库存',
+    icon: (
+      <>
+        <path d="M3.7 7.5 12 3.4l8.3 4.1L12 11.6z" />
+        <path d="M3.7 7.5v9.1l8.3 4 8.3-4V7.5" />
+        <path d="M12 11.6v9" />
+      </>
+    ),
+  },
 ]
 
 /**
@@ -130,35 +209,48 @@ export default function Home() {
   const heroBundles = useCountUp(summary?.total_stock_bundles ?? 0)
   const receivable = useCountUp(summary?.receivable_total ?? 0, 560)
   const payable = useCountUp(summary?.payable_total ?? 0, 560)
+  const todayIn = useCountUp(summary?.today_in_cubic ?? 0, 560)
   const todayOut = useCountUp(summary?.today_out_cubic ?? 0, 560)
   const out30 = useCountUp(summary?.outbound_30d_cubic ?? 0, 560)
 
   const delta = summary?.stock_delta_cubic ?? 0
   const supplyDays = summary?.days_of_supply ?? null
 
+  /** 手机端首页的格子：没权限的入口不显示（和侧边栏一个口径） */
+  const appTiles = APP_TILES.filter((tile) =>
+    tile.cap ? can(role, tile.cap) : canVisit(role, tile.to),
+  )
+
   return (
-    <section>
+    // .page-home 只用来做「手机端要收哪些桌面块」的样式作用域（见 index.css 末尾）
+    <section className="page-home">
       <PageHead
         title="首页"
         subtitle="库存、出货与应收的整体概览"
         extra={
           <>
-            {/* 没权限的功能不给入口，免得点进去被弹回来 */}
-            {canWrite('inbound.write') && (
-              <button className="btn btn-sm" onClick={() => navigate('/inbound/new')}>
-                新增入库
-              </button>
-            )}
-            {canWrite('outbound.write') && (
-              <button className="btn btn-sm" onClick={() => navigate('/outbound/new')}>
-                新增出库
-              </button>
-            )}
-            {canWrite('count.write') && (
-              <button className="btn btn-sm" onClick={() => navigate('/count')}>
-                新增盘点
-              </button>
-            )}
+            {/*
+              三个「新增…」在手机端收起来（宫格里有同样三个入口），留一个刷新。
+              见 index.css 里 `.page-home .home-new-actions` 那条移动端规则。
+            */}
+            <span className="home-new-actions">
+              {/* 没权限的功能不给入口，免得点进去被弹回来 */}
+              {canWrite('inbound.write') && (
+                <button className="btn btn-sm" onClick={() => navigate('/inbound/new')}>
+                  新增入库
+                </button>
+              )}
+              {canWrite('outbound.write') && (
+                <button className="btn btn-sm" onClick={() => navigate('/outbound/new')}>
+                  新增出库
+                </button>
+              )}
+              {canWrite('count.write') && (
+                <button className="btn btn-sm" onClick={() => navigate('/count')}>
+                  新增盘点
+                </button>
+              )}
+            </span>
             <button
               className="btn"
               onClick={() => void load(days, dimension)}
@@ -182,6 +274,96 @@ export default function Home() {
             : null,
         ]}
       />
+
+      {/*
+        手机端（< 768px）的 App 版首页：上面 4 张数字卡、下面 6 个功能入口。
+        桌面端完全不渲染 —— .app-home 的基类就是 display: none，
+        只有移动端媒体查询里才铺开（和底部 Tab 栏一套做法）。
+      */}
+      <div className="app-home">
+        <div className="app-cards">
+          <div className="app-card">
+            <span className="app-card-label">今日入库</span>
+            <span className="app-card-value">
+              {summary ? formatCubic(todayIn) : '—'}
+              <small>立方</small>
+            </span>
+            {money && (
+              <span className="app-card-hint">
+                {summary ? formatMoney(summary.today_in_amount) : '—'} 元
+              </span>
+            )}
+          </div>
+
+          <div className="app-card">
+            <span className="app-card-label">今日出库</span>
+            <span className="app-card-value">
+              {summary ? formatCubic(todayOut) : '—'}
+              <small>立方</small>
+            </span>
+            {money && (
+              <span className="app-card-hint">
+                {summary ? formatMoney(summary.today_out_amount) : '—'} 元
+              </span>
+            )}
+          </div>
+
+          <div className="app-card">
+            <span className="app-card-label">库存总量</span>
+            <span className="app-card-value">
+              {summary ? formatCubic(heroCubic) : '—'}
+              <small>立方</small>
+            </span>
+            <span className="app-card-hint">
+              共 {summary ? formatInt(heroBundles) : '—'} 件
+            </span>
+          </div>
+
+          {/* 看不到金额的角色：这一张改成「库存件数」，不然只能空着 */}
+          {money ? (
+            <div className="app-card">
+              <span className="app-card-label">库存总值</span>
+              <span className="app-card-value">
+                {summary ? formatMoney(heroAmount) : '—'}
+                <small>元</small>
+              </span>
+            </div>
+          ) : (
+            <div className="app-card">
+              <span className="app-card-label">库存件数</span>
+              <span className="app-card-value">
+                {summary ? formatInt(heroBundles) : '—'}
+                <small>件</small>
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="app-grid">
+          {appTiles.map((tile) => (
+            <button
+              key={tile.to}
+              type="button"
+              className="app-tile"
+              onClick={() => navigate(tile.to)}
+            >
+              <svg
+                className="app-tile-icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                {tile.icon}
+              </svg>
+              <span>{tile.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
       <div className="dash">
         {/* 主视觉：手里的货 + 最近到货 */}

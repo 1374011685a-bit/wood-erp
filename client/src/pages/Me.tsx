@@ -4,6 +4,7 @@ import { clearSession, getStoredUsername } from '../api'
 import { PageHead } from '../components/Ui'
 import { useRole } from '../hooks/useRole'
 import { ROLE_LABELS, canVisit } from '../permissions'
+import { APP_VERSION_TEXT } from '../version'
 
 /**
  * 「我的」页 —— 手机上从底部 Tab 进来。
@@ -90,6 +91,9 @@ export default function Me() {
           </span>
         </button>
       </div>
+
+      {/* 版本号：和登录页同源（都读 src/version.ts，值来自根 package.json） */}
+      <p className="me-version">{APP_VERSION_TEXT}</p>
     </section>
   )
 }

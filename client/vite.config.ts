@@ -1,9 +1,20 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import rootPkg from '../package.json'
+
+/**
+ * 版本号的唯一来源：仓库根目录的 package.json。
+ * 构建时用 define 注入成 `__APP_VERSION__`（登录页 / 我的页都读它），
+ * 以后升版本只改 package.json 一处。
+ */
+const appVersion: string = rootPkg.version
 
 // 前端 5173，后端 3001；/api 由前端代理到后端
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
   plugins: [
     react(),
     VitePWA({

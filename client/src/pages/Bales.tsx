@@ -46,6 +46,9 @@ export default function Bales() {
   const navigate = useNavigate()
   const [rows, setRows] = useState<BaleRow[]>([])
   const [total, setTotal] = useState(0)
+  /** 当前筛选范围内的在库包数 / 在库立方（后端随列表一起返回的合计） */
+  const [totalInStock, setTotalInStock] = useState(0)
+  const [cubicInStock, setCubicInStock] = useState(0)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState('')
@@ -165,6 +168,8 @@ export default function Bales() {
         })
         setRows(page.rows)
         setTotal(page.total)
+        setTotalInStock(page.total_in_stock ?? 0)
+        setCubicInStock(page.cubic_in_stock ?? 0)
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载失败')
       } finally {
@@ -285,24 +290,34 @@ export default function Bales() {
   const isMixedShipment = (one: ShipmentRow) =>
     Math.abs(one.bale_cubic - one.original_cubic) >= 0.00005
 
-  /** 「现在」那一列：混过包的标橙字，鼠标悬停说清差额从哪来 */
-  const shipmentNowCell = (one: ShipmentRow) => {
-    const nowText = formatCubic(one.bale_cubic)
-    if (!isMixedShipment(one)) return <td className="num">{nowText}</td>
+  /**
+   * 「现在」那个数的口径（桌面端是表格里的一格，手机端是一行里的文字，
+   * 两处共用一个算法，免得口径走岔）：混过包就带橙字 + 一句说清差额的悬停提示。
+   */
+  const nowInfo = (one: ShipmentRow) => {
+    const text = formatCubic(one.bale_cubic)
+    if (!isMixedShipment(one)) return { text, mixed: false, title: '' }
     const diff = formatCubic(roundTo(Math.abs(one.bale_cubic - one.original_cubic), 4))
     const share =
-      `这一票现在的包合计 ${nowText} 方；原本入库 ${formatCubic(one.original_cubic)} 方，差额 ${diff} 方`
+      `这一票现在的包合计 ${text} 方；原本入库 ${formatCubic(one.original_cubic)} 方，差额 ${diff} 方`
+    return {
+      text,
+      mixed: true,
+      title:
+        one.bale_cubic > one.original_cubic
+          ? `${share}是改包时从别的提单混进来的`
+          : `${share}改包时被并到别的提单的包里了`,
+    }
+  }
+
+  /** 「现在」那一列：混过包的标橙字，鼠标悬停说清差额从哪来 */
+  const shipmentNowCell = (one: ShipmentRow) => {
+    const now = nowInfo(one)
+    if (!now.mixed) return <td className="num">{now.text}</td>
     return (
       <td className="num">
-        <span
-          className="cubic-mixed"
-          title={
-            one.bale_cubic > one.original_cubic
-              ? `${share}是改包时从别的提单混进来的`
-              : `${share}改包时被并到别的提单的包里了`
-          }
-        >
-          {nowText}
+        <span className="cubic-mixed" title={now.title}>
+          {now.text}
         </span>
       </td>
     )
@@ -333,6 +348,43 @@ export default function Bales() {
     const allIn = one.bale_in_stock === one.bale_total
     const text = allIn ? '全部在库' : one.bale_in_stock === 0 ? '全部出库' : '部分出库'
     return <span className={allIn ? 'tag tag-in' : 'tag tag-out'}>{text}</span>
+  }
+
+  /**
+   * L2 手机端的一行：提单号 [标签] ｜ 原 / 现在 ｜ 状态。
+   *
+   * 桌面那张表在手机上八列摊不开（会被渲染成一格一卡的堆叠），所以手机端换成这一行。
+   * 用普通函数而不是组件：它只是拼一段 JSX，定义成组件每次渲染都会换一个新类型。
+   */
+  const shipCompactRow = (
+    row: ShipmentRow,
+    { active, unlinked = false }: { active: boolean; unlinked?: boolean },
+  ) => {
+    const now = nowInfo(row)
+    return (
+      <button
+        type="button"
+        className={active ? 'ship-compact-row is-active' : 'ship-compact-row'}
+        onClick={() => selectShipment(row.id, unlinked ? '' : contract)}
+        title="点一下只看这张提单的包"
+      >
+        <span className="ship-compact-no">
+          {row.bl_no}
+          {/*
+            未关联合同的行不再单独挂标签：它们本来就在「未关联合同的提单」这一小节里，
+            标题已经说清了；小屏上一行放不下这个 5 字标签，会把状态挤到第二行。
+          */}
+          {mixedTag(row)}
+        </span>
+        <span className="ship-compact-cubic">
+          原 {formatCubic(row.original_cubic)} · 现{' '}
+          <b className={now.mixed ? 'cubic-mixed' : undefined} title={now.title}>
+            {now.text}
+          </b>
+        </span>
+        <span className="ship-compact-status">{shipmentStatus(row)}</span>
+      </button>
+    )
   }
 
   /** 「重置」只清关键词和状态，**保留**当前层级（用户定的：甲） */
@@ -429,15 +481,6 @@ export default function Bales() {
     }
   }
 
-  const inStockRows = rows.filter((row) => row.status === 'in_stock')
-  const pageCubic = roundTo(
-    rows.reduce((sum, row) => sum + (row.cubic ?? 0), 0),
-    4,
-  )
-  const inStockCubic = roundTo(
-    inStockRows.reduce((sum, row) => sum + (row.cubic ?? 0), 0),
-    4,
-  )
   const leftTotal = roundTo(
     progress.reduce((sum, row) => sum + (row.left_cubic ?? 0), 0),
     4,
@@ -573,7 +616,8 @@ export default function Bales() {
           {visibleShipments.length === 0 && visibleUnlinked.length === 0 && !shipmentsLoading ? (
             <EmptyState text="这张合同还没有提单" />
           ) : (
-            <table className="table">
+            /* ship-list：L2 提单表（桌面端行高压到 42px、几个列宽写死，见 index.css） */
+            <table className="table ship-list">
               <thead>
                 <tr>
                   <th>提单号</th>
@@ -654,6 +698,36 @@ export default function Bales() {
               另有 {visibleUnlinked.length} 张提单没填合同号，它们的包在「全部合同」下能看到。
             </p>
           )}
+
+          {/*
+            手机端（< 768px）用这一份「一行一条」：提单号 [标签] ｜ 原 / 现在 ｜ 状态。
+            上面那张八列的表手机端整张收起来了（屏幕放不下，摊成一格一卡更难看）。
+            桌面端不渲染这块 —— .ship-compact 的基类就是 display: none。
+          */}
+          <div className="ship-compact">
+            {visibleShipments.length > 0 && (
+              <ul className="ship-compact-list">
+                {visibleShipments.map((row) => (
+                  <li key={row.id}>
+                    {shipCompactRow(row, { active: shipmentId === row.id })}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {visibleUnlinked.length > 0 && (
+              <>
+                <p className="ship-compact-group">未关联合同的提单</p>
+                <ul className="ship-compact-list">
+                  {visibleUnlinked.map((row) => (
+                    <li key={row.id}>
+                      {shipCompactRow(row, { active: shipmentId === row.id, unlinked: true })}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -699,8 +773,11 @@ export default function Bales() {
         </button>
         <span className="spacer" />
         <span className="muted">
-          共 {total} 包 · 本页在库 {inStockRows.length} 包 · 在库 {formatCubic(inStockCubic)} m³ ·
-          本页合计 {formatCubic(pageCubic)} m³
+          {/*
+            去重：原来「在库 1.5246 m³ · 本页合计 1.5246 m³」两个数一样、白占地方。
+            现在只留筛选范围内的两个数：包数（在库几个）+ 在库立方合计。
+          */}
+          共 {total} 包（在库 {totalInStock}） · 合计 {formatCubic(cubicInStock)} m³
         </span>
       </div>
 

@@ -169,7 +169,8 @@ const toolBales = (args) => {
          FROM bales b
          LEFT JOIN shipments s        ON s.id = b.shipment_id
          LEFT JOIN inbound_orders io  ON io.id = b.inbound_order_id
-         LEFT JOIN outbound_orders oo ON oo.id = b.outbound_order_id
+         -- 只有已出库的行才有出库单号（撤销出库后指针还在，状态才是口径）
+         LEFT JOIN outbound_orders oo ON oo.id = b.outbound_order_id AND b.status = 'shipped'
         WHERE b.deleted_at IS NULL ${where}
         ORDER BY b.status = 'in_stock' DESC, b.id DESC
         LIMIT ?`,

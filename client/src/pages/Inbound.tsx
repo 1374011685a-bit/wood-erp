@@ -1130,12 +1130,12 @@ export default function Inbound({
       await deleteInbound(deleteTarget.id)
       setDeleteTarget(null)
       setDetail(null)
-      setNotice('已删除')
+      setNotice(`已把入库单 ${deleteTarget.order_no} 移入回收站`)
       setReloadToken((n) => n + 1)
     } catch (err) {
       // 后端返回的原因（比如删了会超卖）原样展示
       setDeleteTarget(null)
-      setActionError(err instanceof Error ? err.message : '删除失败')
+      setActionError(err instanceof Error ? err.message : '移入回收站失败')
     } finally {
       setDeleting(false)
     }
@@ -1565,6 +1565,7 @@ export default function Inbound({
                           </button>
                           <button
                             className="btn btn-sm btn-danger"
+                            title="移入回收站，可在回收站恢复"
                             onClick={() =>
                               setDeleteTarget({
                                 id: order.id,
@@ -1572,7 +1573,7 @@ export default function Inbound({
                               })
                             }
                           >
-                            删除
+                            移入回收站
                           </button>
                         </>
                       )}
@@ -2036,6 +2037,7 @@ export default function Inbound({
                         </button>
                         <button
                           className="btn btn-sm btn-danger"
+                          title="移入回收站，可在回收站恢复"
                           onClick={() =>
                             setDeleteTarget({
                               id: detail.id,
@@ -2043,7 +2045,7 @@ export default function Inbound({
                             })
                           }
                         >
-                          删除
+                          移入回收站
                         </button>
                       </>
                     )}
@@ -2293,9 +2295,11 @@ export default function Inbound({
             className="modal modal-narrow modal-alert"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="modal-title">删除确认</h2>
+            <h2 className="modal-title">移入回收站</h2>
             <p className="confirm-text">
-              确认删除入库单 {deleteTarget.order_no}？删除后可在回收站恢复。
+              确认把入库单 {deleteTarget.order_no} 移入回收站？
+              <br />
+              库存会退出，之后可以在「回收站」里恢复。
             </p>
             <div className="confirm-actions">
               <button
@@ -2310,7 +2314,7 @@ export default function Inbound({
                 onClick={() => void confirmDelete()}
                 disabled={deleting}
               >
-                {deleting ? '删除中…' : '确认删除'}
+                {deleting ? '处理中…' : '移入回收站'}
               </button>
             </div>
           </div>
