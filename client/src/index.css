@@ -2432,6 +2432,27 @@ section > .toolbar .btn-primary {
  * 改包后：新包挂在哪张提单 / 哪个合同下的**只读**提示。
  * 表单里已经没有这两个输入框了（系统按来源自动挂），用户只需要看结果。
  */
+.loss-warn-icon {
+  margin-left: 6px;
+  color: #b3261e;
+  font-size: 13px;
+  cursor: help;
+}
+
+/*
+ * 改包「丢货」的红色警示：损耗那行整行标红加粗。
+ * 触发条件见 Repack.tsx：改后总立方 < 改前总立方（少了 > 0.0001）。
+ */
+.sheet-table tfoot tr.is-loss-warn > td {
+  background-color: #fdecea;
+  color: #b3261e;
+  font-weight: 600;
+}
+
+.sheet-table tfoot tr.is-loss-warn > td.is-short {
+  color: #b3261e;
+}
+
 .attach-hint {
   margin: 0 0 12px;
   padding: 10px 12px;
@@ -4057,12 +4078,23 @@ section > .toolbar .btn-primary {
 
   /* ---------- 底部固定操作栏：保存（宽）+ 取消 ---------- */
   .card.sheet {
-    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+    /*
+     * 给「保存 / 取消」和底部 Tab 栏各留一份位置：
+     * 92px（原来给按钮的）+ 56px（Tab 栏高）+ 安全区。
+     * 不留的话内容会被两层浮层叠着盖住。
+     */
+    padding-bottom: calc(148px + env(safe-area-inset-bottom));
   }
 
   .sheet-top .btn {
     position: fixed;
-    bottom: calc(10px + env(safe-area-inset-bottom));
+    /*
+     * ⚠️ 手机上底部还有一条 56px 的 Tab 栏（.bottom-nav，z-index 同样 45）。
+     * 原来 `bottom: 10px` 正好落在 Tab 栏底下 —— 入库/出库/改包三个表单的
+     * 「保存」都被压住点不到（实测按钮 754..802、Tab 栏 756..812）。
+     * 所以这里要把按钮抬到 Tab 栏上面：10px 间距 + 56px 栏高 + 安全区。
+     */
+    bottom: calc(66px + env(safe-area-inset-bottom));
     z-index: 45;
     height: 48px;
     border-radius: 14px;

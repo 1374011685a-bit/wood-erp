@@ -177,6 +177,14 @@ export default function Repack() {
   const [baleIds, setBaleIds] = useState<number[]>([])
   /** 弹窗里勾了几个（确认之前只是本地状态）*/
   const [pickerPicked, setPickerPicked] = useState<number[]>([])
+  /**
+   * 勾中的包「是哪一包」——**跨关键词、跨翻页都要记住**。
+   *
+   * ⚠️ 只存 id 是不够的：换关键词或翻页之后 `pickerRows` 换了，
+   * 点「加进本次改包」时按 id 回去找会找不到 → 之前勾的包被静默丢掉
+   * （用户以为选了两包，实际只加进去一包）。所以勾的时候连整行一起存下来。
+   */
+  const [pickerPickedRows, setPickerPickedRows] = useState<Record<number, BaleRow>>({})
   // 选货弹窗
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerQuery, setPickerQuery] = useState({
@@ -232,6 +240,15 @@ export default function Repack() {
    * 所以保存前弹一次确认，点确认才真提交。
    */
   const [splitConfirm, setSplitConfirm] = useState<{ count: number } | null>(null)
+  /** 拆包确认框要不要带 force（从「确认丢弃」过来的时候要带下去） */
+  const [splitForce, setSplitForce] = useState(false)
+  /**
+   * 「改包后总量比改包前少」的确认框。
+   *
+   * 只看总量，不逐行匹配 —— 改包本来就能合并行 / 拆行 / 改规格，
+   * 逐行对会把合法操作误拦（用户把两行合成一行混装行是很常见的做法）。
+   */
+  const [discardConfirm, setDiscardConfirm] = useState<{ missing: number } | null>(null)
   /** 「查看」：只看这条改包的改前 / 改后明细，不改任何东西 */
   const [viewTarget, setViewTarget] = useState<RepackRow | null>(null)
   const [dict, setDict] = useState<{ species: string[]; grade: string[] }>({
@@ -407,6 +424,7 @@ export default function Repack() {
     const fresh = list.filter((row) => !baleIds.includes(row.id))
     setPickerOpen(false)
     setPickerPicked([])
+    setPickerPickedRows({})
     if (fresh.length === 0) return
     try {
       const details = await Promise.all(
@@ -514,6 +532,22 @@ export default function Repack() {
     if (!pickerOpen) return
     void loadPickerRows(pickerQuery, pickerOffset)
   }, [pickerOpen, pickerQuery, pickerOffset, loadPickerRows])
+
+  /**
+   * 勾 / 取消勾一包：id 和整行一起记。
+   * 换关键词、翻页都不会清这个记录 —— 只有「加进本次改包」或重新打开弹窗才清。
+   */
+  const togglePickerPick = (row: BaleRow, checked: boolean) => {
+    setPickerPickedRows((prev) => {
+      const next = { ...prev }
+      if (checked) next[row.id] = row
+      else delete next[row.id]
+      return next
+    })
+    setPickerPicked((prev) =>
+      checked ? [...new Set([...prev, row.id])] : prev.filter((id) => id !== row.id),
+    )
+  }
 
   /**
    * 复制改包前数据 = **每个源包一行**，原样搬过来：不拆、不改。
@@ -728,11 +762,22 @@ export default function Repack() {
     }
 
     /**
+     * 总量比改包前少 = 要丢货了。只比总量（改前总立方 vs 改后总立方），
+     * 不逐行匹配规格 —— 合并行 / 拆行 / 改规格都是合法的。
+     * 先弹确认（默认取消），点「确认丢弃」才带 force 提交。
+     */
+    if (willDiscard > 0.0001) {
+      setDiscardConfirm({ missing: willDiscard })
+      return
+    }
+
+    /**
      * 多行 + 新包号全留空 = 每行各自成一包（拆开），不是合并。
      * 保存前确认一次，避免仓管「想合并」却悄悄拆成了 N 包。
      * 「一键拆包」出来的行豁免（用户已经明确要拆）。
      */
     if (needsSplitConfirm(filled)) {
+      setSplitForce(false)
       setSplitConfirm({ count: filled.length })
       return
     }
@@ -741,12 +786,10 @@ export default function Repack() {
   }
 
   /**
-   * 真正提交（「包号都留空」确认框点「确认继续」也走这里）。
-   *
-   * 改包只允许重组、不允许丢货：源包的货没被完整分配到新包里时，
-   * 后端会 400 拦住（提示去编辑入库单改数量），这里照常把错误弹出来即可。
+   * 真正提交（确认框点「确认继续 / 确认丢弃」也走这里）。
+   * `force` = 用户已经确认过「改包后总量比改包前少」，后端才放行。
    */
-  const submitRepack = async (filled: AfterRow[]) => {
+  const submitRepack = async (filled: AfterRow[], force = false) => {
     setSaving(true)
     try {
       const result = await createRepack({
@@ -754,6 +797,7 @@ export default function Repack() {
         bale_ids: baleIds,
         summary: form.summary.trim(),
         remark: form.remark.trim(),
+        ...(force ? { force: true } : {}),
         // 改前选定的成本价（只有匹配到多个价的行才有值）
         before_prices: Object.fromEntries(
           Object.entries(beforePrices)
@@ -950,6 +994,9 @@ export default function Repack() {
   }
 
   const lossCubic = roundTo(afterCubic - beforeCubic, 4)
+  /** 总量比改包前少 = 要丢货（只比总量，不做逐行匹配） */
+  const willDiscard = roundTo(beforeCubic - afterCubic, 4)
+  const lossIsShort = willDiscard > 0.0001
   // 损耗率 = 损耗方数 ÷ 改前方数
   const lossRate = beforeCubic > 0 ? roundTo((lossCubic / beforeCubic) * 100, 2) : null
   const lossArrow = lossCubic > 0 ? '↑' : lossCubic < 0 ? '↓' : ''
@@ -1110,6 +1157,7 @@ export default function Repack() {
             className="btn btn-sm"
             onClick={() => {
               setPickerPicked([])
+              setPickerPickedRows({})
               setPickerOpen(true)
             }}
           >
@@ -1487,12 +1535,20 @@ export default function Repack() {
                 <td />
               </tr>
               {/*
-                损耗 = 改后 − 改前，只表示立方差。
-                （丢货已经在后端拦住了，这一栏不再承担"丢了多少货"的确认语义。）
+                损耗为负 = 改后总量比改前少（要丢货）→
+                整行红底加粗 + ⚠，鼠标悬停说清丢了多少。
               */}
-              <tr>
+              <tr className={lossIsShort ? 'is-loss-warn' : undefined}>
                 <td colSpan={AFTER_LEAD_COLS} className="sheet-total-label">
                   损耗（改后 − 改前）
+                  {lossIsShort && (
+                    <span
+                      className="loss-warn-icon"
+                      title={`本次改包丢弃了 ${formatCubic(willDiscard)} 方货`}
+                    >
+                      ⚠
+                    </span>
+                  )}
                 </td>
                 <td className={lossCubic < 0 ? 'num is-short' : 'num'}>
                   {formatCubic(lossCubic)} {lossArrow}
@@ -1753,6 +1809,47 @@ export default function Repack() {
         </div>
       )}
 
+      {/*
+        改包后总量比改包前少 = 要丢货。
+        默认「取消」（按钮自动聚焦，回车也是取消），点「确认丢弃」才带 force 保存。
+      */}
+      {discardConfirm && (
+        <div className="overlay" onClick={() => setDiscardConfirm(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="modal-title">注意：改包后总量变少了</h2>
+            <p className="confirm-text">
+              本次改包后总量比改包前少 <strong>{formatCubic(discardConfirm.missing)} 方</strong>，
+              <br />
+              确认要丢掉这些货吗？
+            </p>
+            <div className="confirm-actions">
+              <button className="btn" autoFocus onClick={() => setDiscardConfirm(null)}>
+                取消
+              </button>
+              <button
+                className="btn btn-danger-solid"
+                onClick={() => {
+                  const filled = rows.filter((row) => row.species.trim())
+                  setDiscardConfirm(null)
+                  if (needsSplitConfirm(filled)) {
+                    setSplitForce(true)
+                    setSplitConfirm({ count: filled.length })
+                    return
+                  }
+                  // 用户已经确认「要丢掉这些货」→ 带 force，后端才放行
+                  void submitRepack(filled, true)
+                }}
+              >
+                确认丢弃
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 多行 + 新包号全空：保存前再确认一次「会拆成 N 包」 */}
       {splitConfirm && (
         <div className="overlay" onClick={() => setSplitConfirm(null)}>
@@ -1776,7 +1873,7 @@ export default function Repack() {
                 onClick={() => {
                   setSplitConfirm(null)
                   // 重新按当前表格取一遍行，走同一条提交路径
-                  void submitRepack(rows.filter((row) => row.species.trim()))
+                  void submitRepack(rows.filter((row) => row.species.trim()), splitForce)
                 }}
               >
                 确认继续
@@ -1929,10 +2026,14 @@ export default function Repack() {
               <button
                 className="btn btn-primary"
                 onClick={() =>
-                  // 按"勾选的先后"加进去（用户先勾的那包排在前面，第一个当主包）
+                  /**
+                   * 按「勾选的先后」加进去（用户先勾的那包排在前面，第一个当主包）。
+                   * 用 pickerPickedRows（勾的时候连行一起存下来的）而不是去 pickerRows 里找 ——
+                   * 翻页 / 换关键词之后 pickerRows 已经变了，按 id 找会把早先勾的包丢掉。
+                   */
                   void addPickedBales(
                     pickerPicked
-                      .map((id) => pickerRows.find((one) => one.id === id))
+                      .map((id) => pickerPickedRows[id])
                       .filter((one): one is BaleRow => Boolean(one)),
                   )
                 }
@@ -1953,10 +2054,8 @@ export default function Repack() {
                         pickerRows.every((one) => pickerPicked.includes(one.id))
                       }
                       onChange={(event) =>
-                        setPickerPicked(
-                          event.target.checked
-                            ? [...new Set([...pickerPicked, ...pickerRows.map((one) => one.id)])]
-                            : pickerPicked.filter((id) => !pickerRows.some((one) => one.id === id)),
+                        pickerRows.forEach((one) =>
+                          togglePickerPick(one, event.target.checked),
                         )
                       }
                     />
@@ -1985,13 +2084,7 @@ export default function Repack() {
                         disabled={already}
                         title={already ? '这一包已经在下面了' : '勾选，然后点右上角「加进本次改包」'}
                         checked={already || pickerPicked.includes(row.id)}
-                        onChange={(event) =>
-                          setPickerPicked((prev) =>
-                            event.target.checked
-                              ? [...prev, row.id]
-                              : prev.filter((id) => id !== row.id),
-                          )
-                        }
+                        onChange={(event) => togglePickerPick(row, event.target.checked)}
                       />
                     </td>
                     <td>{row.bale_no || '—'}</td>

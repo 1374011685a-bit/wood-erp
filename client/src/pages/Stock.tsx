@@ -142,6 +142,8 @@ export default function Stock() {
               <th className="num">当前立方</th>
               {/* 加权平均成本价：Σ(入库立方×入库单价) ÷ Σ入库立方。看不到金额的角色整列不显示 */}
               {money && <th className="num">库存均价</th>}
+              {/* 库存金额 = 当前立方 × 均价（和导出的 Excel 同一口径） */}
+              {money && <th className="num">库存金额</th>}
             </tr>
           </thead>
           <tbody>
@@ -156,6 +158,15 @@ export default function Stock() {
                 <td className="num">{row.total_pieces}</td>
                 <td className="num">{formatCubic(row.total_cubic)}</td>
                 {money && <td className="num amount">{formatPrice(row.avg_unit_price)}</td>}
+                {money && (
+                  <td className="num amount">
+                    {formatPrice(
+                      row.avg_unit_price === null
+                        ? null
+                        : roundTo(row.total_cubic * row.avg_unit_price, 2),
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>

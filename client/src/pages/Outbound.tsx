@@ -764,14 +764,14 @@ export default function Outbound({
       await deleteOutbound(deleteTarget.id)
       setDeleteTarget(null)
       setDetail(null)
-      setNotice('已删除')
+      setNotice(`已撤销出库 ${deleteTarget.order_no}，库存已回退`)
       // 出库单删掉后库存回涨，「当前库存」提示要重新取
       requestedSpecs.current.clear()
       setStockMap({})
       setReloadToken((n) => n + 1)
     } catch (err) {
       setDeleteTarget(null)
-      setActionError(err instanceof Error ? err.message : '删除失败')
+      setActionError(err instanceof Error ? err.message : '撤销出库失败')
     } finally {
       setDeleting(false)
     }
@@ -1089,6 +1089,7 @@ export default function Outbound({
                           </button>
                           <button
                             className="btn btn-sm btn-danger"
+                            title="撤销这张出库单：库存会回退，单据进回收站（可恢复）"
                             onClick={() =>
                               setDeleteTarget({
                                 id: order.id,
@@ -1096,7 +1097,7 @@ export default function Outbound({
                               })
                             }
                           >
-                            删除
+                            撤销出库
                           </button>
                         </>
                       )}
@@ -1436,6 +1437,7 @@ export default function Outbound({
                         </button>
                         <button
                           className="btn btn-sm btn-danger"
+                          title="撤销这张出库单：库存会回退，单据进回收站（可恢复）"
                           onClick={() =>
                             setDeleteTarget({
                               id: detail.id,
@@ -1443,7 +1445,7 @@ export default function Outbound({
                             })
                           }
                         >
-                          删除
+                          撤销出库
                         </button>
                       </>
                     )}
@@ -1690,9 +1692,11 @@ export default function Outbound({
             className="modal modal-narrow modal-alert"
             onClick={(event) => event.stopPropagation()}
           >
-            <h2 className="modal-title">删除确认</h2>
+            <h2 className="modal-title">撤销出库</h2>
             <p className="confirm-text">
-              确认删除出库单 {deleteTarget.order_no}？删除后可在回收站恢复。
+              确认撤销这张出库单？（{deleteTarget.order_no}）
+              <br />
+              库存会回退到出库前；单据进回收站，之后还能恢复。
             </p>
             <div className="confirm-actions">
               <button
@@ -1707,7 +1711,7 @@ export default function Outbound({
                 onClick={() => void confirmDelete()}
                 disabled={deleting}
               >
-                {deleting ? '删除中…' : '确认删除'}
+                {deleting ? '撤销中…' : '确认撤销'}
               </button>
             </div>
           </div>

@@ -661,70 +661,21 @@ const createRepack = db.transaction((payload) => {
   )
 
   /**
-   * 「改包丢货」的后端闸。
+   * 「改包丢货」的后端闸：**只看总量**，不做逐行匹配。
    *
-   * 改包的实现是：源包全部删掉，再按「改包后」的行重建新包 ——
-   * 所以只要某个源包的规格行没被列进「改包后」，那一份货就会**从账上消失**
-   * （入库明细被扣光、库存跟着少）。前端保存前会弹确认，这里兜住直接调接口的情况：
-   * 差 > 0.0001 且没带 force → 400。
+   * 为什么不能逐行匹配：改包本来就可以合并行 / 拆行 / 改规格
+   * （两行合成一行混装行、一行拆成几行…），按规格逐行对会把这些合法操作误拦。
    *
-   * 判法和前端完全一致：
-   *   ① 段上带来源包标记（srcBaleId / src_bale_id）→ 直接算给那一包
-   *   ② 手填的段（没标记）→ 按规格匹配这一包还没被覆盖的规格行，同规格只算一次
+   * 规则：
+   *   改后总量 ≥ 改前总量 − 0.0001 → 放行
+   *   改后总量 < 改前总量 − 0.0001 → 少了货：前端先弹确认，
+   *     确认后带 force: true 重发；不带 force 直接调接口就 400。
    */
-  const afterSegments = pricedGroups.flatMap((group) => group.items)
-  const srcBaleOf = (item) => Number(item?.srcBaleId ?? item?.src_bale_id ?? 0)
-  const sameSpec = (line, seg) =>
-    String(line.species ?? '') === String(seg.species ?? '') &&
-    String(line.grade ?? '') === String(seg.grade ?? '') &&
-    Number(line.thickness) === Number(seg.thickness) &&
-    Number(line.width) === Number(seg.width) &&
-    Number(line.length) === Number(seg.length) &&
-    Number(line.pieces) === Number(seg.pieces)
-
-  const discarded = []
-  for (const bale of sources) {
-    const lines = beforeItems.filter((item) => item.src_bale_id === bale.id)
-    const total = roundTo(lines.reduce((sum, line) => sum + Number(line.cubic ?? 0), 0), 4)
-    if (total <= 0) continue
-    let covered = 0
-    for (const seg of afterSegments) {
-      if (srcBaleOf(seg) === bale.id) covered += Number(seg.cubic ?? 0)
-    }
-    const rest = [...lines]
-    for (const seg of afterSegments) {
-      if (srcBaleOf(seg) > 0) continue
-      const at = rest.findIndex((line) => sameSpec(line, seg))
-      if (at < 0) continue
-      covered += Number(rest[at].cubic ?? 0)
-      rest.splice(at, 1)
-    }
-    const gap = roundTo(total - covered, 4)
-    if (gap > 0.0001) {
-      discarded.push({
-        blNo: blNoOfShipment.get(bale.shipment_id)?.bl_no ?? '',
-        baleNo: bale.bale_no ?? '',
-        gap,
-        specs: (rest.length > 0 ? rest : lines).map(
-          (line) => `${line.thickness}×${line.width}×${line.length} / ${line.pieces}片`,
-        ),
-      })
-    }
-  }
-  if (discarded.length > 0) {
-    /**
-     * 改包**只允许重组，不允许丢货**（没有"确认丢弃"这条路）。
-     * 想改数量请去编辑入库单 —— 那是唯一会改「原」的入口。
-     */
+  const missingCubic = roundTo(beforeCubic - afterCubic, 4)
+  if (missingCubic > 0.0001 && payload.force !== true) {
     const error = new Error(
-      discarded
-        .map(
-          (one) =>
-            `源包 ${one.baleNo || '—'}（提单 ${one.blNo || '—'}）的 ${one.gap} 方` +
-            '没有被分配到任何新包里，请检查改包后的行。' +
-            '如果确实要丢弃，请先编辑入库单修改数量，不要用改包丢货。',
-        )
-        .join('；'),
+      `注意：本次改包后总量比改包前少 ${missingCubic} 方，确认要丢掉这些货吗？` +
+        '（要确认丢弃请带 force: true 重发）',
     )
     error.status = 400
     throw error
@@ -1028,6 +979,11 @@ router.post('/', requireCap('repack.write'), (req, res) => {
       remark: String(body.remark ?? '').trim(),
       blNo: String(body.bl_no ?? '').trim(),
       contractNo: String(body.contract_no ?? '').trim(),
+      /**
+       * 前端「确认丢弃」后才带 true。
+       * 不带 = 改后总量比改前少 > 0.0001 直接 400（见 createRepack 里的总量闸）。
+       */
+      force: body.force === true,
       groups,
       // 「改包前」里为某一行手选的成本价：{ [bale_item_id]: 单价 }
       beforePrices: body.before_prices ?? {},
