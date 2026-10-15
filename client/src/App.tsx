@@ -44,6 +44,7 @@ const Users = lazyPage(() => import('./pages/Users'))
 // 手机端底部 Tab 的「单据」和「我的」两个入口页
 const Documents = lazyPage(() => import('./pages/Documents'))
 const Me = lazyPage(() => import('./pages/Me'))
+const Ai = lazyPage(() => import('./pages/Ai'))
 
 export default function App() {
   return (
@@ -84,6 +85,8 @@ export default function App() {
           {/* 手机端底部 Tab 的路由（PC 端也能直接打开） */}
           <Route path="documents" element={<Documents />} />
           <Route path="me" element={<Me />} />
+          {/* AI 助手（DeepSeek） */}
+          <Route path="ai" element={<Ai />} />
           {/* 用户管理：只有管理员进得去（菜单和路由都挡，后端还有 requireCap 兜底） */}
           <Route
             path="users"

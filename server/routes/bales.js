@@ -33,6 +33,24 @@ export const BALE_TEXT_COLS = `
 `
 
 /**
+ * 这一包里「属于它主单」的立方。
+ *
+ * 跨单合并出来的包只挂在**主单**下（`bales.inbound_order_id`），`b.cubic` 是整包合计；
+ * 主单看这一包时得知道"其中多少是我的货"，否则会困惑「这包 8 方，我这单才 3 方」。
+ *
+ * ⚠️ 口径必须和入库单详情（routes/inbound.js 里那段 own_cubic）**逐字一致**：
+ *    - 老数据没有来源标记 → 用 COALESCE 兜底按"算这一包的"归类，
+ *      这样普通包算出来就等于整包立方，前端按"小于才显示 本单/总"处理。
+ */
+export const BALE_OWN_CUBIC_COL = `
+  (SELECT ROUND(COALESCE(SUM(bi.cubic), 0), 4)
+     FROM bale_items bi
+    WHERE bi.bale_id = b.id
+      AND COALESCE(bi.src_inbound_order_id, b.inbound_order_id) = b.inbound_order_id
+  ) AS own_cubic
+`
+
+/**
  * 把上面那三列整理成给前端的字段。
  * `spec_text`：混装时是 `33×22×1.8/2.1/2.4`，单规格时退回原来的 `33×22×2`。
  */
@@ -56,6 +74,7 @@ const listSql = (where) => `
          s.bl_no,
          s.contract_no,
          ${BALE_TEXT_COLS},
+         ${BALE_OWN_CUBIC_COL},
          o.order_no AS outbound_order_no
     FROM bales b
     LEFT JOIN shipments s       ON s.id = b.shipment_id
@@ -93,6 +112,27 @@ router.get('/', (req, res) => {
   if (Number.isInteger(shipmentId) && shipmentId > 0) {
     conditions.push(`AND b.shipment_id = ?`)
     params.push(shipmentId)
+  }
+
+  /**
+   * 精确按合同号筛（采购入库明细三层的第二层：点了合同但还没点提单时，
+   * 下面要看的就是「这张合同下的所有包」）。
+   *
+   * 口径：这一包挂的**提单**属于这个合同 —— 和 L2 提单列表同源，
+   * 三层（合同 → 提单 → 包）共用"提单的合同号"这一个键，不会出现
+   * 「上面列了 3 张提单、下面却少几包」这种事。
+   * 两边都 trim 再比（库里可能存着带空格的号）。
+   * 子查询带上 `deleted_at IS NULL`：和 L2 只列活提单保持一致，
+   * 免得出现「包在 L3 里、它挂的提单却不在 L2 里」。
+   */
+  const contractNo = String(req.query.contract_no ?? '').trim()
+  if (contractNo) {
+    conditions.push(
+      `AND b.shipment_id IN (
+         SELECT id FROM shipments
+          WHERE TRIM(contract_no) = ? AND deleted_at IS NULL)`,
+    )
+    params.push(contractNo)
   }
 
   const species = like(req.query.species)
@@ -161,6 +201,8 @@ router.get('/', (req, res) => {
       length: row.length,
       pieces: row.pieces,
       cubic: roundTo(row.cubic ?? 0, 4),
+      // 整包里属于**主单**的那部分（跨单合并包会小于 cubic）；口径同入库单详情
+      own_cubic: roundTo(row.own_cubic ?? 0, 4),
       // 混装包：长度 / 片数用斜杠串，规格也是（见 BALE_TEXT_COLS 的说明）
       ...baleTextFields(row),
       status: row.status,
@@ -1112,6 +1154,25 @@ export function normalizeBaleItems(rawItems) {
         4,
       ),
       unit_price: Number(raw.unit_price ?? 0),
+      /**
+       * 「这一行是从哪个源包搬过来的 / 属于哪张入库单」——**必须原样透传**。
+       *
+       * 前端在「复制改包前数据」「一键拆包」「复制本行」时都会带上 `srcBaleId`，
+       * 改包后端 `sourceOrderOfSegment()`（routes/repacks.js）就是靠它判断
+       * 「这一行的货到底属于哪张入库单」（优先级链里的第 ② 条）。
+       *
+       * 之前这里重建对象时只留了 10 个字段，把线索丢了 —— 于是只剩"按规格猜"：
+       * 而**重新分配长度/片数本来就是改包的常规操作**，一改就猜不中，
+       * 最后全落到「第一个源包那张入库单」的兜底上。后果有两个：
+       *   1) 跨单合并的账记错（别的单的货算到第一张单名下）；
+       *   2) 「不同提单必须填提单号」这条校验被绕过（两行都被算成同一张单 → 提单"看起来"一致）。
+       */
+      ...(Number(raw.srcBaleId ?? 0) > 0 ? { srcBaleId: Number(raw.srcBaleId) } : {}),
+      ...(Number(raw.src_bale_id ?? 0) > 0 ? { src_bale_id: Number(raw.src_bale_id) } : {}),
+      ...(Number(raw.src_inbound_order_id ?? 0) > 0
+        ? { src_inbound_order_id: Number(raw.src_inbound_order_id) }
+        : {}),
+      ...(raw.src_bale_no ? { src_bale_no: String(raw.src_bale_no) } : {}),
     }
   })
 

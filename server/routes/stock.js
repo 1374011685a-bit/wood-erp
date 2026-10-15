@@ -11,7 +11,7 @@ const roundTo = (value, digits) => Number(value.toFixed(digits))
  * 库存均价：该规格所有入库明细的「Σ(立方×单价) ÷ Σ立方」，即加权平均成本价
  * （按加权平均法，出库按均价带走成本，剩余库存的均价仍是这个值）
  */
-const stockSql = (hasSpeciesFilter) => `
+export const stockSql = (hasSpeciesFilter) => `
   SELECT i.species,
          i.grade,
          i.thickness,

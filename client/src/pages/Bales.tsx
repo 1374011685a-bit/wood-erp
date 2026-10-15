@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   deleteBale,
   fetchBaleDetail,
   fetchBales,
+  fetchShipments,
   fetchContractPicker,
   fetchDict,
   updateBale,
@@ -11,8 +12,10 @@ import {
   type BaleRow,
   type ContractPickerRow,
   type DictAll,
+  type ShipmentRow,
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import Breadcrumb from '../components/Breadcrumb'
 import { roundTo, formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
@@ -77,14 +80,29 @@ export default function Bales() {
   const [progress, setProgress] = useState<ContractPickerRow[]>([])
   const [progressLoading, setProgressLoading] = useState(false)
 
+  /**
+   * 三层结构（合同 → 提单 → 包）的"当前在哪一层"记在**地址栏**里：
+   *   ?contract=A11            → 看这张合同下的所有包
+   *   ?contract=A11&shipment=224 → 再窄到某一张提单
+   *   ?shipment=235            → 没关联合同的提单（只有提单、没有合同）
+   * 好处：刷新、分享链接、浏览器后退都不丢位置。
+   */
+  const [params, setParams] = useSearchParams()
+  const contract = params.get('contract') ?? ''
+  const shipmentId = Number(params.get('shipment')) || 0
+
   const [input, setInput] = useState({
     keyword: '',
     status: '' as '' | 'in_stock' | 'shipped',
-    contract_no: '',
   })
   const [filters, setFilters] = useState({ keyword: '', status: '' as '' | 'in_stock' | 'shipped' })
   const [reloadToken, setReloadToken] = useState(0)
   const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
+
+  /** L2 提单层：这张合同下的提单 + 没填合同号的那几张（底部兜底提示用） */
+  const [shipments, setShipments] = useState<ShipmentRow[]>([])
+  const [unlinkedShipments, setUnlinkedShipments] = useState<ShipmentRow[]>([])
+  const [shipmentsLoading, setShipmentsLoading] = useState(false)
 
   // 编辑码单
   const emptyLine = (): BaleItemLine => ({
@@ -109,15 +127,24 @@ export default function Bales() {
   const load = useCallback(
     async (
       nextFilters: typeof filters,
-      contractNo: string,
+      nextContract: string,
+      nextShipmentId: number,
       nextOffset: number,
     ) => {
       setLoading(true)
       try {
         const page = await fetchBales({
-          keyword:
-            [nextFilters.keyword.trim(), contractNo].filter(Boolean).join(' ') || undefined,
+          keyword: nextFilters.keyword.trim() || undefined,
           status: nextFilters.status,
+          /**
+           * 三层筛选：选了提单就按提单（最精确）；只选合同就按"提单的合同号"筛；
+           * 都没选就不过滤（全部包，含没关联合同那些 → 「全部合同」的兜底）。
+           */
+          ...(nextShipmentId > 0
+            ? { shipment_id: nextShipmentId }
+            : nextContract
+              ? { contract_no: nextContract }
+              : {}),
           limit: PAGE_SIZE,
           offset: nextOffset,
         })
@@ -145,8 +172,44 @@ export default function Bales() {
   }, [])
 
   useEffect(() => {
-    void load(filters, input.contract_no, offset)
-  }, [load, filters, input.contract_no, offset, reloadToken])
+    void load(filters, contract, shipmentId, offset)
+  }, [load, filters, contract, shipmentId, offset, reloadToken])
+
+  /**
+   * L2 提单层的数据。
+   *
+   * 只在"选了合同"或"URL 里带着提单"时才拉；两个都空就清掉（回到「全部合同」）。
+   * `unlinkedShipments` 是没填合同号的提单：
+   *   - 选了合同时 → 在 L2 底部列出来，免得那些货"凭空消失"
+   *   - 只有 ?shipment= 时 → 用它把提单号查出来给面包屑显示
+   */
+  useEffect(() => {
+    if (!contract && !shipmentId) {
+      setShipments([])
+      setUnlinkedShipments([])
+      return
+    }
+    let cancelled = false
+    setShipmentsLoading(true)
+    Promise.all([
+      contract ? fetchShipments({ contract_no: contract, limit: 100 }) : null,
+      fetchShipments({ unlinked: true, limit: 100 }),
+    ])
+      .then(([mine, unlinked]) => {
+        if (cancelled) return
+        setShipments(mine?.rows ?? [])
+        setUnlinkedShipments(unlinked.rows)
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : '加载提单失败')
+      })
+      .finally(() => {
+        if (!cancelled) setShipmentsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [contract, shipmentId, reloadToken])
 
   useEffect(() => {
     void loadProgress()
@@ -165,8 +228,93 @@ export default function Bales() {
     setFilters({ keyword: input.keyword.trim(), status: input.status })
   }
 
+  /**
+   * 换层（点合同 / 点提单 / 面包屑回退）。
+   *
+   * ⚠️ 每次换层都要把 offset 归零：不然在第 2 页点进下一层，会停在一个空页上。
+   * 用 `setParams` 默认的 push，浏览器后退就能回上一层。
+   */
+  const selectContract = (no: string) => {
+    setOffset(0)
+    setParams(no ? { contract: no } : {})
+  }
+
+  const selectShipment = (id: number, keepContract: string) => {
+    setOffset(0)
+    const next: Record<string, string> = {}
+    // 没关联合同的提单：URL 里不写空的 contract（用户定的：只带 shipment）
+    if (keepContract) next.contract = keepContract
+    if (id > 0) next.shipment = String(id)
+    setParams(next)
+  }
+
+  const clearDrill = () => {
+    setOffset(0)
+    setParams({})
+  }
+
+  /** 提单号：两层列表里找一下（URL 直接进来时列表还没回来，先显示 #id，回来会自动刷新） */
+  const blNoOf = (id: number) =>
+    (shipments.find((one) => one.id === id) ?? unlinkedShipments.find((one) => one.id === id))
+      ?.bl_no ?? `#${id}`
+
+  /**
+   * L2 那一行的立方：「在库 X / 原 Y」。
+   *
+   *   在库 = 这一票下**现在活着的包**的立方合计（`bale_cubic`；出库只改包的状态、
+   *          不动立方，所以这个数不会因为发货而变小）
+   *   原   = 这一票**原本入库**的立方（`original_cubic`，入库明细合计；改包不动它）
+   *
+   * 两个数相等 = 这一票没被混过包 → 只显示一个数。
+   * 不等 = 被混过包，两种方向：
+   *   在库 > 原：活包里混进了别的提单的货
+   *   在库 < 原：自己的货被并到别人的包里去了（自己这边就没包了）
+   */
+  const shipmentCubic = (one: ShipmentRow) => {
+    /*
+     * 比大小留一点余量：两个数都是后端 roundTo(...,4) 出来的，
+     * 但来源不同、浮点末位可能差一丝，别因此把「相等」显示成两段。
+     */
+    if (Math.abs(one.bale_cubic - one.original_cubic) < 0.00005) {
+      return formatCubic(one.bale_cubic)
+    }
+    const diff = formatCubic(roundTo(Math.abs(one.bale_cubic - one.original_cubic), 4))
+    const share = `这一票现在的包合计 ${formatCubic(one.bale_cubic)} 方；原本入库 ${formatCubic(one.original_cubic)} 方，差额 ${diff} 方`
+    return (
+      <span
+        title={
+          one.bale_cubic > one.original_cubic
+            ? `${share}是改包时从别的提单混进来的`
+            : `${share}改包时被并到别的提单的包里了`
+        }
+      >
+        在库 {formatCubic(one.bale_cubic)} / 原 {formatCubic(one.original_cubic)}
+      </span>
+    )
+  }
+
+  /**
+   * L2 的状态：这一票的包全在库 / 全出库 / 出一部分。
+   * 特例：自己一个包都不剩、但原本入过库 —— 货是被并进别人的包里了，不是凭空没了。
+   */
+  const shipmentStatus = (one: ShipmentRow) => {
+    if (one.bale_total === 0) {
+      return one.original_cubic > 0 ? (
+        <span className="tag tag-out" title="这一票的货改包时被并到别的提单的包里了，包挂在对方那边">
+          货在别人的包里
+        </span>
+      ) : (
+        <span className="muted">没有包</span>
+      )
+    }
+    const allIn = one.bale_in_stock === one.bale_total
+    const text = allIn ? '全部在库' : one.bale_in_stock === 0 ? '全部出库' : '部分出库'
+    return <span className={allIn ? 'tag tag-in' : 'tag tag-out'}>{text}</span>
+  }
+
+  /** 「重置」只清关键词和状态，**保留**当前层级（用户定的：甲） */
   const handleReset = () => {
-    setInput({ keyword: '', status: '', contract_no: '' })
+    setInput({ keyword: '', status: '' })
     setFilters({ keyword: '', status: '' })
     setOffset(0)
   }
@@ -290,6 +438,31 @@ export default function Bales() {
         subtitle="看货的地方：上面盯合同还差多少方没到，下面一包一行查每一包的状态（提单在「采购入库」里录）"
       />
 
+      {/*
+        面包屑：按地址栏的参数生成，每段点一下退回那一层。
+        最后一段是"当前层"，组件里固定不可点。
+      */}
+      <Breadcrumb
+        items={
+          shipmentId > 0
+            ? [
+                ...(contract
+                  ? [
+                      { label: '全部合同', onClick: clearDrill },
+                      { label: contract, onClick: () => selectContract(contract) },
+                    ]
+                  : [{ label: '全部合同', onClick: clearDrill }]),
+                { label: `提单 ${blNoOf(shipmentId)}` },
+              ]
+            : contract
+              ? [
+                  { label: '全部合同', onClick: clearDrill },
+                  { label: contract },
+                ]
+              : [{ label: '全部合同' }]
+        }
+      />
+
       <ToastHost
         items={[
           notice
@@ -333,13 +506,9 @@ export default function Bales() {
               {progress.map((row) => (
                 <tr
                   key={row.id}
-                  className={input.contract_no === row.contract_no ? 'row-active' : undefined}
-                  onClick={() => {
-                    const next = input.contract_no === row.contract_no ? '' : row.contract_no
-                    setInput((prev) => ({ ...prev, contract_no: next }))
-                    setOffset(0)
-                  }}
-                  title="点一下只看这张合同的包"
+                  className={contract === row.contract_no ? 'row-active' : undefined}
+                  onClick={() => selectContract(contract === row.contract_no ? '' : row.contract_no)}
+                  title="点一下看这张合同的提单和包"
                 >
                   <td>{row.contract_no}</td>
                   <td>{row.partner || '—'}</td>
@@ -367,12 +536,98 @@ export default function Bales() {
           </table>
         )}
         {progressLoading && <Loading />}
-        {input.contract_no && (
+        {contract && (
           <p className="hint" style={{ marginTop: 12 }}>
-            已按合同 {input.contract_no} 筛选下面的包，再点一次那一行可以取消。
+            已按合同 {contract} 筛选；要看某一票就点下面提单那一行，再点一次可以取消。
           </p>
         )}
       </div>
+
+      {/* ---------- L2 提单层：选了合同才出现 ---------- */}
+      {contract && (
+        <div className="drill-panel">
+          <h2 className="section-title">这张合同下的提单</h2>
+          {shipments.length === 0 && unlinkedShipments.length === 0 && !shipmentsLoading ? (
+            <EmptyState text="这张合同还没有提单" />
+          ) : (
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>提单号</th>
+                  <th>供应商</th>
+                  <th>到货日期</th>
+                  <th className="num">包数</th>
+                  <th className="num">在库</th>
+                  <th className="num">立方 (m³)</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              {shipments.length > 0 && (
+                <tbody>
+                  {shipments.map((row) => (
+                    <tr
+                      key={row.id}
+                      className={shipmentId === row.id ? 'row-active' : undefined}
+                      onClick={() => selectShipment(row.id, contract)}
+                      title="点一下只看这张提单的包"
+                    >
+                      <td>{row.bl_no}</td>
+                      <td>{row.supplier || '—'}</td>
+                      <td>{row.arrival_date || '—'}</td>
+                      <td className="num">{row.bale_total}</td>
+                      <td className="num">{row.bale_in_stock}</td>
+                      <td className="num">{shipmentCubic(row)}</td>
+                      <td>{shipmentStatus(row)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              )}
+              {/*
+                没填合同号的提单：单独一段列在下面。
+                不列的话，这些货在"按合同筛"的时候会凭空消失 ——
+                它们的包只有回到「全部合同」才看得到。
+              */}
+              {unlinkedShipments.length > 0 && (
+                <>
+                  <tbody>
+                    <tr>
+                      <td colSpan={7} className="ship-group">
+                        未关联合同的提单
+                      </td>
+                    </tr>
+                  </tbody>
+                  <tbody>
+                    {unlinkedShipments.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={shipmentId === row.id ? 'row-active' : undefined}
+                        onClick={() => selectShipment(row.id, '')}
+                        title="这张提单没填合同号；点一下只看它的包"
+                      >
+                        <td>
+                          {row.bl_no} <span className="tag tag-out">未关联合同</span>
+                        </td>
+                        <td>{row.supplier || '—'}</td>
+                        <td>{row.arrival_date || '—'}</td>
+                        <td className="num">{row.bale_total}</td>
+                        <td className="num">{row.bale_in_stock}</td>
+                        <td className="num">{shipmentCubic(row)}</td>
+                        <td>{shipmentStatus(row)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </>
+              )}
+            </table>
+          )}
+          {shipmentsLoading && <Loading />}
+          {unlinkedShipments.length > 0 && (
+            <p className="hint" style={{ marginTop: 12 }}>
+              另有 {unlinkedShipments.length} 张提单没填合同号，它们的包在「全部合同」下能看到。
+            </p>
+          )}
+        </div>
+      )}
 
       {/* 包明细 */}
       <div className="toolbar">
@@ -407,7 +662,7 @@ export default function Bales() {
           重置
         </button>
         <button
-          className="btn btn-primary"
+          className="btn"
           disabled={labelPicked.length === 0}
           title={labelPicked.length === 0 ? '先勾选要打印的包' : '打印这些小标签'}
           onClick={() => navigate(`/label/print?ids=${labelPicked.join(',')}`)}
@@ -422,7 +677,11 @@ export default function Bales() {
       </div>
 
       <div className="card">
-        {/* bales-table：只在桌面端冻结「勾选 + 包号」两列（横滑时钉在左边） */}
+        <div className="l3-head">
+          <h2 className="section-title">包明细</h2>
+          <span className="l3-sub">共 {total} 包</span>
+        </div>
+        {/* bales-table：只在桌面端冻结「勾选 + 包号 + 条码号」三列（横滑时钉在左边） */}
         <table className="table bales-table">
           <thead>
             <tr>
@@ -468,7 +727,11 @@ export default function Bales() {
                     }
                   />
                 </td>
-                <td>{row.bale_no || '—'}</td>
+                {/*
+                  包号列宽被冻结区写死了 64px：长包号（W-MIX-TEST-LONG）只能省略号截断，
+                  所以挂个 title，鼠标悬停能看到完整包号。
+                */}
+                <td title={row.bale_no || undefined}>{row.bale_no || '—'}</td>
                 <td>{row.barcode || '—'}</td>
                 <td>{row.box_no || '—'}</td>
                 <td>{row.bl_no || '—'}</td>
@@ -480,7 +743,26 @@ export default function Bales() {
                 <td className="num">{row.width}</td>
                 <td className="num">{row.length_text ?? row.length}</td>
                 <td className="num">{row.pieces_text ?? row.pieces}</td>
-                <td className="num">{formatCubic(row.cubic)}</td>
+                {/*
+                  跨单合并包只挂在主单下：整包 8 方、其中主单 3 方。
+                  主单那份小于整包时显示「3 / 8」（本单 / 总），鼠标悬停说清差额；
+                  普通包（两个数相等）还是一个数字 —— 口径和入库单详情完全一致。
+                */}
+                <td className="num">
+                  {row.own_cubic < row.cubic ? (
+                    <span
+                      title={
+                        `这一包 ${formatCubic(row.cubic)} 方，` +
+                        `其中 ${formatCubic(row.own_cubic)} 方来自本单，` +
+                        `${formatCubic(roundTo(row.cubic - row.own_cubic, 4))} 方来自其他入库单`
+                      }
+                    >
+                      {formatCubic(row.own_cubic)} / {formatCubic(row.cubic)}
+                    </span>
+                  ) : (
+                    formatCubic(row.cubic)
+                  )}
+                </td>
                 <td>
                   <span className={row.status === 'in_stock' ? 'tag tag-in' : 'tag tag-out'}>
                     {STATUS_TEXT[row.status]}

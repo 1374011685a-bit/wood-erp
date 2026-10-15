@@ -1088,7 +1088,7 @@ export default function Repack() {
         <div className="sheet-toolbar">
           <span className="section-tag">改包前</span>
           <button
-            className="btn btn-sm btn-primary"
+            className="btn btn-sm"
             onClick={() => {
               setPickerPicked([])
               setPickerOpen(true)
@@ -1260,7 +1260,7 @@ export default function Repack() {
           </button>
           {/* 只有混装包（一包多行规格）才需要拆，其余情况置灰并说明原因 */}
           <button
-            className="btn btn-sm btn-primary"
+            className="btn btn-sm"
             onClick={splitByLength}
             disabled={!isMixedBale}
             title={

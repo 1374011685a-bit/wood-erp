@@ -160,7 +160,7 @@ export default function Dict() {
                   if (event.key === 'Enter') void handleAdd(column)
                 }}
               />
-              <button className="btn btn-primary" onClick={() => void handleAdd(column)}>
+              <button className="btn" onClick={() => void handleAdd(column)}>
                 添加
               </button>
             </div>

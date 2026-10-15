@@ -43,6 +43,15 @@ export default function Me() {
       </div>
 
       <div className="card entry-list">
+        <button type="button" className="entry-item" onClick={() => navigate('/ai')}>
+          <span className="entry-main">
+            <span className="entry-label">AI 助手</span>
+            <span className="entry-hint">接 DeepSeek，问点什么都行</span>
+          </span>
+          <span className="entry-arrow" aria-hidden="true">
+            ›
+          </span>
+        </button>
         <button type="button" className="entry-item" onClick={openPassword}>
           <span className="entry-main">
             <span className="entry-label">修改密码</span>

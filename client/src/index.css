@@ -20,12 +20,22 @@
   --text-2: #6e6e73;
   --text-3: #86868b;
 
-  --blue: #0071e3;
   --red: #ff3b30;
   --green: #34c759;
   --orange: #ff9500;
-  /* 品牌主色（深棕）：手机底部 Tab 的选中态用 */
+  /*
+   * 品牌主色（深棕）—— 全站的**主题色**：
+   * 主按钮、链接、focus 描边、选中态、区块小标签都用它。
+   * 绿 / 橙 / 红仍然只表示状态（在库 / 部分发货 / 删除），不参与主题。
+   */
   --brand: #6b4a2f;
+
+  /*
+   * 图表系列色（首页「出库走势 / 库存构成」用的那一套）里的第一个：iOS 蓝。
+   * 这是**数据区分**用的颜色，不是品牌色 —— 不跟主色走。
+   * 首页数字卡片标签前的小圆点也用它，好和下面的图表对上。
+   */
+  --chart-blue: #0a84ff;
 
   /* 圆角 */
   --r-card: 16px;
@@ -515,7 +525,21 @@ input[inputmode='decimal'] {
     background-color: #fff5f5;
   }
 
-  /* 采购入库明细：勾选 44px + 包号 64px = 冻结 108px */
+  /*
+   * 采购入库明细：冻结**前三列** —— 勾选 44 + 包号 64 + 条码号（自适应）= 起 108px。
+   *
+   * 为什么连条码号一起冻：
+   *   条码号就是"要打印贴包上的那张码"，横滑找货时最常看它。
+   *   只冻前两列的话，一横滑它就被包号列盖掉（只露半个字），
+   *   看起来像"两列重叠/错位"——用户报的就是这个。
+   *
+   * 为什么前两列必须写死宽度：
+   *   sticky 的 `left` 是绝对值，第 3 列的 left = 第 1 列宽 + 第 2 列宽。
+   *   前两列一旦被内容撑宽，后面的偏移就全错位。
+   *   ⚠️ 第 2 列原来只写了 `width` 没写 `max-width` —— 表格自动布局下 `width` 只是建议值，
+   *   一个长包号（如 `W-MIX-TEST-LONG`）就能把 64px 的列撑到 140px（实测），
+   *   冻结区跟着胖一圈。所以这里宽度三兄弟写全 + 省略号。
+   */
   .bales-table thead th:nth-child(1),
   .bales-table tbody td:nth-child(1) {
     position: sticky;
@@ -533,16 +557,30 @@ input[inputmode='decimal'] {
     z-index: 4;
     width: 64px;
     min-width: 64px;
+    max-width: 64px;
     padding: 0 10px;
+    /* 包号再长也只占 64px：省略号截断，绝不让它把冻结区撑宽 */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .bales-table tbody td:nth-child(-n + 2) {
+  /* 条码号也跟着钉住；宽度让它按内容自适应（包号那边才是必须写死的） */
+  .bales-table thead th:nth-child(3),
+  .bales-table tbody td:nth-child(3) {
+    position: sticky;
+    left: 108px;
+    z-index: 4;
+    white-space: nowrap;
+  }
+  .bales-table tbody td:nth-child(-n + 3) {
     background-color: var(--panel);
   }
-  .bales-table thead th:nth-child(-n + 2) {
+  .bales-table thead th:nth-child(-n + 3) {
     background-color: #fafafc;
   }
-  .bales-table thead th:nth-child(2)::after,
-  .bales-table tbody td:nth-child(2)::after {
+  /* 冻结区右侧的竖线：画在**最后一列冻结列**（条码号）上 */
+  .bales-table thead th:nth-child(3)::after,
+  .bales-table tbody td:nth-child(3)::after {
     content: '';
     position: absolute;
     top: 0;
@@ -551,8 +589,25 @@ input[inputmode='decimal'] {
     width: 1px;
     background-color: #c9c9cf;
   }
-  .bales-table tbody tr:hover td:nth-child(-n + 2) {
+  .bales-table tbody tr:hover td:nth-child(-n + 3) {
     background-color: #fafafb;
+  }
+
+  /*
+   * 冻结区内部不放竖线：这 3 列是一起钉住的「一整块」，
+   * 内部再插两条短竖线（列分隔线），横滑时看着像三张独立的小表，很吵。
+   * 只留最右边那条分界竖线 —— 就是上面挂在条码号上的 `::after`。
+   *
+   * 第 4 列（柜号）自己的左分隔线正好压在这条分界线上，
+   * 两条 1px 挨着会看成 2px 的粗线，所以一并去掉（它本来也不该出现在冻结区边上）。
+   */
+  .bales-table thead th:nth-child(2)::before,
+  .bales-table tbody td:nth-child(2)::before,
+  .bales-table thead th:nth-child(3)::before,
+  .bales-table tbody td:nth-child(3)::before,
+  .bales-table thead th:nth-child(4)::before,
+  .bales-table tbody td:nth-child(4)::before {
+    display: none;
   }
 }
 
@@ -841,6 +896,126 @@ input[inputmode='decimal'] {
     max-width: none;
     padding: 0;
   }
+}
+
+/*
+ * 面包屑：我在哪一层。用在「采购入库明细」的三层结构上
+ * （全部合同 › A11 › 提单 C1），每段点一下就能退回去。
+ */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 做成一条"控件"而不是一行小字：浅底 + 圆角 + 自己撑宽 */
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 18px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background-color: #f7f1ea;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+  /* 层数多了不换行，让它横向滑（手机端尤其要紧） */
+  overflow-x: auto;
+  white-space: nowrap;
+  -webkit-overflow-scrolling: touch;
+}
+
+.breadcrumb-item {
+  /* 不让 flex 把每段压扁，否则溢出时字先被挤没 */
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.breadcrumb-sep {
+  color: var(--text-3);
+}
+
+.breadcrumb-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  cursor: pointer;
+  /* 能点的段带下划线，一眼看出"这里能点" */
+  text-decoration: underline;
+  text-decoration-color: rgba(107, 74, 47, 0.4);
+  text-underline-offset: 3px;
+  transition: color var(--ease), text-decoration-color var(--ease);
+}
+
+.breadcrumb-link:hover {
+  color: var(--brand);
+  text-decoration-color: currentColor;
+}
+
+/* 当前层：深色加粗、不带下划线（不可点） */
+.breadcrumb-current {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* 提单列表里「未关联合同的提单」那段的小标题 */
+.table td.ship-group {
+  padding-top: 18px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: var(--track-caps);
+}
+
+/*
+ * L2（提单层）：**故意不跟 L1 抢"卡片"的身份**。
+ * L1 是白底 + 阴影的卡片，L2 就用浅底、无阴影、左侧一条主色引导线 ——
+ * 三层看起来才是"往里钻"（合同 → 提单 → 包），而不是三张平铺的白卡。
+ */
+.drill-panel {
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--brand);
+  border-radius: 12px;
+  background-color: var(--panel-soft);
+  box-shadow: none;
+  margin-bottom: 20px;
+}
+
+/* L2 的标题比 L1 轻一档：字号小、字重轻、不带 L1 那条长分隔线 */
+.drill-panel .section-title {
+  margin-bottom: 12px;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* 浅底块上的表头不能用原来的浅灰（会和底色糊一起），改成透明 + 一条底线 */
+.drill-panel .table th {
+  background-color: transparent;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.drill-panel .table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* L3 的表头行：标题 + 「共 N 包」副标题 */
+.l3-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.l3-head .section-title {
+  flex: none;
+}
+
+.l3-sub {
+  font-size: 13px;
+  color: var(--text-2);
 }
 
 .page-head {
@@ -1494,7 +1669,7 @@ button.mini-card:hover {
 }
 
 ::selection {
-  background-color: rgba(0, 113, 227, 0.18);
+  background-color: rgba(107, 74, 47, 0.18);
 }
 
 .stat-card:hover {
@@ -1524,7 +1699,8 @@ button.mini-card:hover {
 }
 
 .stat-blue .stat-label::before {
-  background-color: var(--blue);
+  /* 数据区分的蓝（和首页图表系列色一致），不是品牌色 */
+  background-color: var(--chart-blue);
 }
 
 .stat-orange .stat-label::before {
@@ -1678,11 +1854,11 @@ section > .toolbar .btn-primary {
 }
 
 .login-card .input:-webkit-autofill:focus {
-  border-color: var(--blue);
+  border-color: var(--brand);
   -webkit-box-shadow: 0 0 0 100px #ffffff inset,
-    0 0 0 4px rgba(0, 113, 227, 0.18) !important;
+    0 0 0 4px rgba(107, 74, 47, 0.2) !important;
   box-shadow: 0 0 0 100px #ffffff inset,
-    0 0 0 4px rgba(0, 113, 227, 0.18) !important;
+    0 0 0 4px rgba(107, 74, 47, 0.2) !important;
 }
 
 .input:hover {
@@ -1691,8 +1867,8 @@ section > .toolbar .btn-primary {
 
 .input:focus {
   background-color: #ffffff;
-  border-color: var(--blue);
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.18);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px rgba(107, 74, 47, 0.2);
 }
 
 .input-cell {
@@ -1786,23 +1962,23 @@ section > .toolbar .btn-primary {
 }
 
 .btn-primary {
-  background-color: #0071e3;
+  background-color: var(--brand);
   background-image: none;
-  border-color: #006ad6;
+  border-color: #5c3f28;
   color: #ffffff;
   font-weight: 500;
-  box-shadow: 0 1px 1.5px rgba(0, 80, 170, 0.3);
+  box-shadow: 0 1px 1.5px rgba(74, 50, 30, 0.3);
 }
 
 .btn-primary:hover {
-  background-color: #0077ed;
-  border-color: #0071e3;
-  box-shadow: 0 2px 6px rgba(0, 90, 190, 0.32);
+  background-color: #7d5738;
+  border-color: var(--brand);
+  box-shadow: 0 2px 6px rgba(107, 74, 47, 0.32);
 }
 
 .btn-primary:active {
-  background-color: #006edb;
-  border-color: #0066cc;
+  background-color: #5c3f28;
+  border-color: #523626;
 }
 
 .btn-danger {
@@ -2105,14 +2281,14 @@ section > .toolbar .btn-primary {
 /* 键盘操作的焦点环（鼠标点击不显示），更接近系统控件的手感 */
 :focus-visible {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.28);
+  box-shadow: 0 0 0 4px rgba(107, 74, 47, 0.32);
 }
 
 .btn:focus-visible,
 .input:focus-visible,
 .nav-item:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.28);
+  box-shadow: 0 0 0 4px rgba(107, 74, 47, 0.32);
 }
 
 .modal-narrow {
@@ -2393,8 +2569,8 @@ section > .toolbar .btn-primary {
 }
 
 .box-card.is-active {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.14);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(107, 74, 47, 0.16);
 }
 
 .box-no {
@@ -2420,7 +2596,7 @@ section > .toolbar .btn-primary {
   padding: 0;
   border: none;
   background: transparent;
-  color: var(--blue);
+  color: var(--brand);
   font-family: inherit;
   font-size: inherit;
   line-height: inherit;
@@ -2430,7 +2606,7 @@ section > .toolbar .btn-primary {
 }
 
 .link-btn:hover:not(:disabled) {
-  color: #0077ed;
+  color: #8a5f3c;
   text-decoration: underline;
 }
 
@@ -2511,7 +2687,8 @@ section > .toolbar .btn-primary {
 
 .toast-info::before {
   content: 'i';
-  color: var(--blue);
+  /* 提示图标是"中性信息"，不是主色：用灰的（和关闭按钮同一档） */
+  color: var(--text-3);
 }
 
 .toast-text {
@@ -3160,8 +3337,8 @@ section > .toolbar .btn-primary {
 }
 
 .login-card .input:focus {
-  border-color: var(--blue);
-  box-shadow: 0 0 0 4px rgba(0, 113, 227, 0.18);
+  border-color: var(--brand);
+  box-shadow: 0 0 0 4px rgba(107, 74, 47, 0.2);
 }
 
 .login-error {
@@ -3176,8 +3353,8 @@ section > .toolbar .btn-primary {
   margin: 14px 0 0;
   padding: 9px 12px;
   border-radius: 10px;
-  background-color: #eef6ff;
-  color: #0b62c4;
+  background-color: #f7f1ea;
+  color: #6b4a2f;
   font-size: 13px;
   line-height: 1.5;
 }
@@ -3189,26 +3366,26 @@ section > .toolbar .btn-primary {
   font-size: 15px;
 }
 
-/* 主按钮用苹果的蓝（appleid 的登录按钮就是这个色，扁平不带高光） */
+/* 登录按钮跟品牌色走（扁平不带高光） */
 .login-card .login-button.btn-primary {
-  background-color: #0071e3;
+  background-color: var(--brand);
   background-image: none;
-  border-color: #0071e3;
+  border-color: var(--brand);
   color: #ffffff;
   font-weight: 400;
   box-shadow: none;
 }
 
 .login-card .login-button.btn-primary:hover {
-  background-color: #0077ed;
-  border-color: #0077ed;
+  background-color: #7d5738;
+  border-color: #7d5738;
   transform: none;
   box-shadow: none;
 }
 
 .login-card .login-button.btn-primary:active {
-  background-color: #006edb;
-  border-color: #006edb;
+  background-color: #5c3f28;
+  border-color: #5c3f28;
   transform: none;
   box-shadow: none;
 }
@@ -3219,7 +3396,7 @@ section > .toolbar .btn-primary {
   padding: 4px 6px;
   border: none;
   background: transparent;
-  color: #0071e3;
+  color: var(--brand);
   font-size: 13px;
   font-family: inherit;
   cursor: pointer;
@@ -3227,7 +3404,7 @@ section > .toolbar .btn-primary {
 }
 
 .login-forgot:hover {
-  color: #0077ed;
+  color: #8a5f3c;
   text-decoration: underline;
 }
 
@@ -3406,16 +3583,16 @@ section > .toolbar .btn-primary {
 }
 
 .method-option.is-active {
-  border-color: var(--blue);
-  background-color: #f5faff;
-  box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+  border-color: var(--brand);
+  background-color: #faf6f1;
+  box-shadow: 0 0 0 3px rgba(107, 74, 47, 0.14);
 }
 
 .method-option input[type='radio'] {
   flex: none;
   width: 18px;
   height: 18px;
-  accent-color: var(--blue);
+  accent-color: var(--brand);
 }
 
 .method-body {
@@ -3449,7 +3626,7 @@ section > .toolbar .btn-primary {
 .method-picked b {
   font-size: 14px;
   font-weight: 600;
-  color: var(--blue);
+  color: var(--brand);
 }
 
 .method-picked i {
@@ -3468,9 +3645,50 @@ section > .toolbar .btn-primary {
   border-top: 1px solid var(--line);
 }
 
-/* 大页面里选中那一行的底色 */
-.table tbody tr.row-active {
-  background-color: #eef6ff;
+/*
+ * 选中那一行：左侧 3px 主色竖条 + 淡底。
+ *
+ * ⚠️ 底色必须画在 **td** 上，不能画在 tr 上：
+ *    悬停底色（`.table tbody tr:hover td`，见上面 1900 行附近）画在 td 上，
+ *    而 td 的背景盖在 tr 之上 —— 点完鼠标正好还停在那一行，
+ *    画在 tr 上的底色当场就被 hover 的浅灰盖住，看起来跟没点一样。
+ *    这条规则在文件里排在 hover 之后，同权重后来者胜，所以压得住。
+ */
+.table tbody tr.row-active td {
+  background-color: #fdf8f2;
+}
+
+/*
+ * 竖条只在桌面端画。
+ * 手机端卡片视图把 `td::before` 征用去显示字段名了（见上面的 `.table-cards td::before`），
+ * 这里再用 `:first-child::before` 会把第一个字段的名字顶掉。
+ */
+@media (min-width: 768px) {
+  .table tbody tr.row-active td:first-child {
+    /* 第一列原本没有 position（只有 `td + td` 有），给 ::before 当定位基准 */
+    position: relative;
+  }
+
+  .table tbody tr.row-active td:first-child::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background-color: var(--brand);
+  }
+}
+
+/* 手机端卡片模式：整张卡片一起淡底，别只染里面几行 */
+@media (max-width: 767px) {
+  .table-cards tbody tr.row-active {
+    background-color: #fdf8f2;
+  }
+
+  .table-cards tbody tr.row-active td {
+    background-color: transparent;
+  }
 }
 
 /* 出库明细里：上面一行包号，下面一行条码号 */
@@ -3668,8 +3886,8 @@ section > .toolbar .btn-primary {
   flex: none;
   padding: 3px 10px;
   border-radius: var(--r-pill);
-  background-color: #eef6ff;
-  color: var(--blue);
+  background-color: #f7f1ea;
+  color: var(--brand);
   font-size: 12.5px;
   font-weight: 600;
 }
@@ -3710,7 +3928,7 @@ section > .toolbar .btn-primary {
 
 .sheet-input:focus {
   background-color: #ffffff;
-  box-shadow: inset 0 0 0 2px var(--blue);
+  box-shadow: inset 0 0 0 2px var(--brand);
 }
 
 /* 需要用户先确认的输入（同一规格匹配到多个成本价） */
@@ -3982,7 +4200,7 @@ section > .toolbar .btn-primary {
 
   .sheet-cards .sheet-input:focus {
     background-color: #ffffff;
-    box-shadow: inset 0 0 0 2px var(--blue);
+    box-shadow: inset 0 0 0 2px var(--brand);
   }
 
   .sheet-cards .sheet-input.input-locked {
@@ -4373,7 +4591,7 @@ section > .toolbar .btn-primary {
   padding: 0;
   border: none;
   background: none;
-  color: var(--blue);
+  color: var(--brand);
   font-size: inherit;
   font-family: inherit;
   text-decoration: underline;
@@ -4678,6 +4896,124 @@ section > .toolbar .btn-primary {
   }
   to {
     transform: translateY(0);
+  }
+}
+
+/* ---------- AI 助手（对话页） ---------- */
+
+.ai-page {
+  display: flex;
+  flex-direction: column;
+}
+
+.ai-card {
+  display: flex;
+  flex-direction: column;
+  /* 手机端底部有 Tab 栏，别把输入框顶到它下面 */
+  max-height: calc(100vh - 260px);
+  min-height: 320px;
+}
+
+.ai-list {
+  flex: 1;
+  min-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 2px 16px;
+}
+
+.ai-empty {
+  margin: 0;
+  padding: 28px 8px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+
+.ai-bubble {
+  max-width: 82%;
+  padding: 11px 14px;
+  border-radius: 14px;
+  background-color: var(--panel-soft);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.65;
+  /* 回复里的换行 / 空格原样保留，不做 Markdown 渲染 */
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ai-bubble-user {
+  align-self: flex-end;
+  background-color: var(--brand);
+  color: #ffffff;
+}
+
+.ai-bubble-typing {
+  align-self: flex-start;
+  color: var(--text-2);
+}
+
+/* 「已查询：库存 / 码单」——让用户知道这个数字是查出来的，不是编的 */
+.ai-tools {
+  display: block;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line-strong);
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.ai-error {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid #ffd7d2;
+  border-radius: 10px;
+  background-color: #fff5f4;
+  color: #b3261e;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ai-compose {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.ai-input {
+  flex: 1;
+  height: auto;
+  min-height: 44px;
+  padding: 11px 14px;
+  resize: none;
+  line-height: 1.5;
+}
+
+.ai-send {
+  flex: none;
+  height: 44px;
+  padding: 0 20px;
+}
+
+@media (max-width: 767px) {
+  .ai-card {
+    /* 手机上高度按可视区算，输入框跟着 Tab 栏上方走 */
+    max-height: calc(100vh - 300px);
+  }
+
+  .ai-bubble {
+    max-width: 88%;
+    font-size: 15px;
+  }
+
+  .ai-input {
+    font-size: 16px; /* 手机上别让 iOS 自动放大 */
   }
 }
 

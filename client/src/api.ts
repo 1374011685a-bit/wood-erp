@@ -810,6 +810,19 @@ export type ShipmentRow = {
   bale_total: number
   bale_in_stock: number
   bale_cubic: number
+  /**
+   * 这一票里**属于本提单**的立方（跨提单合并进来的货不算）。
+   * 小于 `bale_cubic` 时界面上显示「本单 / 总」。
+   */
+  own_cubic: number
+  /**
+   * 这一票「原本入库」的立方 —— 入库明细（order_items）的合计。
+   * 改包是按每行的来源单各挂各的单，所以这个数**改包前后不变**；出库也不动它。
+   * `bale_cubic !== original_cubic` = 这一票被改包混过：
+   *   大于 = 活包里混进了别的提单的货；小于 = 自己的货被并到别人的包里了。
+   */
+  original_cubic: number
+  box_count: number
   created_at: string
 }
 
@@ -832,10 +845,21 @@ export function fetchShipmentOptions() {
 
 // 提单列表（一票到货 = 一张提单，下面直接是包）
 export function fetchShipments(
-  query: { keyword?: string; supplier?: string; limit?: number; offset?: number } = {},
+  query: {
+    keyword?: string
+    /** 精确按合同号筛（采购入库明细三层用） */
+    contract_no?: string
+    /** 只要「没填合同号」的那几张提单（底部兜底提示用） */
+    unlinked?: boolean
+    supplier?: string
+    limit?: number
+    offset?: number
+  } = {},
 ) {
   const search = new URLSearchParams()
   if (query.keyword) search.set('keyword', query.keyword)
+  if (query.contract_no) search.set('contract_no', query.contract_no)
+  if (query.unlinked) search.set('unlinked', '1')
   if (query.supplier) search.set('supplier', query.supplier)
   if (query.limit) search.set('limit', String(query.limit))
   if (query.offset) search.set('offset', String(query.offset))
@@ -882,6 +906,12 @@ export type BaleRow = {
   length: number
   pieces: number
   cubic: number
+  /**
+   * 整包里属于**这一包主单**的那部分立方。
+   * 跨单合并出来的包只挂在主单下，`own_cubic` 会小于 `cubic`；
+   * 普通包两个数相等。判"混单包"就看 `own_cubic < cubic`。
+   */
+  own_cubic: number
   /** 混装包：这一包里有几段不同规格 */
   is_mixed: boolean
   /** 长度斜杠串：混装包 "1.8/2.1/2.4"，单规格就是原来的数字 */
@@ -900,6 +930,8 @@ export type BaleQuery = {
   keyword?: string
   status?: '' | 'in_stock' | 'shipped'
   shipment_id?: number
+  /** 精确按合同号筛（这一包挂的提单属于这个合同） */
+  contract_no?: string
   box_no?: string
   /** 改包选货用：按仓库 / 入库日期筛 */
   warehouse?: string
@@ -990,6 +1022,7 @@ export function fetchBales(query: BaleQuery = {}) {
   if (query.keyword) search.set('keyword', query.keyword)
   if (query.status) search.set('status', query.status)
   if (query.shipment_id) search.set('shipment_id', String(query.shipment_id))
+  if (query.contract_no) search.set('contract_no', query.contract_no)
   if (query.box_no) search.set('box_no', query.box_no)
   if (query.warehouse) search.set('warehouse', query.warehouse)
   if (query.date_from) search.set('date_from', query.date_from)
@@ -1734,4 +1767,20 @@ export function stockExportUrl(species = '') {
   if (species) query.set('species', species)
   const search = query.toString()
   return `/api/export/stock${search ? `?${search}` : ''}`
+}
+
+/* ---------- AI 助手（DeepSeek） ---------- */
+
+export type AiMessage = { role: 'user' | 'assistant'; content: string }
+
+/**
+ * 问一句 AI。这一版是**一问一答**：把最近的对话整段发过去，拿一条回复回来
+ * （没有流式输出，也就没有逐字打印的效果）。
+ */
+export function askAi(messages: AiMessage[]) {
+  return request<{ reply: string; model: string; tools?: string[] }>('/api/ai/chat', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages }),
+  })
 }

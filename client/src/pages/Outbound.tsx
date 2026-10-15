@@ -1181,7 +1181,7 @@ export default function Outbound({
           </datalist>
 
           <div className="sheet-toolbar">
-            <button className="btn btn-sm btn-primary" onClick={() => openPicker('multi')}>
+            <button className="btn btn-sm" onClick={() => openPicker('multi')}>
               选择码单
             </button>
             <button className="btn btn-sm" onClick={() => { setScanHint(''); setScannerOpen(true) }}>

@@ -75,6 +75,8 @@ export const NAV_ALLOW: Record<string, Role[]> = {
   '/dict': ['admin', 'finance'],
   '/recycle': ['admin', 'finance'],
   '/users': ['admin'],
+  // AI 助手：所有登录角色都能用
+  '/ai': ['admin', 'finance', 'sales', 'warehouse', 'viewer'],
   // 打印标签页不挂菜单，但路由要能进（从码单列表点过来的）
   '/label/print': ['admin', 'finance', 'sales', 'warehouse'],
 }

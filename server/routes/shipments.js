@@ -34,6 +34,11 @@ const findByNoStmt = db.prepare(
 /**
  * 提单列表：带出这一票下面的包数、在库包数、立方、柜数，
  * 到货录入时一眼能看出哪一票还没录完。
+ *
+ * `bale_cubic` 是**整包合计**（这一票下所有活包的立方和）；
+ * `own_cubic` 是其中**属于本提单**的那部分 —— 跨单合并出来的包只挂在主单的提单下，
+ * 里面可能混着别的提单的货（口径 A：按"这一行的来源单是否也属于本提单"算，
+ * 和包列表 / 入库单详情的 `own_cubic` 同一个思路，只是参照物从"入库单"换成"提单"）。
  */
 const listSql = (where) => `
   SELECT s.*,
@@ -43,6 +48,32 @@ const listSql = (where) => `
            WHERE b.shipment_id = s.id AND b.status = 'in_stock' AND b.deleted_at IS NULL)     AS bale_in_stock,
          (SELECT ROUND(COALESCE(SUM(b.cubic), 0), 4) FROM bales b
            WHERE b.shipment_id = s.id AND b.deleted_at IS NULL)                               AS bale_cubic,
+         (SELECT ROUND(COALESCE(SUM(bi.cubic), 0), 4)
+            FROM bales bb
+            JOIN bale_items bi     ON bi.bale_id = bb.id
+            JOIN inbound_orders io ON io.id = COALESCE(bi.src_inbound_order_id, bb.inbound_order_id)
+           WHERE bb.shipment_id = s.id AND bb.deleted_at IS NULL
+             AND io.shipment_id = s.id)                                                        AS own_cubic,
+         /*
+          * 「原本入库」= 这一票下**入库单明细**的立方合计（order_items，不是活包）。
+          *
+          * 为什么这个数才叫「原」：
+          *   改包时 detach / attach 是**按每行的 src_inbound_order_id 各挂各的单**
+          *   （bales.js 的 groupBySourceOrder），所以入库明细的合计在改包前后**不变** ——
+          *   正好就是「改包前的数量」。出库只写 order_type='out' 的行，也不碰它。
+          *   只有「入库单本身变了」（编辑明细 / 编辑删码单 / 盘点盈亏单 / 整单删）才会动，
+          *   那时候数字本来该跟着动。
+          *
+          * 对上 bale_cubic 用：两者不等 = 这一票被改包混过
+          * （活包里多了别的提单的货，或者自己的货被并到别人的包里去了）。
+          */
+         (SELECT ROUND(COALESCE(SUM(i.cubic), 0), 4)
+            FROM order_items i
+            JOIN inbound_orders io2 ON io2.id = i.order_id
+           WHERE i.order_type = 'in'
+             AND i.deleted_at IS NULL
+             AND io2.deleted_at IS NULL
+             AND io2.shipment_id = s.id)                                                          AS original_cubic,
          (SELECT COUNT(DISTINCT b.box_no) FROM bales b
            WHERE b.shipment_id = s.id AND b.deleted_at IS NULL
              AND b.box_no IS NOT NULL AND TRIM(b.box_no) <> '')      AS box_count
@@ -64,6 +95,23 @@ router.get('/', (req, res) => {
   if (keyword) {
     conditions.push(`AND (s.bl_no LIKE ? OR s.contract_no LIKE ?)`)
     params.push(keyword, keyword)
+  }
+  /**
+   * 精确按合同号筛（采购入库明细的三层：点合同 → 列这张合同的提单）。
+   * 不能用 keyword 代替 —— 那是模糊匹配，bl_no 里带同样的字也会被捞进来。
+   */
+  const contractNo = String(req.query.contract_no ?? '').trim()
+  if (contractNo) {
+    conditions.push(`AND s.contract_no = ?`)
+    params.push(contractNo)
+  }
+  /**
+   * 只要「没填合同号」的那几张提单。
+   * 用途：点到某个合同时，底部顺带提示"还有 N 张提单没关联合同"，
+   * 免得那些货在按合同筛的时候凭空消失（它们的包在「全部合同」下能看到）。
+   */
+  if (String(req.query.unlinked ?? '') === '1') {
+    conditions.push(`AND (s.contract_no IS NULL OR TRIM(s.contract_no) = '')`)
   }
   const supplier = like(req.query.supplier)
   if (supplier) {
@@ -103,6 +151,10 @@ router.get('/', (req, res) => {
       bale_total: row.bale_total ?? 0,
       bale_in_stock: row.bale_in_stock ?? 0,
       bale_cubic: roundTo(row.bale_cubic ?? 0, 4),
+      // 这一票里「属于本提单」的立方（清单里别的提单并进来的货不算）；口径同包列表
+      own_cubic: roundTo(row.own_cubic ?? 0, 4),
+      // 这一票「原本入库」的立方（入库明细合计，改包不会动它）；和 bale_cubic 不等 = 被混过包
+      original_cubic: roundTo(row.original_cubic ?? 0, 4),
       box_count: row.box_count ?? 0,
       created_at: row.created_at,
     }))

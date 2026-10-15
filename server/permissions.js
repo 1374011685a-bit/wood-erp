@@ -63,6 +63,9 @@ export const CAPS = {
   'recycle.write': ['admin', 'finance'],
   /** 导出明细数据。金额列在导出时按角色删，见 routes/export.js */
   'export.data': ['admin', 'finance', 'sales', 'warehouse', 'viewer'],
+
+  /** AI 助手（DeepSeek）。先做成最简的一问一答，所有登录角色都能用 */
+  'ai.chat': ['admin', 'finance', 'sales', 'warehouse', 'viewer'],
 }
 
 /** 这个角色有没有这个能力 */
