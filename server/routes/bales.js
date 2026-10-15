@@ -834,6 +834,46 @@ function addOneBundleToOrder(orderId, item) {
 const orderIdOfLine = (item, bale) =>
   Number(item?.src_inbound_order_id ?? bale?.inbound_order_id ?? 0) || null
 
+/** 这张提单下还有几个活包 */
+const liveBaleCountOfShipment = db.prepare(
+  `SELECT COUNT(*) AS n FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`,
+)
+/** 这张提单下还有几行活的入库明细（账） */
+const liveItemCountOfShipment = db.prepare(
+  `SELECT COUNT(*) AS n
+     FROM order_items i
+     JOIN inbound_orders o ON o.id = i.order_id
+    WHERE i.order_type = 'in' AND i.deleted_at IS NULL AND o.deleted_at IS NULL
+      AND o.shipment_id = ?`,
+)
+
+/**
+ * 提单空了就软删它（**0 包 + 0 明细**才叫空）。
+ *
+ * 为什么要这一条：删光一张提单下的包之后，提单还活着的话，
+ * 「采购入库明细」的提单列表里会留一行「原 0 / 现 0 · 没有包」——
+ * 看起来像账丢了。软删掉它，界面就不再显示（回收站恢复单据时它跟着回来）。
+ *
+ * ⚠️ 只有 **同时** 满足「没有活包」和「没有活明细」才删：
+ * 跨提单改包之后，源提单会是「有账（原 5）、没有包（现 0）」——
+ * 那一行必须留着，用户要能看到「货在别人的包里」。
+ */
+export function softDeleteShipmentIfEmpty(shipmentId) {
+  const id = Number(shipmentId)
+  if (!id) return null
+  if (Number(liveBaleCountOfShipment.get(id)?.n ?? 0) > 0) return null
+  if (Number(liveItemCountOfShipment.get(id)?.n ?? 0) > 0) return null
+  const ship = db
+    .prepare(`SELECT id, bl_no FROM shipments WHERE id = ? AND deleted_at IS NULL`)
+    .get(id)
+  if (!ship) return null
+  db.prepare(
+    `UPDATE shipments SET deleted_at = datetime('now', 'localtime')
+      WHERE id = ? AND deleted_at IS NULL`,
+  ).run(id)
+  return ship
+}
+
 /** 把行按来源单分组：一包里可能混了好几张单的货，账要各扣各的 */
 function groupBySourceOrder(items, bale) {
   const groups = new Map()
@@ -1347,7 +1387,12 @@ const removeBale = db.transaction((id) => {
   detachBaleFromOrder(bale)
   db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(id)
   db.prepare(`DELETE FROM bales WHERE id = ?`).run(id)
-  return { bale_no: bale.bale_no }
+  /**
+   * 删完之后这张提单可能就空了（0 包 + 0 明细）—— 顺手软删，
+   * 不然 L2 会留一行「原 0 / 现 0 · 没有包」。
+   */
+  const removedShipment = softDeleteShipmentIfEmpty(bale.shipment_id)
+  return { bale_no: bale.bale_no, ...(removedShipment ? { removedShipment } : {}) }
 })
 
 router.delete('/:id', requireCap('bale.write'), (req, res) => {

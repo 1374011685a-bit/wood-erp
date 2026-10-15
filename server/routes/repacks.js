@@ -495,40 +495,6 @@ const sameSpecLine = (a, b) =>
   Number(a.length) === Number(b.length) &&
   Number(a.pieces) === Number(b.pieces)
 
-const findShipmentByNoStmt = db.prepare(
-  // 和入库 / 提单管理一个口径：大小写不敏感 + 两边去空格
-  `SELECT * FROM shipments
-    WHERE lower(trim(bl_no)) = lower(trim(?)) AND deleted_at IS NULL`,
-)
-const insertShipmentStmt = db.prepare(
-  `INSERT INTO shipments (bl_no, contract_no, supplier, arrival_date, remark)
-   VALUES (?, ?, ?, ?, ?)`,
-)
-
-/**
- * 改包时手打的提单号：库里没有就顺手建一张（和入库时手打提单号一个口径，
- * 用户确认过：填了就建档）。已经存在的提单不会被改合同号，只补空的那一项。
- */
-function findOrCreateShipment(blNo, contractNo) {
-  const wanted = String(blNo ?? '').trim()
-  const hit = findShipmentByNoStmt.get(wanted)
-  if (hit) {
-    if (contractNo && !String(hit.contract_no ?? '').trim()) {
-      db.prepare(`UPDATE shipments SET contract_no = ? WHERE id = ?`).run(contractNo, hit.id)
-      hit.contract_no = contractNo
-    }
-    return hit
-  }
-  const { lastInsertRowid } = insertShipmentStmt.run(
-    wanted,
-    contractNo || null,
-    null,
-    todayLocal(),
-    '改包时自动建档',
-  )
-  return { id: Number(lastInsertRowid), bl_no: wanted, contract_no: contractNo || null }
-}
-
 const createRepack = db.transaction((payload) => {
   /* ---------- 源包：1 个（老行为）或多个（多选改包） ---------- */
   const sources = payload.baleIds.map((id) => {
@@ -695,15 +661,82 @@ const createRepack = db.transaction((payload) => {
   )
 
   /**
+   * 「改包丢货」的后端闸。
+   *
+   * 改包的实现是：源包全部删掉，再按「改包后」的行重建新包 ——
+   * 所以只要某个源包的规格行没被列进「改包后」，那一份货就会**从账上消失**
+   * （入库明细被扣光、库存跟着少）。前端保存前会弹确认，这里兜住直接调接口的情况：
+   * 差 > 0.0001 且没带 force → 400。
+   *
+   * 判法和前端完全一致：
+   *   ① 段上带来源包标记（srcBaleId / src_bale_id）→ 直接算给那一包
+   *   ② 手填的段（没标记）→ 按规格匹配这一包还没被覆盖的规格行，同规格只算一次
+   */
+  const afterSegments = pricedGroups.flatMap((group) => group.items)
+  const srcBaleOf = (item) => Number(item?.srcBaleId ?? item?.src_bale_id ?? 0)
+  const sameSpec = (line, seg) =>
+    String(line.species ?? '') === String(seg.species ?? '') &&
+    String(line.grade ?? '') === String(seg.grade ?? '') &&
+    Number(line.thickness) === Number(seg.thickness) &&
+    Number(line.width) === Number(seg.width) &&
+    Number(line.length) === Number(seg.length) &&
+    Number(line.pieces) === Number(seg.pieces)
+
+  const discarded = []
+  for (const bale of sources) {
+    const lines = beforeItems.filter((item) => item.src_bale_id === bale.id)
+    const total = roundTo(lines.reduce((sum, line) => sum + Number(line.cubic ?? 0), 0), 4)
+    if (total <= 0) continue
+    let covered = 0
+    for (const seg of afterSegments) {
+      if (srcBaleOf(seg) === bale.id) covered += Number(seg.cubic ?? 0)
+    }
+    const rest = [...lines]
+    for (const seg of afterSegments) {
+      if (srcBaleOf(seg) > 0) continue
+      const at = rest.findIndex((line) => sameSpec(line, seg))
+      if (at < 0) continue
+      covered += Number(rest[at].cubic ?? 0)
+      rest.splice(at, 1)
+    }
+    const gap = roundTo(total - covered, 4)
+    if (gap > 0.0001) {
+      discarded.push({
+        blNo: blNoOfShipment.get(bale.shipment_id)?.bl_no ?? '',
+        baleNo: bale.bale_no ?? '',
+        gap,
+        specs: (rest.length > 0 ? rest : lines).map(
+          (line) => `${line.thickness}×${line.width}×${line.length} / ${line.pieces}片`,
+        ),
+      })
+    }
+  }
+  if (discarded.length > 0 && payload.force !== true) {
+    const error = new Error(
+      `本次改包会丢弃 ${discarded
+        .map(
+          (one) =>
+            `${one.gap} 方货（提单 ${one.blNo || '—'} / 包 ${one.baleNo || '—'} / 规格 ${one.specs.join('、')}）`,
+        )
+        .join('；')}，要确认丢弃请带 force: true 重发`,
+    )
+    error.status = 400
+    throw error
+  }
+
+  /**
    * 新包要继承的东西（逐组算）：
-   *   提单号 / 合同号：表单填了用表单的；留空时这一组的来源必须一致，不一致就 400 让用户填
+   *   提单号 / 合同号：**表单不填，系统自动挂**（和千木云一样，改包页只有备注）
+   *     · 来源一致 → 挂那一张
+   *     · 来源不一致（跨提单 / 跨合同合并）→ 挂**第一个源包**那一张
+   *     物理上挂谁的提单不改财务归属：入库明细（账）还是按每行的来源单各挂各的
+   *     （见 attachBaleToOrder），所以原提单的「原」立方一分不动。
    *   柜号：来源一致就继承，不一致就留空（保存后可在「采购入库明细」里单独编辑这一包补上）
    *   入库单：取这一组第一段来源的那张单（列表/明细按它显示，账仍按行走）
    */
-  const blNoInput = String(payload.blNo ?? '').trim()
-  const contractNoInput = String(payload.contractNo ?? '').trim()
-  /** 表单里手打的提单号：没有这张提单就顺手建档（和入库时手打提单号一个口径） */
-  const inputShipment = blNoInput ? findOrCreateShipment(blNoInput, contractNoInput) : null
+  /** 「第一个源包」那一张：提单 / 合同不一致时都挂它 */
+  const primaryContractNo =
+    String(orderBriefStmt.get(primary.inbound_order_id)?.contract_no ?? '').trim() || null
 
   const groupMeta = pricedGroups.map((group, index) => {
     const orderIds = distinctValues(
@@ -724,34 +757,19 @@ const createRepack = db.transaction((payload) => {
     const boxNos = distinctValues(groupSources.map((bale) => bale.box_no))
     const boxNo = boxNos.length === 1 ? boxNos[0] : null
 
-    /* 提单号 */
-    let shipmentId = inputShipment ? inputShipment.id : null
-    if (!inputShipment) {
-      const shipmentIds = distinctValues(orders.map((one) => one.shipment_id)).map(Number)
-      if (shipmentIds.length > 1) {
-        const names = shipmentIds.map((id) => blNoOfShipment.get(id)?.bl_no ?? `#${id}`)
-        const error = new Error(
-          `这一包里的货来自不同提单（${names.join(' / ')}），请填一个提单号`,
-        )
-        error.status = 400
-        throw error
-      }
-      shipmentId = shipmentIds[0] ?? null
-    }
+    /* 提单：来源一致挂那一张，跨提单合并挂第一个源包的 */
+    const shipmentIds = distinctValues(orders.map((one) => one.shipment_id))
+      .filter((one) => one != null)
+      .map(Number)
+    const shipmentId =
+      shipmentIds.length === 1 ? shipmentIds[0] : (primary.shipment_id ?? shipmentIds[0] ?? null)
 
-    /* 合同号 */
-    let contractNo = contractNoInput || null
-    if (!contractNo) {
-      const names = distinctValues(orders.map((one) => one.contract_no))
-      if (names.length > 1) {
-        const error = new Error(
-          `这一包里的货来自不同合同（${names.join(' / ')}），请填一个合同号`,
-        )
-        error.status = 400
-        throw error
-      }
-      contractNo = names[0] ?? null
-    }
+    /* 合同号：同规则 */
+    const contractNos = distinctValues(orders.map((one) => one.contract_no))
+      .map((one) => String(one ?? '').trim())
+      .filter(Boolean)
+    const contractNo =
+      contractNos.length === 1 ? contractNos[0] : (primaryContractNo || contractNos[0] || null)
 
     return {
       baleNo: group.baleNo,
@@ -767,19 +785,14 @@ const createRepack = db.transaction((payload) => {
   })
   const groupByIndex = groupMeta
 
-  /** 记录上显示的提单号 / 合同号：表单 > 各组一致 > 第一个源包的 */
+  /** 记录上显示的提单号 / 合同号：各组一致就用它，否则用第一个源包的（和实际挂的一致） */
   const allShipmentIds = distinctValues(groupByIndex.map((one) => one.shipmentId)).map(Number)
   const allContractNos = distinctValues(groupByIndex.map((one) => one.contractNo))
   const recordBlNo =
-    blNoInput ||
     (allShipmentIds.length === 1 ? blNoOfShipment.get(allShipmentIds[0])?.bl_no ?? null : null) ||
     (primary.shipment_id ? blNoOfShipment.get(primary.shipment_id)?.bl_no ?? null : null)
   const recordContractNo =
-    contractNoInput ||
-    (allContractNos.length === 1 ? allContractNos[0] : null) ||
-    (primary.inbound_order_id
-      ? orderBriefStmt.get(primary.inbound_order_id)?.contract_no ?? null
-      : null)
+    (allContractNos.length === 1 ? allContractNos[0] : null) || primaryContractNo
 
   /* ---------- 源包删掉，按分组建新包 ---------- */
   let createdBales = []
@@ -1009,6 +1022,11 @@ router.post('/', requireCap('repack.write'), (req, res) => {
       remark: String(body.remark ?? '').trim(),
       blNo: String(body.bl_no ?? '').trim(),
       contractNo: String(body.contract_no ?? '').trim(),
+      /**
+       * 前端「这次改包会丢货」的确认按钮会带 true；
+       * 不带 = 不许丢货（差 > 0.0001 会被拦，见 createRepack 里的校验）。
+       */
+      force: body.force === true,
       groups,
       // 「改包前」里为某一行手选的成本价：{ [bale_item_id]: 单价 }
       beforePrices: body.before_prices ?? {},

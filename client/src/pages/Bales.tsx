@@ -104,6 +104,21 @@ export default function Bales() {
   const [unlinkedShipments, setUnlinkedShipments] = useState<ShipmentRow[]>([])
   const [shipmentsLoading, setShipmentsLoading] = useState(false)
 
+  /**
+   * 空提单不上 L2：**0 包 + 0 明细**的提单没有货、也没有账，
+   * 显示出来只会是一行「原 0 / 现 0 · 没有包」，看着像账丢了。
+   * （后端删包/删单时已经会把这些提单软删；这里再兜一层，万一库里有残留也不显示。）
+   *
+   * ⚠️ 「有账没包」的不算空 —— 跨提单改包后的源提单就是这种（原 5 / 现 0），
+   * 那一行要留着，用户才能看到「货在别人的包里」。
+   */
+  const visibleShipments = shipments.filter(
+    (one) => !(one.bale_total === 0 && one.original_cubic === 0),
+  )
+  const visibleUnlinked = unlinkedShipments.filter(
+    (one) => !(one.bale_total === 0 && one.original_cubic === 0),
+  )
+
   // 编辑码单
   const emptyLine = (): BaleItemLine => ({
     species: '',
@@ -259,39 +274,47 @@ export default function Bales() {
       ?.bl_no ?? `#${id}`
 
   /**
-   * L2 那一行的立方：「在库 X / 原 Y」。
+   * L2 的两列立方：
+   *   原   = 这一票**原本入库**的立方（入库明细合计；改包按来源各计各的，不会动它）
+   *   现在 = 这一票下**现在活着的包**的立方合计（出库只改包的状态、不动立方，
+   *          所以这个数不会因为发货变小）
    *
-   *   在库 = 这一票下**现在活着的包**的立方合计（`bale_cubic`；出库只改包的状态、
-   *          不动立方，所以这个数不会因为发货而变小）
-   *   原   = 这一票**原本入库**的立方（`original_cubic`，入库明细合计；改包不动它）
-   *
-   * 两个数相等 = 这一票没被混过包 → 只显示一个数。
-   * 不等 = 被混过包，两种方向：
-   *   在库 > 原：活包里混进了别的提单的货
-   *   在库 < 原：自己的货被并到别人的包里去了（自己这边就没包了）
+   * 两个数不等 = 这一票被改包混过：活包里混进了别的提单的货，或者自己的货被并走了。
+   * 留 0.00005 的余量：两个数一个来自活包、一个来自明细，浮点末位可能差一丝。
    */
-  const shipmentCubic = (one: ShipmentRow) => {
-    /*
-     * 比大小留一点余量：两个数都是后端 roundTo(...,4) 出来的，
-     * 但来源不同、浮点末位可能差一丝，别因此把「相等」显示成两段。
-     */
-    if (Math.abs(one.bale_cubic - one.original_cubic) < 0.00005) {
-      return formatCubic(one.bale_cubic)
-    }
+  const isMixedShipment = (one: ShipmentRow) =>
+    Math.abs(one.bale_cubic - one.original_cubic) >= 0.00005
+
+  /** 「现在」那一列：混过包的标橙字，鼠标悬停说清差额从哪来 */
+  const shipmentNowCell = (one: ShipmentRow) => {
+    const nowText = formatCubic(one.bale_cubic)
+    if (!isMixedShipment(one)) return <td className="num">{nowText}</td>
     const diff = formatCubic(roundTo(Math.abs(one.bale_cubic - one.original_cubic), 4))
-    const share = `这一票现在的包合计 ${formatCubic(one.bale_cubic)} 方；原本入库 ${formatCubic(one.original_cubic)} 方，差额 ${diff} 方`
+    const share =
+      `这一票现在的包合计 ${nowText} 方；原本入库 ${formatCubic(one.original_cubic)} 方，差额 ${diff} 方`
     return (
-      <span
-        title={
-          one.bale_cubic > one.original_cubic
-            ? `${share}是改包时从别的提单混进来的`
-            : `${share}改包时被并到别的提单的包里了`
-        }
-      >
-        在库 {formatCubic(one.bale_cubic)} / 原 {formatCubic(one.original_cubic)}
-      </span>
+      <td className="num">
+        <span
+          className="cubic-mixed"
+          title={
+            one.bale_cubic > one.original_cubic
+              ? `${share}是改包时从别的提单混进来的`
+              : `${share}改包时被并到别的提单的包里了`
+          }
+        >
+          {nowText}
+        </span>
+      </td>
     )
   }
+
+  /** 提单号旁边那个「混提单」标签 */
+  const mixedTag = (one: ShipmentRow) =>
+    isMixedShipment(one) ? (
+      <span className="tag tag-out" title="这票货的包和别的提单的货混在一起了">
+        混提单
+      </span>
+    ) : null
 
   /**
    * L2 的状态：这一票的包全在库 / 全出库 / 出一部分。
@@ -547,7 +570,7 @@ export default function Bales() {
       {contract && (
         <div className="drill-panel">
           <h2 className="section-title">这张合同下的提单</h2>
-          {shipments.length === 0 && unlinkedShipments.length === 0 && !shipmentsLoading ? (
+          {visibleShipments.length === 0 && visibleUnlinked.length === 0 && !shipmentsLoading ? (
             <EmptyState text="这张合同还没有提单" />
           ) : (
             <table className="table">
@@ -558,25 +581,29 @@ export default function Bales() {
                   <th>到货日期</th>
                   <th className="num">包数</th>
                   <th className="num">在库</th>
-                  <th className="num">立方 (m³)</th>
+                  <th className="num">原 (m³)</th>
+                  <th className="num">现在 (m³)</th>
                   <th>状态</th>
                 </tr>
               </thead>
-              {shipments.length > 0 && (
+              {visibleShipments.length > 0 && (
                 <tbody>
-                  {shipments.map((row) => (
+                  {visibleShipments.map((row) => (
                     <tr
                       key={row.id}
                       className={shipmentId === row.id ? 'row-active' : undefined}
                       onClick={() => selectShipment(row.id, contract)}
                       title="点一下只看这张提单的包"
                     >
-                      <td>{row.bl_no}</td>
+                      <td>
+                        {row.bl_no} {mixedTag(row)}
+                      </td>
                       <td>{row.supplier || '—'}</td>
                       <td>{row.arrival_date || '—'}</td>
                       <td className="num">{row.bale_total}</td>
                       <td className="num">{row.bale_in_stock}</td>
-                      <td className="num">{shipmentCubic(row)}</td>
+                      <td className="num">{formatCubic(row.original_cubic)}</td>
+                      {shipmentNowCell(row)}
                       <td>{shipmentStatus(row)}</td>
                     </tr>
                   ))}
@@ -587,17 +614,17 @@ export default function Bales() {
                 不列的话，这些货在"按合同筛"的时候会凭空消失 ——
                 它们的包只有回到「全部合同」才看得到。
               */}
-              {unlinkedShipments.length > 0 && (
+              {visibleUnlinked.length > 0 && (
                 <>
                   <tbody>
                     <tr>
-                      <td colSpan={7} className="ship-group">
+                      <td colSpan={8} className="ship-group">
                         未关联合同的提单
                       </td>
                     </tr>
                   </tbody>
                   <tbody>
-                    {unlinkedShipments.map((row) => (
+                    {visibleUnlinked.map((row) => (
                       <tr
                         key={row.id}
                         className={shipmentId === row.id ? 'row-active' : undefined}
@@ -605,13 +632,14 @@ export default function Bales() {
                         title="这张提单没填合同号；点一下只看它的包"
                       >
                         <td>
-                          {row.bl_no} <span className="tag tag-out">未关联合同</span>
+                          {row.bl_no} <span className="tag tag-out">未关联合同</span> {mixedTag(row)}
                         </td>
                         <td>{row.supplier || '—'}</td>
                         <td>{row.arrival_date || '—'}</td>
                         <td className="num">{row.bale_total}</td>
                         <td className="num">{row.bale_in_stock}</td>
-                        <td className="num">{shipmentCubic(row)}</td>
+                        <td className="num">{formatCubic(row.original_cubic)}</td>
+                        {shipmentNowCell(row)}
                         <td>{shipmentStatus(row)}</td>
                       </tr>
                     ))}
@@ -621,9 +649,9 @@ export default function Bales() {
             </table>
           )}
           {shipmentsLoading && <Loading />}
-          {unlinkedShipments.length > 0 && (
+          {visibleUnlinked.length > 0 && (
             <p className="hint" style={{ marginTop: 12 }}>
-              另有 {unlinkedShipments.length} 张提单没填合同号，它们的包在「全部合同」下能看到。
+              另有 {visibleUnlinked.length} 张提单没填合同号，它们的包在「全部合同」下能看到。
             </p>
           )}
         </div>

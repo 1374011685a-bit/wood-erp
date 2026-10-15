@@ -1401,6 +1401,11 @@ function migrateBaleScope() {
 /**
  * 空提单清理：库里不该存在「一包货都没有」的提单。
  * 删单时已经会自动清，这里兜住历史遗留（每次启动扫一遍，有才动手并打印）。
+ *
+ * ⚠️ 「空」= **0 包 + 0 明细**，两个条件都要满足。
+ * 只看"没有活包"会把跨提单改包后的源提单也删掉 ——
+ * 那种提单是「有账（原 5）、没有包（现 0）」，界面上要显示「货在别人的包里」，
+ * 删了用户就看不到自己的货去哪了。
  */
 function cleanEmptyShipments() {
   const empties = db
@@ -1410,6 +1415,12 @@ function cleanEmptyShipments() {
           AND NOT EXISTS (
                 SELECT 1 FROM bales b
                  WHERE b.shipment_id = s.id AND b.deleted_at IS NULL
+              )
+          AND NOT EXISTS (
+                SELECT 1 FROM order_items i
+                  JOIN inbound_orders o ON o.id = i.order_id
+                 WHERE i.order_type = 'in' AND i.deleted_at IS NULL AND o.deleted_at IS NULL
+                   AND o.shipment_id = s.id
               )`,
     )
     .all()

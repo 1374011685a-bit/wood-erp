@@ -5,7 +5,13 @@ import { calcCubicOfSpecs } from '../utils/cubic.js'
 import { validateItems } from '../utils/validateItems.js'
 import { pageParams } from '../utils/paging.js'
 import { expandSlashSpecs, specsOf } from '../utils/slashSpecs.js'
-import { BALE_TEXT_COLS, baleTextFields, createBalesForItem, preflightBales } from './bales.js'
+import {
+  BALE_TEXT_COLS,
+  baleTextFields,
+  createBalesForItem,
+  preflightBales,
+  softDeleteShipmentIfEmpty,
+} from './bales.js'
 import { requireCap } from '../middleware/permissions.js'
 import { keepPricesFrom, orderItemKey } from '../utils/keepPrices.js'
 
@@ -1123,16 +1129,6 @@ const softDeleteBalesStmt = db.prepare(
 const packDeleteBalesStmt = db.prepare(
   `DELETE FROM bales WHERE inbound_order_id = ?`,
 )
-// 这张提单还有几包货（没被删的）
-const liveBaleCountStmt = db.prepare(
-  `SELECT COUNT(*) AS total FROM bales
-    WHERE shipment_id = ? AND deleted_at IS NULL`,
-)
-const softDeleteShipmentStmt = db.prepare(
-  `UPDATE shipments SET deleted_at = datetime('now', 'localtime')
-    WHERE id = ? AND deleted_at IS NULL`,
-)
-
 // 事务：先校验删完库存会不会变负，通过后再删明细、删单头
 const removeInbound = db.transaction((id) => {
   const order = getOrderStmt.get(id)
@@ -1206,17 +1202,11 @@ const removeInbound = db.transaction((id) => {
   softDeleteOrderItemsStmt.run(id)
   softDeleteOrderStmt.run(id)
 
-  // 这张提单要是没货了，一并软删（回收站恢复时再跟着回来）
-  let removedShipment = null
-  if (order.shipment_id && Number(liveBaleCountStmt.get(order.shipment_id)?.total ?? 0) === 0) {
-    const ship = db
-      .prepare(`SELECT id, bl_no FROM shipments WHERE id = ? AND deleted_at IS NULL`)
-      .get(order.shipment_id)
-    if (ship) {
-      softDeleteShipmentStmt.run(ship.id)
-      removedShipment = { id: ship.id, bl_no: ship.bl_no }
-    }
-  }
+  /**
+   * 这张提单要是空了（**0 包 + 0 明细**），一并软删（回收站恢复时再跟着回来）。
+   * 口径和「删包」那条路完全一致 —— 见 bales.js 的 softDeleteShipmentIfEmpty。
+   */
+  const removedShipment = softDeleteShipmentIfEmpty(order.shipment_id)
 
   return { order, removedShipment }
 })

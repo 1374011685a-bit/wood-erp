@@ -37,6 +37,12 @@
    */
   --chart-blue: #0a84ff;
 
+  /*
+   * 主按钮的蓝（iOS 蓝）。主按钮 / 新增按钮 / 保存 / 发送 这一批「实心按钮」用它。
+   * 和品牌主色（棕）分开：棕还是负责选中态、链接、面包屑、焦点环这些"标记"。
+   */
+  --action: #0071e3;
+
   /* 圆角 */
   --r-card: 16px;
   --r-btn: 12px;
@@ -1962,23 +1968,23 @@ section > .toolbar .btn-primary {
 }
 
 .btn-primary {
-  background-color: var(--brand);
+  background-color: var(--action);
   background-image: none;
-  border-color: #5c3f28;
+  border-color: #0066cc;
   color: #ffffff;
   font-weight: 500;
-  box-shadow: 0 1px 1.5px rgba(74, 50, 30, 0.3);
+  box-shadow: 0 1px 1.5px rgba(0, 85, 179, 0.28);
 }
 
 .btn-primary:hover {
-  background-color: #7d5738;
-  border-color: var(--brand);
-  box-shadow: 0 2px 6px rgba(107, 74, 47, 0.32);
+  background-color: #1a82e8;
+  border-color: var(--action);
+  box-shadow: 0 2px 6px rgba(0, 113, 227, 0.3);
 }
 
 .btn-primary:active {
-  background-color: #5c3f28;
-  border-color: #523626;
+  background-color: #005ec4;
+  border-color: #0056ad;
 }
 
 .btn-danger {
@@ -2244,6 +2250,15 @@ section > .toolbar .btn-primary {
   border-color: rgba(255, 149, 0, 0.26);
 }
 
+/*
+ * 混提单：这一票「现在」的立方和「原」不一样 —— 用橙字点出来（状态色，不是品牌色）。
+ * 橙得比 tag 深一点，14px 数字在白底上才看得清。
+ */
+.cubic-mixed {
+  color: #c2410c;
+  font-weight: 600;
+}
+
 /* ---------- 弹窗 ---------- */
 
 .overlay {
@@ -2411,6 +2426,69 @@ section > .toolbar .btn-primary {
   color: #8a5a00;
   font-size: 12.5px;
   line-height: 1.6;
+}
+
+/* 改包「丢货」的 ⚠ 图标（悬停看丢了多少方） */
+.loss-warn-icon {
+  margin-left: 6px;
+  color: #b3261e;
+  font-size: 13px;
+  cursor: help;
+}
+
+/*
+ * 改包「丢货」的红色警示：损耗那行整行标红加粗。
+ * 触发条件见 Repack.tsx：lossCubic < -0.0001（改后比改前少 = 有货没写进新包）。
+ */
+.sheet-table tfoot tr.is-loss-warn > td {
+  background-color: #fdecea;
+  color: #b3261e;
+  font-weight: 600;
+}
+
+.sheet-table tfoot tr.is-loss-warn > td.is-short {
+  color: #b3261e;
+}
+
+/* 「本次改包会丢弃以下货」确认框里的清单 */
+.discard-list {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.discard-list strong {
+  font-weight: 600;
+}
+
+/*
+ * 改包后：新包挂在哪张提单 / 哪个合同下的**只读**提示。
+ * 表单里已经没有这两个输入框了（系统按来源自动挂），用户只需要看结果。
+ */
+.attach-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background-color: var(--panel-soft);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.attach-hint p {
+  margin: 0;
+}
+
+.attach-hint p + p {
+  margin-top: 4px;
+}
+
+.attach-hint strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* 表单类弹层：底部操作条与内容之间加一条分隔线 */
@@ -3366,26 +3444,26 @@ section > .toolbar .btn-primary {
   font-size: 15px;
 }
 
-/* 登录按钮跟品牌色走（扁平不带高光） */
+/* 登录按钮跟主按钮色走（扁平不带高光） */
 .login-card .login-button.btn-primary {
-  background-color: var(--brand);
+  background-color: var(--action);
   background-image: none;
-  border-color: var(--brand);
+  border-color: var(--action);
   color: #ffffff;
   font-weight: 400;
   box-shadow: none;
 }
 
 .login-card .login-button.btn-primary:hover {
-  background-color: #7d5738;
-  border-color: #7d5738;
+  background-color: #1a82e8;
+  border-color: #1a82e8;
   transform: none;
   box-shadow: none;
 }
 
 .login-card .login-button.btn-primary:active {
-  background-color: #5c3f28;
-  border-color: #5c3f28;
+  background-color: #005ec4;
+  border-color: #005ec4;
   transform: none;
   box-shadow: none;
 }
@@ -4948,7 +5026,8 @@ section > .toolbar .btn-primary {
 
 .ai-bubble-user {
   align-self: flex-end;
-  background-color: var(--brand);
+  /* 实心色块跟主按钮同一档蓝 */
+  background-color: var(--action);
   color: #ffffff;
 }
 

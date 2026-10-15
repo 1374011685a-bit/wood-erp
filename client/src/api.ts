@@ -1333,6 +1333,11 @@ export function createRepack(payload: {
   bale_ids: number[]
   summary?: string
   remark?: string
+  /**
+   * 「本次改包会丢弃以下货」确认后为 true。
+   * 不带 = 后端不许丢货（差 > 0.0001 直接 400）。
+   */
+  force?: boolean
   bl_no?: string
   contract_no?: string
   /** 改包前每一行选定的成本价：{ [规格行 id]: 单价 }（只有匹配到多个价时才用） */
