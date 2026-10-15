@@ -1146,17 +1146,24 @@ export default function Repack() {
             />
           </label>
           <span className="spacer" />
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              tapFeedback()
-              void handleSave()
-            }}
-            disabled={saving}
-          >
-            {saving && <span className="btn-spinner" aria-hidden="true" />}
-            {saving ? '保存中…' : '保存'}
-          </button>
+          {/* 手机端这一组会固定到屏幕底部（Tab 栏上方），见 .sheet-actions */}
+          <div className="sheet-actions">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                tapFeedback()
+                void handleSave()
+              }}
+              disabled={saving}
+            >
+              {saving && <span className="btn-spinner" aria-hidden="true" />}
+              {saving ? '保存中…' : '保存'}
+            </button>
+            {/* 手机上「取消」和页头那个「返回改包记录」是同一个动作，两个入口都留着 */}
+            <button className="btn" onClick={() => setFormOpen(false)}>
+              取消
+            </button>
+          </div>
         </div>
 
         {/* 改包前：只读 */}

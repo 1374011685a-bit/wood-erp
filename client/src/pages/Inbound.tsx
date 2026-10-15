@@ -1656,28 +1656,31 @@ export default function Inbound({
               />
             </label>
             <span className="spacer" />
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                tapFeedback()
-                void handleSave()
-              }}
-              disabled={saving}
-            >
-              {saving && <span className="btn-spinner" aria-hidden="true" />}
-              {saving ? '保存中…' : '保存'}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                // 「取消」回到进来时的那个列表（/inbound/edit/:id 进来就是 /inbound）
-                setMode(defaultMode === 'edit' ? 'list' : defaultMode)
-                setEditing(null)
-                if (defaultMode === 'edit') navigate('/inbound')
-              }}
-            >
-              取消
-            </button>
+            {/* 手机端这一组会固定到屏幕底部（Tab 栏上方），见 .sheet-actions */}
+            <div className="sheet-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  tapFeedback()
+                  void handleSave()
+                }}
+                disabled={saving}
+              >
+                {saving && <span className="btn-spinner" aria-hidden="true" />}
+                {saving ? '保存中…' : '保存'}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  // 「取消」回到进来时的那个列表（/inbound/edit/:id 进来就是 /inbound）
+                  setMode(defaultMode === 'edit' ? 'list' : defaultMode)
+                  setEditing(null)
+                  if (defaultMode === 'edit') navigate('/inbound')
+                }}
+              >
+                取消
+              </button>
+            </div>
           </div>
 
           <div className="sheet-toolbar">
@@ -2384,15 +2387,14 @@ export default function Inbound({
               <thead>
                 <tr>
                   <th>选择</th>
-                  <th>日期</th>
                   <th>合同号</th>
+                  <th>日期</th>
                   <th>供应商</th>
                   <th>品名</th>
                   <th>品牌</th>
                   <th className="num">合同立方 (m³)</th>
                   <th className="num">已入库 (m³)</th>
                   <th className="num">未到货 (m³)</th>
-                  <th className="num">未发货</th>
                   <th>单据状态</th>
                   <th>关联单号</th>
                 </tr>
@@ -2417,8 +2419,8 @@ export default function Inbound({
                         }}
                       />
                     </td>
-                    <td>{row.sign_date || '—'}</td>
                     <td>{row.contract_no}</td>
+                    <td>{row.sign_date || '—'}</td>
                     <td>{row.partner || '—'}</td>
                     <td>{row.species_text || '—'}</td>
                     <td>{row.brand_text || '—'}</td>

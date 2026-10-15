@@ -1163,26 +1163,29 @@ export default function Outbound({
               />
             </label>
             <span className="spacer" />
-            <button
-              className="btn btn-primary"
-              onClick={() => {
-                tapFeedback()
-                void handleSave()
-              }}
-              disabled={saving}
-            >
-              {saving && <span className="btn-spinner" aria-hidden="true" />}
-              {saving ? '保存中…' : '保存'}
-            </button>
-            <button
-              className="btn"
-              onClick={() => {
-                setMode('list')
-                setEditing(null)
-              }}
-            >
-              取消
-            </button>
+            {/* 手机端这一组会固定到屏幕底部（Tab 栏上方），见 .sheet-actions */}
+            <div className="sheet-actions">
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  tapFeedback()
+                  void handleSave()
+                }}
+                disabled={saving}
+              >
+                {saving && <span className="btn-spinner" aria-hidden="true" />}
+                {saving ? '保存中…' : '保存'}
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  setMode('list')
+                  setEditing(null)
+                }}
+              >
+                取消
+              </button>
+            </div>
           </div>
 
           <datalist id="customer-options">

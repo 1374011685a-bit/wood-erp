@@ -3425,7 +3425,11 @@ section > .toolbar .btn-primary {
 .login-card {
   position: relative;
   width: 100%;
-  max-width: 400px;
+  /*
+   * 440 而不是原来的 400：输入框跟着长到 366（原来只有 237 ——
+   * 见下面 .login-input .input 那条 width: 100% 的说明）。
+   */
+  max-width: 440px;
   display: flex;
   flex-direction: column;
   padding: 36px 36px 32px;
@@ -3599,7 +3603,8 @@ section > .toolbar .btn-primary {
 
   .login-card {
     max-width: none;
-    padding: 28px 22px 26px;
+    /* 手机上卡片本来就被屏幕宽度卡住，靠收内边距把输入框加长（281 → 289） */
+    padding: 28px 18px 26px;
   }
 
   .login-fields {
@@ -3851,6 +3856,12 @@ section > .toolbar .btn-primary {
 .card.sheet {
   padding: 0;
   overflow: hidden;
+}
+
+.sheet-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .sheet-top {
@@ -4154,38 +4165,52 @@ section > .toolbar .btn-primary {
   /* ---------- 底部固定操作栏：保存（宽）+ 取消 ---------- */
   .card.sheet {
     /*
-     * 给「保存 / 取消」和底部 Tab 栏各留一份位置：
-     * 92px（原来给按钮的）+ 56px（Tab 栏高）+ 安全区。
-     * 不留的话内容会被两层浮层叠着盖住。
+     * 给底部两层浮层留位置：
+     *   操作栏（.sheet-actions：10 + 46 + 10 + 1 ≈ 67px）
+     * + Tab 栏（56px）+ 一点余量 + 安全区。
+     * 不留的话最后几行内容会被盖住。
      */
-    padding-bottom: calc(148px + env(safe-area-inset-bottom));
+    padding-bottom: calc(140px + env(safe-area-inset-bottom));
   }
 
-  .sheet-top .btn {
+  /*
+   * 底部固定操作栏：保存（主，占满）+ 取消（窄）。
+   *
+   * 之前是两个"浮动药丸"（各自 fixed + 圆角 + 投影），贴在 Tab 栏上面 10px 处 ——
+   * 看着像浮在内容上的一小块，不像"固定在页面底部的一条栏"；
+   * 现在改成整条：贴住 Tab 栏上沿、有白底和上边线，一眼就知道是固定的。
+   */
+  .sheet-actions {
     position: fixed;
+    left: 0;
+    right: 0;
     /*
      * ⚠️ 手机上底部还有一条 56px 的 Tab 栏（.bottom-nav，z-index 同样 45）。
-     * 原来 `bottom: 10px` 正好落在 Tab 栏底下 —— 入库/出库/改包三个表单的
-     * 「保存」都被压住点不到（实测按钮 754..802、Tab 栏 756..812）。
-     * 所以这里要把按钮抬到 Tab 栏上面：10px 间距 + 56px 栏高 + 安全区。
+     * 操作栏**紧贴在它上沿**（不压住 Tab 栏、也不留缝），z-index 比它高一档。
      */
-    bottom: calc(66px + env(safe-area-inset-bottom));
-    z-index: 45;
-    height: 48px;
-    border-radius: 14px;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.16);
+    bottom: calc(56px + env(safe-area-inset-bottom));
+    z-index: 46;
+    display: flex;
+    gap: 10px;
+    padding: 10px 14px;
+    background-color: rgba(255, 255, 255, 0.96);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border-top: 1px solid var(--line);
   }
 
-  .sheet-top .btn-primary {
-    left: 12px;
-    right: 96px;
-    width: auto;
+  .sheet-actions .btn {
+    height: 46px;
+    font-size: 15px;
   }
 
-  .sheet-top .btn:not(.btn-primary) {
-    right: 12px;
-    width: 72px;
-    background-color: #ffffff;
+  .sheet-actions .btn-primary {
+    flex: 1;
+  }
+
+  .sheet-actions .btn:not(.btn-primary) {
+    flex: none;
+    width: 92px;
   }
 
   /* ---------- 明细工具条：按钮换成两列，不再被右边缘截断 ---------- */
@@ -4811,10 +4836,6 @@ section > .toolbar .btn-primary {
   .sheet-field .input {
     width: 100%;
     min-width: 0;
-  }
-
-  .sheet-top .btn {
-    flex: 1;
   }
 
   .sheet-note {
@@ -5530,15 +5551,24 @@ section > .toolbar .btn-primary {
   pointer-events: none;
 }
 
-/* 左右都留出图标的位置（右侧那点空档让两个框看起来一样宽） */
+/*
+ * 左右都给图标留位：左边一枚小图标、右边一枚眼睛。
+ *
+ * ⚠️ `width: 100%` 不能省。原来输入框是 `.field`（flex 列）的直接子元素，
+ * 被拉伸成整宽；现在中间多包了一层 `.login-input`，它就不再是 flex item 了，
+ * 宽度会退回 input 的默认宽度（实测 237px，比下面的登录按钮窄 89px，
+ * 眼睛也就"跑到框外面"了）。这里显式撑满，眼睛才落在框里。
+ */
 .login-card .login-input .input {
+  width: 100%;
   padding-left: 38px;
-  padding-right: 38px;
+  padding-right: 44px;
 }
 
 .login-eye {
   position: absolute;
-  right: 7px;
+  /* 框内右边缘往里 12px —— 不压边框、也不占输入框外面的地方 */
+  right: 12px;
   top: 50%;
   transform: translateY(-50%);
   display: grid;
@@ -5560,6 +5590,15 @@ section > .toolbar .btn-primary {
 .login-eye svg {
   width: 17px;
   height: 17px;
+}
+
+/*
+ * 把浏览器自带的「显示密码」眼睛藏掉（Edge / IE 那枚 ::-ms-reveal）。
+ * 我们自己已经有眼睛了，两枚并排看着像 bug；位置也靠得太近。
+ */
+.login-card .input[type='password']::-ms-reveal,
+.login-card .input[type='password']::-ms-clear {
+  display: none;
 }
 
 /* 记住账号 + 忘记密码：同一行，两边对齐 */
