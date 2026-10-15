@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { NavLink } from 'react-router-dom'
+import { tapFeedback } from '../utils/haptics'
 
 /**
  * 手机端的底部 Tab 栏（< 768px）。
@@ -61,6 +62,7 @@ export default function BottomNav() {
           key={tab.to}
           to={tab.to}
           end={tab.end}
+          onClick={tapFeedback}
           className={({ isActive }) =>
             isActive ? 'bottom-nav-item is-active' : 'bottom-nav-item'
           }

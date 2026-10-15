@@ -159,27 +159,54 @@ export type InboundListFilters = {
 const TOKEN_KEY = 'wood-erp-token'
 const USERNAME_KEY = 'wood-erp-username'
 
+/**
+ * 登录态存哪儿 —— 看登录页那个「记住账号」勾没勾：
+ *   勾了 → localStorage（关掉浏览器下次还在，服务端 JWT 有效期 7 天）
+ *   没勾 → sessionStorage（关掉浏览器就没了）
+ * 读取时 sessionStorage 优先：同一次会话里改过勾选也一样当场生效。
+ */
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY)
+  return sessionStorage.getItem(TOKEN_KEY) ?? localStorage.getItem(TOKEN_KEY)
 }
 
 export function getStoredUsername() {
+  return sessionStorage.getItem(USERNAME_KEY) ?? localStorage.getItem(USERNAME_KEY) ?? ''
+}
+
+/** 上次勾了「记住账号」的那个用户名：登录页回来先把账号填上（没勾过就是空） */
+export function getRememberedUsername() {
   return localStorage.getItem(USERNAME_KEY) ?? ''
 }
 
-export function setSession(token: string, username: string, role: Role) {
-  localStorage.setItem(TOKEN_KEY, token)
-  localStorage.setItem(USERNAME_KEY, username)
+export function setSession(
+  token: string,
+  username: string,
+  role: Role,
+  remember = true,
+) {
+  // 两个存储先都清掉：避免上一次勾了、这次没勾，旧 token 还挂在 localStorage 上
+  for (const store of [localStorage, sessionStorage]) {
+    store.removeItem(TOKEN_KEY)
+    store.removeItem(USERNAME_KEY)
+  }
+
+  const store = remember ? localStorage : sessionStorage
+  store.setItem(TOKEN_KEY, token)
+  store.setItem(USERNAME_KEY, username)
   setStoredRole(role)
 }
 
 export function setStoredUsername(username: string) {
-  localStorage.setItem(USERNAME_KEY, username)
+  // 跟着当前 token 所在的存储走，别写串了
+  const store = sessionStorage.getItem(TOKEN_KEY) !== null ? sessionStorage : localStorage
+  store.setItem(USERNAME_KEY, username)
 }
 
 export function clearSession() {
-  localStorage.removeItem(TOKEN_KEY)
-  localStorage.removeItem(USERNAME_KEY)
+  for (const store of [localStorage, sessionStorage]) {
+    store.removeItem(TOKEN_KEY)
+    store.removeItem(USERNAME_KEY)
+  }
   clearStoredRole()
 }
 

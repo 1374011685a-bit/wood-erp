@@ -3326,6 +3326,13 @@ section > .toolbar .btn-primary {
     position: absolute;
     top: 6px;
     right: 6px;
+    /*
+     * ⚠️ z-index 不能省：卡片标题格（.cell-primary）在这块区域只是"留了空"
+     * （padding-right: 40px），它的盒子仍然盖着这个位置；两个都是定位元素、
+     * z-index 都是 auto 时按 DOM 顺序画，标题格在后 → 把勾选框压住
+     * （看得见、点不着）。抬一层就点得到了。
+     */
+    z-index: 2;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -4839,7 +4846,13 @@ section > .toolbar .btn-primary {
   .topbar {
     position: sticky;
     top: 0;
-    z-index: 40;
+    /*
+     * 46：**必须高于底部 Tab 栏（z 45）**。
+     * 顶栏自己是 sticky + z-index，等于给头像菜单建了一个堆叠上下文 ——
+     * 菜单虽然写了 z 60，也只在顶栏这一层里比大小；顶栏低于 Tab 栏时，
+     * 从底部弹出的账号菜单会被 Tab 栏整条压住（「退出登录」点不到）。
+     */
+    z-index: 46;
     height: 56px;
     padding: 0 12px;
     margin: -12px -16px 14px;
@@ -4874,13 +4887,17 @@ section > .toolbar .btn-primary {
     flex: none;
   }
 
-  /* 头像菜单在手机上也当成底部弹层，别顶到屏幕外面 */
+  /*
+   * 头像菜单在手机上也当成底部弹层，别顶到屏幕外面。
+   * bottom 要**让开底部 Tab 栏**（56px + 安全区）：原来是 12px，
+   * 菜单最后一项正好压在 Tab 栏上，看得见点不着。
+   */
   .account-menu {
     position: fixed;
     left: 12px;
     right: 12px;
     top: auto;
-    bottom: calc(12px + env(safe-area-inset-bottom));
+    bottom: calc(68px + env(safe-area-inset-bottom));
     width: auto;
     border-radius: 16px;
   }
@@ -5480,6 +5497,380 @@ section > .toolbar .btn-primary {
     margin: 14px 0 2px;
     font-size: 12.5px;
     color: var(--text-3);
+  }
+}
+
+/* ============================================================
+   登录页增强：LOGO / 输入框图标 + 眼睛 / 记住账号 / 出错反馈
+   （放在文件最后：几处要压过上面对应的登录页规则，靠"后来居上"）
+   ============================================================ */
+
+/* 卡片顶上的 LOGO：宽自适应、高定死，别让不同设备上大小乱跳 */
+.login-logo {
+  display: block;
+  width: auto;
+  height: 54px;
+  margin: 0 auto 14px;
+}
+
+/* 输入框：左边一枚图标、右边一枚眼睛 */
+.login-input {
+  position: relative;
+  display: block;
+}
+
+.login-input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+
+/* 左右都留出图标的位置（右侧那点空档让两个框看起来一样宽） */
+.login-card .login-input .input {
+  padding-left: 38px;
+  padding-right: 38px;
+}
+
+.login-eye {
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.login-eye:hover {
+  color: var(--text-2);
+}
+
+.login-eye svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* 记住账号 + 忘记密码：同一行，两边对齐 */
+.login-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.login-remember {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.login-remember input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--action);
+  cursor: pointer;
+}
+
+/* 同一行里「忘记密码？」不用再自己撑外边距 */
+.login-options .login-forgot {
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* 出错：两个输入框红描边（focus 时也保持红的，别被棕色描边盖掉） */
+.login-card .input.is-invalid,
+.login-card .input.is-invalid:hover {
+  border-color: var(--red);
+}
+
+.login-card .input.is-invalid:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 4px rgba(255, 59, 48, 0.16);
+}
+
+/* 错误提示：图标 + 红字 */
+.login-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.login-error svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  margin-top: 1px;
+}
+
+/* 卡片抖一下：只在登录失败时跑一次（用自增的 key 触发） */
+@keyframes login-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20% {
+    transform: translateX(-5px);
+  }
+  40% {
+    transform: translateX(4px);
+  }
+  60% {
+    transform: translateX(-3px);
+  }
+  80% {
+    transform: translateX(2px);
+  }
+}
+
+.login-card.is-shaking {
+  animation: login-shake 0.42s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card.is-shaking {
+    animation: none;
+  }
+}
+
+/* 按钮里的转圈（和 .spinner 同一套，颜色配着实心按钮的白字） */
+.btn-spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.45);
+  border-top-color: #ffffff;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* 登录按钮是 flex 才能让转圈和文字并排居中 */
+.login-card .login-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* 手机端按下去回弹一下（桌面端保持原样） */
+@media (max-width: 767px) {
+  .login-card .login-button.btn-primary:active {
+    transform: scale(0.98);
+  }
+}
+
+/* ============================================================
+   批次 B：骨架屏 / 切页进度条 / 空状态动作（桌面 + 手机共用）
+   ============================================================ */
+
+/* 列表加载中的骨架：几条灰块，数据到了版面不跳 */
+.skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 4px 4px;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.skeleton-cell {
+  height: 13px;
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--panel-soft) 0%,
+    #ececf0 40%,
+    var(--panel-soft) 80%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-sweep 1.25s ease-in-out infinite;
+}
+
+.skeleton-cell.is-wide {
+  flex: 1.9 1 0;
+}
+
+/* 每行稍微错开一点，看起来更像内容 */
+.skeleton-row:nth-child(even) .skeleton-cell {
+  animation-delay: 0.12s;
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-cell {
+    animation: none;
+  }
+}
+
+/* 切页：顶上一条来回走的细进度条 + 一块骨架 */
+.route-progress-host {
+  position: relative;
+}
+
+.route-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: 300;
+  background-color: rgba(0, 113, 227, 0.18);
+}
+
+.route-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 38%;
+  border-radius: 2px;
+  background-color: var(--action);
+  animation: route-progress 1s ease-in-out infinite;
+}
+
+@keyframes route-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}
+
+/* 空状态：可以带一句"下一步干嘛"和一个主按钮 */
+.empty-hint {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.empty-action {
+  margin-top: 16px;
+}
+
+/* ============================================================
+   批次 B：手机端（< 768px）—— toast 位置 / 危险弹窗 sheet / 按下回弹
+   放在最后：要压过上面同名的移动端规则
+   ============================================================ */
+
+@media screen and (max-width: 767px) {
+  /*
+   * toast 移到底部：原来固定在顶部 20px，手机上会盖住顶栏那个页面标题；
+   * 而且顶部是"看"的地方、底部才是"点"的地方，报错放在拇指附近也更合理。
+   * 位置让开底部 Tab 栏（56px + 安全区）。
+   */
+  .toast-host {
+    top: auto;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    flex-direction: column-reverse;
+  }
+
+  .toast {
+    animation: toast-in-up 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /*
+   * 提示条本身**不吃点击**：手机端它落在表单「保存」按钮那一带的上面，
+   * 比如"请至少选择一个码单"这种报错，用户看完马上就要点别的 ——
+   * 提示条压着按钮 3 秒点不动，反而误事。只有那个关闭按钮要能点。
+   */
+  .toast {
+    pointer-events: none;
+  }
+
+  .toast-close {
+    pointer-events: auto;
+  }
+
+  /*
+   * 危险确认框（.modal-alert）也改成底部 sheet。
+   * 原来这里特意让它居中"更像原生告警框"，但手机端其它弹窗全是底部弹层，
+   * 只有它居中会显得跳；改成一致的底部升起来。
+   * 不显示顶部小把手（动作表那种一眼就知道能关，不需要把手）。
+   */
+  .overlay:has(.modal-alert) {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-alert {
+    max-width: none;
+    border-radius: 18px 18px 0 0;
+    padding: 22px 20px calc(16px + env(safe-area-inset-bottom));
+    animation: sheet-in 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  /* 两个按钮平分宽度、抬到 44px（手指好点） */
+  .modal-alert .confirm-actions .btn {
+    flex: 1;
+    height: 44px;
+  }
+
+  /* 按下去回弹一下（只动手机端） */
+  .btn:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .app-tile:active {
+    transform: scale(0.97);
+  }
+
+  .bottom-nav-item:active {
+    transform: scale(0.94);
+  }
+
+  /* 回弹要跟手：在原有过渡上补一条 transform，别把颜色过渡吃掉 */
+  .btn {
+    transition: transform 0.12s ease-out, background-color var(--ease),
+      border-color var(--ease), color var(--ease), box-shadow var(--ease),
+      opacity var(--ease);
+  }
+
+  .app-tile,
+  .bottom-nav-item {
+    transition: transform 0.12s ease-out;
+  }
+}
+
+@keyframes toast-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

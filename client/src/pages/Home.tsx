@@ -9,6 +9,7 @@ import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
 import { formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { can, canVisit, seesMoney } from '../permissions'
+import { tapFeedback } from '../utils/haptics'
 
 const formatMoney = (value: number) =>
   value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
@@ -345,7 +346,10 @@ export default function Home() {
               key={tile.to}
               type="button"
               className="app-tile"
-              onClick={() => navigate(tile.to)}
+              onClick={() => {
+                tapFeedback()
+                navigate(tile.to)
+              }}
             >
               <svg
                 className="app-tile-icon"

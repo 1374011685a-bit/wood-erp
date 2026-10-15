@@ -12,7 +12,7 @@ import { useRole } from '../hooks/useRole'
 import { canVisit } from '../permissions'
 import { applyTableLabels } from '../utils/tableLabels'
 import BottomNav from './BottomNav'
-import { Loading, ToastHost, type ToastItem } from './Ui'
+import { RouteProgress, ToastHost, type ToastItem } from './Ui'
 
 type NavItem = {
   to: string
@@ -623,6 +623,30 @@ export default function Layout() {
                   role="menuitem"
                   onClick={() => {
                     setMenuOpen(false)
+                    navigate('/me')
+                  }}
+                >
+                  <svg
+                    className="account-menu-icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                  >
+                    <circle cx="12" cy="8" r="3.6" />
+                    <path d="M5 20c.8-3.4 3.6-5.4 7-5.4s6.2 2 7 5.4" />
+                  </svg>
+                  <span>我的</span>
+                </button>
+                <button
+                  type="button"
+                  className="account-menu-item"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false)
                     openPassword()
                   }}
                 >
@@ -701,7 +725,8 @@ export default function Layout() {
         )}
 
         {/* 页面是按需加载的，切页面时先显示一个轻量加载态 */}
-        <Suspense fallback={<Loading />}>
+        {/* 切页加载：顶上一条细进度条 + 一块骨架（比整页空白/一个转圈更像 App） */}
+        <Suspense fallback={<RouteProgress />}>
           <Outlet />
         </Suspense>
       </main>

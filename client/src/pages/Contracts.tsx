@@ -9,7 +9,14 @@ import {
   type ContractDetail,
   type ContractRow,
 } from '../api'
-import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import {
+  EmptyState,
+  Loading,
+  PageHead,
+  Pager,
+  TableSkeleton,
+  ToastHost,
+} from '../components/Ui'
 import { toNumber, formatAmount, todayLocal } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
@@ -404,9 +411,13 @@ export default function Contracts() {
         </table>
 
         {!loading && rows.length === 0 && (
-          <EmptyState text="还没有合同，点右上角「上传合同」添加" />
+          <EmptyState
+            text="还没有合同"
+            hint="上传一份合同（PDF 选填），后面的入库单就能挂到它下面"
+            action={canWrite ? { label: '上传合同', onClick: openUpload } : undefined}
+          />
         )}
-        {loading && <Loading />}
+        {loading && <TableSkeleton rows={6} cols={5} />}
 
         <Pager
           total={total}

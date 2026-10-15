@@ -38,11 +38,13 @@ import {
 import {
   EmptyState,
   Loading,
+  TableSkeleton,
   PageHead,
   Pager,
   ToastHost,
 } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
+import { tapFeedback } from '../utils/haptics'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -1584,9 +1586,13 @@ export default function Inbound({
             </tbody>
           </table>
           {!listLoading && list.length === 0 && (
-            <EmptyState text="暂无入库单，点右上角「新增采购」开始" />
+            <EmptyState
+              text="暂无入库单"
+              hint="按提单一包包进货；同一张单里品名/规格/片数一样的两行会自动合并"
+              action={{ label: '新增入库', to: '/inbound/new' }}
+            />
           )}
-          {listLoading && <Loading />}
+        {listLoading && <TableSkeleton rows={6} cols={5} />}
           <Pager
             total={total}
             limit={PAGE_SIZE}
@@ -1652,9 +1658,13 @@ export default function Inbound({
             <span className="spacer" />
             <button
               className="btn btn-primary"
-              onClick={() => void handleSave()}
+              onClick={() => {
+                tapFeedback()
+                void handleSave()
+              }}
               disabled={saving}
             >
+              {saving && <span className="btn-spinner" aria-hidden="true" />}
               {saving ? '保存中…' : '保存'}
             </button>
             <button

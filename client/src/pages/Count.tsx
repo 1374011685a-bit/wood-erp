@@ -12,8 +12,8 @@ import {
 } from '../api'
 import {
   EmptyState,
-  Loading,
   PageHead,
+  TableSkeleton,
   ToastHost,
 } from '../components/Ui'
 import { roundTo, formatCubic, formatAmount, todayLocal } from '../utils/num'
@@ -440,9 +440,13 @@ export default function Count() {
           </table>
 
           {!listLoading && list.length === 0 && (
-            <EmptyState text="暂无盘点单，点右上角「新增盘点」开始" />
+            <EmptyState
+              text="暂无盘点单"
+              hint="盘盈会生成入库单、盘亏会生成出库单，库存跟着自动调"
+              action={{ label: '新增盘点', onClick: () => void openCreate() }}
+            />
           )}
-          {listLoading && <Loading />}
+        {listLoading && <TableSkeleton rows={5} cols={5} />}
         </div>
       ) : (
         <div className="card">

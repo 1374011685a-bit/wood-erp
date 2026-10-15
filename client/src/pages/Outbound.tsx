@@ -31,6 +31,7 @@ import {
 import {
   EmptyState,
   Loading,
+  TableSkeleton,
   PageHead,
   Pager,
   ToastHost,
@@ -39,6 +40,7 @@ import {
 // 扫码库挺大，点「扫一扫」才去下载
 const Scanner = lazy(() => import('../components/Scanner'))
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
+import { tapFeedback } from '../utils/haptics'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -1108,9 +1110,13 @@ export default function Outbound({
             </tbody>
           </table>
           {!listLoading && list.length === 0 && (
-            <EmptyState text="暂无出库单，点右上角「新增出库」录入" />
+            <EmptyState
+              text="暂无出库单"
+              hint="出库从在库的码单里挑，挑完库存自动扣减"
+              action={{ label: '新增出库', to: '/outbound/new' }}
+            />
           )}
-          {listLoading && <Loading />}
+        {listLoading && <TableSkeleton rows={6} cols={5} />}
           <Pager
             total={total}
             limit={PAGE_SIZE}
@@ -1159,9 +1165,13 @@ export default function Outbound({
             <span className="spacer" />
             <button
               className="btn btn-primary"
-              onClick={() => void handleSave()}
+              onClick={() => {
+                tapFeedback()
+                void handleSave()
+              }}
               disabled={saving}
             >
+              {saving && <span className="btn-spinner" aria-hidden="true" />}
               {saving ? '保存中…' : '保存'}
             </button>
             <button

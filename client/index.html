@@ -16,8 +16,54 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <title>立川云木材管理系统</title>
+    <!--
+      启动闪屏：JS 还没下载完之前先看到 LOGO，不至于白屏一下。
+      ⚠️ 样式必须内联在这儿 —— 放在 index.css 里等于是"跟主包一起到"，那就不叫闪屏了。
+      这一块是 #root 的兄弟节点，React 不碰它；main.tsx 挂载完成后把它淡出移除。
+    -->
+    <style>
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-items: center;
+        background-color: #ffffff;
+        transition: opacity 0.18s ease-out;
+      }
+      #boot-splash.is-hidden {
+        opacity: 0;
+      }
+      #boot-splash .boot-splash-inner {
+        text-align: center;
+      }
+      #boot-splash img {
+        display: block;
+        width: auto;
+        height: 84px;
+        margin: 0 auto;
+      }
+      #boot-splash p {
+        margin: 16px 0 0;
+        font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC',
+          'Microsoft YaHei', sans-serif;
+        letter-spacing: 0.02em;
+        color: #86868b;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash {
+          transition: none;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash">
+      <div class="boot-splash-inner">
+        <img src="/logo.png" alt="" />
+        <p>木材进销存管理系统</p>
+      </div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

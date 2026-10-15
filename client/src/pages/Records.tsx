@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchRecords, type RecordQuery, type RecordRow } from '../api'
 import {
   EmptyState,
-  Loading,
   PageHead,
   Pager,
+  TableSkeleton,
   ToastHost,
 } from '../components/Ui'
 import { formatCubic, formatAmount } from '../utils/num'
@@ -201,8 +201,14 @@ export default function Records() {
           </tbody>
         </table>
 
-        {!loading && rows.length === 0 && <EmptyState text="暂无记录" />}
-        {loading && <Loading />}
+        {!loading && rows.length === 0 && (
+          <EmptyState
+            text="暂无记录"
+            hint="这里按时间列出每一笔出入库明细，录单之后就有了"
+            action={{ label: '去录入库单', to: '/inbound/new' }}
+          />
+        )}
+        {loading && <TableSkeleton rows={6} cols={6} />}
 
         <Pager
           total={total}

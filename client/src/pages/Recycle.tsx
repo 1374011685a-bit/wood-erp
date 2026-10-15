@@ -5,7 +5,7 @@ import {
   restoreRecycleOrder,
   type RecycleRow,
 } from '../api'
-import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
+import { EmptyState, PageHead, TableSkeleton, ToastHost } from '../components/Ui'
 import { formatCubic, formatAmount } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
@@ -168,8 +168,13 @@ export default function Recycle() {
           </tbody>
         </table>
 
-        {!loading && rows.length === 0 && <EmptyState text="回收站是空的" />}
-        {loading && <Loading />}
+        {!loading && rows.length === 0 && (
+          <EmptyState
+            text="回收站是空的"
+            hint="删掉的单据会先放到这里，库存已经同步扣减，可以整单恢复"
+          />
+        )}
+        {loading && <TableSkeleton rows={4} cols={5} />}
 
         <div className="totals">
           <span>共 {rows.length} 条已删除单据</span>

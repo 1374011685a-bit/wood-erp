@@ -17,6 +17,7 @@ import {
 } from '../api'
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
+import { tapFeedback } from '../utils/haptics'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 
@@ -1145,7 +1146,15 @@ export default function Repack() {
             />
           </label>
           <span className="spacer" />
-          <button className="btn btn-primary" onClick={() => void handleSave()} disabled={saving}>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              tapFeedback()
+              void handleSave()
+            }}
+            disabled={saving}
+          >
+            {saving && <span className="btn-spinner" aria-hidden="true" />}
             {saving ? '保存中…' : '保存'}
           </button>
         </div>

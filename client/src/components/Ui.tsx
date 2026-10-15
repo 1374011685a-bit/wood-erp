@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
 import type { ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 /* 统一页头：页面标题 + 一句话说明 */
 export function PageHead({
@@ -22,8 +23,27 @@ export function PageHead({
   )
 }
 
-/* 空状态 */
-export function EmptyState({ text = '暂无数据' }: { text?: string }) {
+/**
+ * 空状态。
+ *
+ * 只给一行灰字，用户看到"没有数据"就不知道下一步该干嘛；
+ * 传了 `action` 就在下面给一个主按钮（"去采购入库"这种），能直接顺着走下去。
+ */
+export function EmptyState({
+  text = '暂无数据',
+  hint,
+  action,
+}: {
+  text?: string
+  hint?: string
+  action?: { label: string; to?: string; onClick?: () => void }
+}) {
+  const navigate = useNavigate()
+  const go = () => {
+    if (action?.onClick) action.onClick()
+    else if (action?.to) navigate(action.to)
+  }
+
   return (
     <div className="empty">
       <svg
@@ -40,6 +60,12 @@ export function EmptyState({ text = '暂无数据' }: { text?: string }) {
         <path d="M12 12v9" />
       </svg>
       <span>{text}</span>
+      {hint ? <span className="empty-hint">{hint}</span> : null}
+      {action ? (
+        <button type="button" className="btn btn-primary empty-action" onClick={go}>
+          {action.label}
+        </button>
+      ) : null}
     </div>
   )
 }
@@ -50,6 +76,45 @@ export function Loading({ text = '加载中…' }: { text?: string }) {
     <div className="loading">
       <span className="spinner" />
       <span>{text}</span>
+    </div>
+  )
+}
+
+/**
+ * 列表加载中的骨架屏：几条灰块占位。
+ *
+ * 比一个居中的转圈稳 —— 数据到了以后版面不会整页跳一下，
+ * 而且一眼就能看出"这里将来是一张表"。只用在外层列表页；
+ * 弹窗里那种小块区域继续用 <Loading/> 转圈。
+ */
+export function TableSkeleton({ rows = 5, cols = 4 }: { rows?: number; cols?: number }) {
+  return (
+    <div className="skeleton" aria-hidden="true">
+      {Array.from({ length: rows }).map((_, rowIndex) => (
+        <div className="skeleton-row" key={rowIndex}>
+          {Array.from({ length: cols }).map((__, colIndex) => (
+            <span
+              className={colIndex === 0 ? 'skeleton-cell is-wide' : 'skeleton-cell'}
+              key={colIndex}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * 切页时的加载指示：顶栏下面一条来回走的细进度条 + 一块表形骨架。
+ *
+ * 路由是懒加载的，点到没下载过的功能要等一小会儿 —— 光给一条进度条的话，
+ * 下面还是空的；配一块骨架至少看着像"页面正在长出来"。
+ */
+export function RouteProgress() {
+  return (
+    <div className="route-progress-host">
+      <div className="route-progress" role="progressbar" aria-label="页面加载中" />
+      <TableSkeleton rows={4} cols={4} />
     </div>
   )
 }

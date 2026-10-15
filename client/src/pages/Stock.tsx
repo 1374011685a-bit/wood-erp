@@ -7,8 +7,8 @@ import {
 } from '../api'
 import {
   EmptyState,
-  Loading,
   PageHead,
+  TableSkeleton,
   ToastHost,
 } from '../components/Ui'
 import { roundTo, formatCubic } from '../utils/num'
@@ -173,9 +173,13 @@ export default function Stock() {
         </table>
 
         {!loading && rows.length === 0 && (
-          <EmptyState text="没有符合条件的库存规格" />
+          <EmptyState
+            text="没有符合条件的库存规格"
+            hint="库存是入库明细减出库明细实时算出来的；录入库单就会出现在这里"
+            action={{ label: '去录入库单', to: '/inbound/new' }}
+          />
         )}
-        {loading && <Loading />}
+        {loading && <TableSkeleton rows={5} cols={5} />}
 
         <div className="totals">
           <span>当前共 {rows.length} 个规格</span>

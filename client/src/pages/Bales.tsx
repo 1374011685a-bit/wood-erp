@@ -14,7 +14,14 @@ import {
   type DictAll,
   type ShipmentRow,
 } from '../api'
-import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import {
+  EmptyState,
+  Loading,
+  PageHead,
+  Pager,
+  TableSkeleton,
+  ToastHost,
+} from '../components/Ui'
 import Breadcrumb from '../components/Breadcrumb'
 import { roundTo, formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
@@ -930,8 +937,14 @@ export default function Bales() {
           </tbody>
         </table>
 
-        {!loading && rows.length === 0 && <EmptyState text="没有符合条件的包" />}
-        {loading && <Loading />}
+        {!loading && rows.length === 0 && (
+          <EmptyState
+            text="没有符合条件的包"
+            hint="这里是货的明细：一包一行。包是录入库单时生成的"
+            action={{ label: '去录入库单', to: '/inbound/new' }}
+          />
+        )}
+        {loading && <TableSkeleton rows={6} cols={6} />}
 
         <Pager
           total={total}
