@@ -112,8 +112,21 @@ function normalizeItems(items) {
 const insertOrder = db.prepare(
   `INSERT INTO inbound_orders
      (order_no, supplier, order_date, remark, warehouse, operator,
-      bl_no, contract_no, vehicle_no, shipment_id)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      bl_no, contract_no, vehicle_no, shipment_id, original_cubic)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+)
+
+/**
+ * 「原」的冻结快照 = 这张单的入库明细合计。
+ * 只在**新建 / 编辑入库单**时重算（用户主动改数量）；改包一律不动它。
+ */
+const sumOrderItemsStmt = db.prepare(
+  `SELECT ROUND(COALESCE(SUM(cubic), 0), 4) AS c
+     FROM order_items
+    WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
+)
+const setOrderOriginalCubicStmt = db.prepare(
+  `UPDATE inbound_orders SET original_cubic = ? WHERE id = ?`,
 )
 
 const findShipmentStmt = db.prepare(
@@ -247,6 +260,7 @@ const createInbound = db.transaction(
     contractNo || null,
     vehicleNo || null,
     shipmentId ?? null,
+    0,
   )
   const orderId = Number(lastInsertRowid)
   const barcodes = []
@@ -292,6 +306,10 @@ const createInbound = db.transaction(
 
     barcodes.push(...created.map((one) => one.barcode))
   }
+  /**
+   * 明细写完再落「原」快照 —— 它是一个冻结值，之后改包不会再算它。
+   */
+  setOrderOriginalCubicStmt.run(Number(sumOrderItemsStmt.get(orderId)?.c ?? 0), orderId)
   return {
     id: orderId,
     order_no: orderNo,
@@ -616,6 +634,11 @@ const updateInbound = db.transaction(
       )
       .get(id)?.c ?? 0,
   )
+
+  /**
+   * 用户主动改了这张单的数量 → 「原」跟着重算一次（这是唯一会改「原」的入口）。
+   */
+  setOrderOriginalCubicStmt.run(Number(sumOrderItemsStmt.get(id)?.c ?? 0), id)
 
   updateOrderStmt.run(
     supplier,

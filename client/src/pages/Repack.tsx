@@ -232,17 +232,6 @@ export default function Repack() {
    * 所以保存前弹一次确认，点确认才真提交。
    */
   const [splitConfirm, setSplitConfirm] = useState<{ count: number } | null>(null)
-  /** 拆包确认框要不要带 force（从「确认丢弃」过来的时候要带下去） */
-  const [splitForce, setSplitForce] = useState(false)
-  /**
-   * 「改包后会丢货」的确认框。
-   * 改包后如果没把某个源包的规格行列进去，那一份货会从账上静默消失 ——
-   * 保存前把丢掉的货列出来，用户点「确认丢弃」才真保存。
-   */
-  const [discardConfirm, setDiscardConfirm] = useState<{
-    items: { blNo: string; baleNo: string; missing: number; specs: string[] }[]
-    filled: AfterRow[]
-  } | null>(null)
   /** 「查看」：只看这条改包的改前 / 改后明细，不改任何东西 */
   const [viewTarget, setViewTarget] = useState<RepackRow | null>(null)
   const [dict, setDict] = useState<{ species: string[]; grade: string[] }>({
@@ -681,78 +670,6 @@ export default function Repack() {
   // 包号都空 = 一行一包，有几行就是几包
   const perRowGroupCount = allNosBlank ? filledPreview.length : 0
 
-  /**
-   * 「这一包有、改包后没有」的货 —— 保存前必须让用户看到。
-   *
-   * 改包的实现是：源包全部删掉，再按「改包后」的行重建新包。
-   * 所以只要某个源包的规格行没被列进「改包后」，那一份货就会**从账上消失**
-   * （入库明细被扣光、库存跟着少），而界面上只有一个负的「损耗」。
-   *
-   * 判法：每个源包单独算 ——
-   *   ① 行上带来源标记的（「复制改包前数据」「一键拆包」出来的行）→ 直接算给那一包
-   *   ② 手填的行 → 按规格（品名/等级/厚/宽/长/片数）匹配这一包的规格行，同规格只算一次
-   *   ③ 差 > 0.0001 才算丢货（浮点容差）
-   */
-  const discardWarning = useMemo(() => {
-    const filled = rows.filter((row) => row.species.trim())
-    if (pickedBales.length === 0 || filled.length === 0) return null
-    const handRows = filled.filter((row) => !row.srcBaleId)
-    const keyOf = (
-      species: string,
-      grade: string | null | undefined,
-      thickness: unknown,
-      width: unknown,
-      length: unknown,
-      pieces: unknown,
-    ) =>
-      [
-        species.trim(),
-        (grade ?? '').trim(),
-        toNumber(thickness),
-        toNumber(width),
-        Number(length),
-        Number(pieces),
-      ].join('|')
-
-    const out: { blNo: string; baleNo: string; missing: number; specs: string[] }[] = []
-    for (const picked of pickedBales) {
-      const lines = picked.items
-      const total = roundTo(lines.reduce((sum, line) => sum + lineCubic(line), 0), 4)
-      if (total <= 0) continue
-      let covered = 0
-      /* ① 带来源标记的行 */
-      for (const row of filled) {
-        if (row.srcBaleId === picked.id) covered += rowCubic(row)
-      }
-      /* ② 手填的行：按规格匹配（匹配上就从待覆盖清单里划掉） */
-      const rest = [...lines]
-      for (const row of handRows) {
-        for (const spec of rowSpecs(row)) {
-          const key = keyOf(row.species, row.grade, row.thickness, row.width, spec.length, spec.pieces)
-          const at = rest.findIndex(
-            (line) =>
-              keyOf(line.species, line.grade, line.thickness, line.width, line.length, line.pieces) === key,
-          )
-          if (at < 0) continue
-          covered += lineCubic(rest[at])
-          rest.splice(at, 1)
-          break
-        }
-      }
-      const missing = roundTo(total - covered, 4)
-      if (missing > 0.0001) {
-        out.push({
-          blNo: picked.bl_no ?? '',
-          baleNo: picked.bale_no ?? '',
-          missing,
-          specs: (rest.length > 0 ? rest : lines).map(
-            (line) => `${line.thickness}×${line.width}×${line.length} / ${line.pieces}片`,
-          ),
-        })
-      }
-    }
-    return out.length > 0 ? out : null
-  }, [pickedBales, rows])
 
   const handleSave = async () => {
     setError('')
@@ -811,21 +728,11 @@ export default function Repack() {
     }
 
     /**
-     * 有货没被列进「改包后」= 这些货会从账上消失。
-     * 先弹确认（默认取消），点「确认丢弃」才继续。
-     */
-    if (discardWarning) {
-      setDiscardConfirm({ items: discardWarning, filled })
-      return
-    }
-
-    /**
      * 多行 + 新包号全留空 = 每行各自成一包（拆开），不是合并。
      * 保存前确认一次，避免仓管「想合并」却悄悄拆成了 N 包。
      * 「一键拆包」出来的行豁免（用户已经明确要拆）。
      */
     if (needsSplitConfirm(filled)) {
-      setSplitForce(false)
       setSplitConfirm({ count: filled.length })
       return
     }
@@ -834,10 +741,12 @@ export default function Repack() {
   }
 
   /**
-   * 真正提交（确认框点「确认继续」也走这里）。
-   * `force` = 用户已经确认过「本次改包会丢货」，后端才放行。
+   * 真正提交（「包号都留空」确认框点「确认继续」也走这里）。
+   *
+   * 改包只允许重组、不允许丢货：源包的货没被完整分配到新包里时，
+   * 后端会 400 拦住（提示去编辑入库单改数量），这里照常把错误弹出来即可。
    */
-  const submitRepack = async (filled: AfterRow[], force = false) => {
+  const submitRepack = async (filled: AfterRow[]) => {
     setSaving(true)
     try {
       const result = await createRepack({
@@ -845,7 +754,6 @@ export default function Repack() {
         bale_ids: baleIds,
         summary: form.summary.trim(),
         remark: form.remark.trim(),
-        ...(force ? { force: true } : {}),
         // 改前选定的成本价（只有匹配到多个价的行才有值）
         before_prices: Object.fromEntries(
           Object.entries(beforePrices)
@@ -1042,8 +950,6 @@ export default function Repack() {
   }
 
   const lossCubic = roundTo(afterCubic - beforeCubic, 4)
-  /** 损耗是负的 = 有货在「改包后」里没列出来（会从账上消失） */
-  const lossIsShort = lossCubic < -0.0001
   // 损耗率 = 损耗方数 ÷ 改前方数
   const lossRate = beforeCubic > 0 ? roundTo((lossCubic / beforeCubic) * 100, 2) : null
   const lossArrow = lossCubic > 0 ? '↑' : lossCubic < 0 ? '↓' : ''
@@ -1581,20 +1487,12 @@ export default function Repack() {
                 <td />
               </tr>
               {/*
-                损耗为负 = 有货没写进新包（会从账上消失）——
-                整行标红加粗 + ⚠，鼠标悬停说清丢了多少。
+                损耗 = 改后 − 改前，只表示立方差。
+                （丢货已经在后端拦住了，这一栏不再承担"丢了多少货"的确认语义。）
               */}
-              <tr className={lossIsShort ? 'is-loss-warn' : undefined}>
+              <tr>
                 <td colSpan={AFTER_LEAD_COLS} className="sheet-total-label">
                   损耗（改后 − 改前）
-                  {lossIsShort && (
-                    <span
-                      className="loss-warn-icon"
-                      title={`本次改包丢弃了 ${formatCubic(Math.abs(lossCubic))} 方货`}
-                    >
-                      ⚠
-                    </span>
-                  )}
                 </td>
                 <td className={lossCubic < 0 ? 'num is-short' : 'num'}>
                   {formatCubic(lossCubic)} {lossArrow}
@@ -1855,55 +1753,6 @@ export default function Repack() {
         </div>
       )}
 
-      {/*
-        改包会丢货：源包里有的规格没被列进「改包后」——
-        保存前把丢掉的货一条条列出来。默认「取消」（按钮自动聚焦，回车也是取消），
-        点「确认丢弃」才真的保存。
-      */}
-      {discardConfirm && (
-        <div className="overlay" onClick={() => setDiscardConfirm(null)}>
-          <div
-            className="modal modal-narrow modal-alert"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 className="modal-title">注意：本次改包会丢弃以下货</h2>
-            <ul className="discard-list">
-              {discardConfirm.items.map((one) => (
-                <li key={`${one.blNo}-${one.baleNo}`}>
-                  提单 <strong>{one.blNo || '—'}</strong>
-                  {one.baleNo ? `（包 ${one.baleNo}）` : ''} 的{' '}
-                  <strong>{formatCubic(one.missing)} 方</strong>
-                  <br />
-                  <span className="muted">规格：{one.specs.join('、')}</span>
-                </li>
-              ))}
-            </ul>
-            <p className="confirm-text">这些货会从账上消失。确认继续？</p>
-            <div className="confirm-actions">
-              <button className="btn" autoFocus onClick={() => setDiscardConfirm(null)}>
-                取消
-              </button>
-              <button
-                className="btn btn-danger-solid"
-                onClick={() => {
-                  const filled = discardConfirm.filled
-                  setDiscardConfirm(null)
-                  if (needsSplitConfirm(filled)) {
-                    setSplitForce(true)
-                    setSplitConfirm({ count: filled.length })
-                    return
-                  }
-                  // 用户已经明确点了「确认丢弃」→ 带 force，后端才放行
-                  void submitRepack(filled, true)
-                }}
-              >
-                确认丢弃
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 多行 + 新包号全空：保存前再确认一次「会拆成 N 包」 */}
       {splitConfirm && (
         <div className="overlay" onClick={() => setSplitConfirm(null)}>
@@ -1927,7 +1776,7 @@ export default function Repack() {
                 onClick={() => {
                   setSplitConfirm(null)
                   // 重新按当前表格取一遍行，走同一条提交路径
-                  void submitRepack(rows.filter((row) => row.species.trim()), splitForce)
+                  void submitRepack(rows.filter((row) => row.species.trim()))
                 }}
               >
                 确认继续

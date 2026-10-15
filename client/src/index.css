@@ -2428,41 +2428,6 @@ section > .toolbar .btn-primary {
   line-height: 1.6;
 }
 
-/* 改包「丢货」的 ⚠ 图标（悬停看丢了多少方） */
-.loss-warn-icon {
-  margin-left: 6px;
-  color: #b3261e;
-  font-size: 13px;
-  cursor: help;
-}
-
-/*
- * 改包「丢货」的红色警示：损耗那行整行标红加粗。
- * 触发条件见 Repack.tsx：lossCubic < -0.0001（改后比改前少 = 有货没写进新包）。
- */
-.sheet-table tfoot tr.is-loss-warn > td {
-  background-color: #fdecea;
-  color: #b3261e;
-  font-weight: 600;
-}
-
-.sheet-table tfoot tr.is-loss-warn > td.is-short {
-  color: #b3261e;
-}
-
-/* 「本次改包会丢弃以下货」确认框里的清单 */
-.discard-list {
-  margin: 10px 0 0;
-  padding-left: 20px;
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.8;
-}
-
-.discard-list strong {
-  font-weight: 600;
-}
-
 /*
  * 改包后：新包挂在哪张提单 / 哪个合同下的**只读**提示。
  * 表单里已经没有这两个输入框了（系统按来源自动挂），用户只需要看结果。

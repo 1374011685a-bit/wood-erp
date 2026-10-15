@@ -711,14 +711,20 @@ const createRepack = db.transaction((payload) => {
       })
     }
   }
-  if (discarded.length > 0 && payload.force !== true) {
+  if (discarded.length > 0) {
+    /**
+     * 改包**只允许重组，不允许丢货**（没有"确认丢弃"这条路）。
+     * 想改数量请去编辑入库单 —— 那是唯一会改「原」的入口。
+     */
     const error = new Error(
-      `本次改包会丢弃 ${discarded
+      discarded
         .map(
           (one) =>
-            `${one.gap} 方货（提单 ${one.blNo || '—'} / 包 ${one.baleNo || '—'} / 规格 ${one.specs.join('、')}）`,
+            `源包 ${one.baleNo || '—'}（提单 ${one.blNo || '—'}）的 ${one.gap} 方` +
+            '没有被分配到任何新包里，请检查改包后的行。' +
+            '如果确实要丢弃，请先编辑入库单修改数量，不要用改包丢货。',
         )
-        .join('；')}，要确认丢弃请带 force: true 重发`,
+        .join('；'),
     )
     error.status = 400
     throw error
@@ -1022,11 +1028,6 @@ router.post('/', requireCap('repack.write'), (req, res) => {
       remark: String(body.remark ?? '').trim(),
       blNo: String(body.bl_no ?? '').trim(),
       contractNo: String(body.contract_no ?? '').trim(),
-      /**
-       * 前端「这次改包会丢货」的确认按钮会带 true；
-       * 不带 = 不许丢货（差 > 0.0001 会被拦，见 createRepack 里的校验）。
-       */
-      force: body.force === true,
       groups,
       // 「改包前」里为某一行手选的成本价：{ [bale_item_id]: 单价 }
       beforePrices: body.before_prices ?? {},

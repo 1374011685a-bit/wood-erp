@@ -1407,6 +1407,37 @@ function migrateBaleScope() {
  * 那种提单是「有账（原 5）、没有包（现 0）」，界面上要显示「货在别人的包里」，
  * 删了用户就看不到自己的货去哪了。
  */
+/**
+ * 入库单的「原」快照：`inbound_orders.original_cubic`。
+ *
+ * 「原」= 这张单**当初入库了多少方**，是一个**冻结值**：
+ *   · 新建 / 编辑入库单时按当前入库明细算一遍写进去（用户主动改数量才变）
+ *   · 改包（拆分 / 合并 / 改规格 / 撤销）**一律不动它** ——
+ *     以前「原」是拿现存入库明细现算的，改包会重写明细，于是"原"跟着飘，
+ *     跨提单合并后用户看到自己那票的"原"变了，以为账丢了。
+ *   · /api/shipments 的 original_cubic = 这一票下所有入库单的 original_cubic 之和
+ *
+ * 迁移：加列 + 一次性回填（= 当前入库明细合计）。已经有值的不再覆盖。
+ */
+function migrateInboundOriginalCubic() {
+  const cols = db
+    .exec(`PRAGMA table_info('inbound_orders')`)[0]
+    ?.values.map((row) => row[1] ?? row.name)
+  if (!cols.includes('original_cubic')) {
+    db.exec(`ALTER TABLE inbound_orders ADD COLUMN original_cubic REAL NOT NULL DEFAULT 0`)
+    db.exec(`
+      UPDATE inbound_orders
+         SET original_cubic = (
+               SELECT ROUND(COALESCE(SUM(i.cubic), 0), 4)
+                 FROM order_items i
+                WHERE i.order_type = 'in' AND i.order_id = inbound_orders.id
+                  AND i.deleted_at IS NULL
+             )
+    `)
+    writeLog('[db] 迁移：入库单增加 original_cubic（「原」冻结快照），已按当前入库明细回填')
+  }
+}
+
 function cleanEmptyShipments() {
   const empties = db
     .prepare(
@@ -1732,6 +1763,7 @@ export function initDB() {
   migrateUserRoles()
   migrateRepackSplit()
   migrateBaleNoGlobalUnique()
+  migrateInboundOriginalCubic()
   relinkBalesToShipment()
   // 补挂之后再看一遍：如果某张提单还是没货，就清掉
   cleanEmptyShipments()

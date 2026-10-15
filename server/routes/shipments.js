@@ -55,25 +55,19 @@ const listSql = (where) => `
            WHERE bb.shipment_id = s.id AND bb.deleted_at IS NULL
              AND io.shipment_id = s.id)                                                        AS own_cubic,
          /*
-          * 「原本入库」= 这一票下**入库单明细**的立方合计（order_items，不是活包）。
+          * 「原本入库」= 这一票下所有入库单的**冻结快照**之和（inbound_orders.original_cubic）。
           *
-          * 为什么这个数才叫「原」：
-          *   改包时 detach / attach 是**按每行的 src_inbound_order_id 各挂各的单**
-          *   （bales.js 的 groupBySourceOrder），所以入库明细的合计在改包前后**不变** ——
-          *   正好就是「改包前的数量」。出库只写 order_type='out' 的行，也不碰它。
-          *   只有「入库单本身变了」（编辑明细 / 编辑删码单 / 盘点盈亏单 / 整单删）才会动，
-          *   那时候数字本来该跟着动。
+          * 为什么不用 order_items 现算：改包会重写入库明细（改规格 / 拆分 / 合并都会），
+          * 现算的话「原」会跟着飘 —— 用户会觉得"我的账怎么变了"。
+          * 快照只在新建 / 编辑入库单时写（用户主动改数量），改包一律不动：
+          *   跨提单合并后，A 还是 3、B 还是 5，B 显示「现 0 / 原 5 · 货在别人的包里」。
           *
           * 对上 bale_cubic 用：两者不等 = 这一票被改包混过
           * （活包里多了别的提单的货，或者自己的货被并到别人的包里去了）。
           */
-         (SELECT ROUND(COALESCE(SUM(i.cubic), 0), 4)
-            FROM order_items i
-            JOIN inbound_orders io2 ON io2.id = i.order_id
-           WHERE i.order_type = 'in'
-             AND i.deleted_at IS NULL
-             AND io2.deleted_at IS NULL
-             AND io2.shipment_id = s.id)                                                          AS original_cubic,
+         (SELECT ROUND(COALESCE(SUM(o.original_cubic), 0), 4)
+            FROM inbound_orders o
+           WHERE o.shipment_id = s.id AND o.deleted_at IS NULL)                                  AS original_cubic,
          (SELECT COUNT(DISTINCT b.box_no) FROM bales b
            WHERE b.shipment_id = s.id AND b.deleted_at IS NULL
              AND b.box_no IS NOT NULL AND TRIM(b.box_no) <> '')      AS box_count

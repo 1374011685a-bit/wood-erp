@@ -834,6 +834,30 @@ function addOneBundleToOrder(orderId, item) {
 const orderIdOfLine = (item, bale) =>
   Number(item?.src_inbound_order_id ?? bale?.inbound_order_id ?? 0) || null
 
+/**
+ * 重算一张入库单的「原」快照（= 现存入库明细合计）。
+ *
+ * 「原」平时是冻结值（只有新建 / 编辑入库单才写），**唯一的例外**是
+ * 「用户主动删包」：删包会把这一包对应的入库明细扣掉，货是真的少了，
+ * 所以「原」要跟着重算 —— 不然那张提单会一直挂着「原 3 / 现 0」。
+ *
+ * ⚠️ 只有本文件的删包路径调用它。改包（repacks.js）删源包**不**走这里：
+ * 那是物理重组，账按来源各挂各的，不能改「原」。
+ */
+export function refreshOrderOriginalCubic(orderId) {
+  const id = Number(orderId)
+  if (!id) return
+  const cubic =
+    db
+      .prepare(
+        `SELECT ROUND(COALESCE(SUM(cubic), 0), 4) AS c
+           FROM order_items
+          WHERE order_type = 'in' AND order_id = ? AND deleted_at IS NULL`,
+      )
+      .get(id)?.c ?? 0
+  db.prepare(`UPDATE inbound_orders SET original_cubic = ? WHERE id = ?`).run(cubic, id)
+}
+
 /** 这张提单下还有几个活包 */
 const liveBaleCountOfShipment = db.prepare(
   `SELECT COUNT(*) AS n FROM bales WHERE shipment_id = ? AND deleted_at IS NULL`,
@@ -1384,9 +1408,24 @@ const removeBale = db.transaction((id) => {
     throw error
   }
 
+  /**
+   * 这一包牵动哪几张入库单：跨提单合并出来的包，一行属于一张单。
+   * 删包之后这些单的「原」都要重算（货是真的少了，不是改包重组）。
+   */
+  const affectedOrders = [
+    ...new Set(
+      baleItemsStmt
+        .all(id)
+        .map((item) => orderIdOfLine(item, bale))
+        .filter(Boolean),
+    ),
+  ]
+
   detachBaleFromOrder(bale)
   db.prepare(`DELETE FROM bale_items WHERE bale_id = ?`).run(id)
   db.prepare(`DELETE FROM bales WHERE id = ?`).run(id)
+  // 扣完明细再重算「原」：删包是"货真的没了"，不是改包那种物理重组
+  for (const orderId of affectedOrders) refreshOrderOriginalCubic(orderId)
   /**
    * 删完之后这张提单可能就空了（0 包 + 0 明细）—— 顺手软删，
    * 不然 L2 会留一行「原 0 / 现 0 · 没有包」。
