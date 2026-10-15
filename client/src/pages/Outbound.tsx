@@ -31,9 +31,10 @@ import {
 import {
   EmptyState,
   Loading,
-  TableSkeleton,
   PageHead,
   Pager,
+  PullIndicator,
+  TableSkeleton,
   ToastHost,
 } from '../components/Ui'
 
@@ -41,6 +42,9 @@ import {
 const Scanner = lazy(() => import('../components/Scanner'))
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 import { tapFeedback } from '../utils/haptics'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
+import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
+import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -251,6 +255,28 @@ export default function Outbound({
 
   const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<OutboundListFilters>(emptyFilters)
+  /** 手机端：筛选字段收进底部 sheet */
+  const [filterOpen, setFilterOpen] = useState(false)
+  /** 手机端左滑：露出「编辑 / 移入回收站」 */
+  const [swipedId, setSwipedId] = useState<number | null>(null)
+  const swipeStartX = useRef(0)
+  /** 常用规格（本机记的）：点一下打开选码单并只看这个规格的包 */
+  const [recentSpecs, setRecentSpecs] = useState<RecentSpec[]>(() => readRecentSpecs())
+  const [specFilter, setSpecFilter] = useState<RecentSpec | null>(null)
+  const activeFilterCount = [
+    filters.customer,
+    filters.warehouse,
+    filters.operator,
+    filters.date_from,
+    filters.date_to,
+  ].filter(Boolean).length
+  const { distance: pullDistance, busy: pullBusy } = usePullToRefresh(
+    () => loadList(filters, offset),
+    mode === 'list',
+  )
+
+  /** 键盘弹出来时把正在填的框顶到键盘上面 */
+  useKeyboardScroll(mode !== 'list')
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState(0)
   const [reloadToken, setReloadToken] = useState(0)
@@ -286,6 +312,8 @@ export default function Outbound({
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState('')
   const [rowErrors, setRowErrors] = useState<Record<number, string[]>>({})
+  /** 手机端哪些明细行点了「更多」（展开条码号/数量/单位/金额这些次要字段） */
+  const [expandedRows, setExpandedRows] = useState<number[]>([])
   const [hasValidated, setHasValidated] = useState(false)
 
   // 规格选择弹窗
@@ -779,7 +807,7 @@ export default function Outbound({
     }
   }
 
-  const handleSave = async () => {
+  const handleSave = async (continueAfter = false) => {
     const customer = form.customer.trim()
 
     setHasValidated(true)
@@ -805,6 +833,14 @@ export default function Outbound({
     const errorRows = Object.keys(errors).length
     if (errorRows > 0) {
       setFormError(`明细有 ${errorRows} 行填写有误，请按红色提示修正后再保存`)
+      // 手机上滚到第一条出问题的行并聚焦（录了十几行时，光提示找不到）
+      const firstKey = Object.keys(errors)[0]
+      window.setTimeout(() => {
+        const tr = document.querySelector<HTMLElement>(`tr[data-row-key="${firstKey}"]`)
+        if (!tr) return
+        tr.querySelector<HTMLInputElement>('input.sheet-input')?.focus({ preventScroll: true })
+        tr.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }, 60)
       return
     }
 
@@ -854,6 +890,22 @@ export default function Outbound({
       const result = editing
         ? await updateOutbound(editing.id, payload)
         : await createOutbound(payload)
+      setRecentSpecs(rememberSpecs(items))
+      if (continueAfter) {
+        /**
+         * 「保存并继续」：留在表单录下一张 —— 客户 / 日期 / 仓库 / 操作员 保留，
+         * 明细清空（出库明细都是从码单带出来的，下一张得重新挑）。
+         */
+        setRows([createRow()])
+        setPickedRows([])
+        setRowErrors({})
+        setForm((prev) => ({ ...prev, remark: '', vehicleNo: '' }))
+        requestedSpecs.current.clear()
+        setStockMap({})
+        setNotice(`已保存出库单 ${result.order_no}，可以接着录下一张`)
+        window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
+        return
+      }
       setMode('list')
       setEditing(null)
       setForm({
@@ -969,9 +1021,10 @@ export default function Outbound({
 
       {mode === 'list' ? (
         <>
-          <div className="toolbar">
+          <PullIndicator distance={pullDistance} busy={pullBusy} />
+          <div className="toolbar toolbar-sticky">
             <input
-              className="input"
+              className="input toolbar-search"
               placeholder="单号关键字"
               value={input.order_no}
               onChange={(event) =>
@@ -981,6 +1034,25 @@ export default function Outbound({
                 if (event.key === 'Enter') handleSearch()
               }}
             />
+            <button
+              type="button"
+              className="btn filter-toggle"
+              onClick={() => setFilterOpen((open) => !open)}
+            >
+              筛选
+              {activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
+            </button>
+            <div className={filterOpen ? 'filter-sheet is-open' : 'filter-sheet'}>
+              <div className="filter-sheet-head">
+                <span>筛选</span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-quiet"
+                  onClick={() => setFilterOpen(false)}
+                >
+                  关闭
+                </button>
+              </div>
             <input
               className="input"
               placeholder="客户关键字"
@@ -1034,9 +1106,24 @@ export default function Outbound({
             <button className="btn" onClick={handleSearch}>
               查询
             </button>
-            <button className="btn" onClick={handleResetFilters}>
-              重置
-            </button>
+              <div className="filter-sheet-actions">
+                <button className="btn" onClick={handleResetFilters}>
+                  重置
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => {
+                    handleSearch()
+                    setFilterOpen(false)
+                  }}
+                >
+                  查询
+                </button>
+              </div>
+            </div>
+            {filterOpen && (
+              <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
+            )}
             <span className="spacer" />
             {canWrite && (
               <button className="btn btn-primary" onClick={openCreate}>
@@ -1061,17 +1148,56 @@ export default function Outbound({
             </thead>
             <tbody>
               {list.map((order) => (
-                <tr key={order.id}>
-                  <td>{order.order_no}</td>
-                  <td>{order.customer}</td>
-                  <td>{order.order_date}</td>
-                  <td>{order.warehouse || '—'}</td>
-                  <td className="num">{formatCubic(order.total_cubic)}</td>
+                <tr
+                  key={order.id}
+                  className={swipedId === order.id ? 'is-swiped' : undefined}
+                  onTouchStart={(event) => {
+                    swipeStartX.current = event.touches[0]?.clientX ?? 0
+                  }}
+                  onTouchMove={(event) => {
+                    const dx = (event.touches[0]?.clientX ?? 0) - swipeStartX.current
+                    if (dx < -34) setSwipedId(order.id)
+                    else if (dx > 34) setSwipedId(null)
+                  }}
+                  onClickCapture={(event) => {
+                    if (swipedId === order.id) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setSwipedId(null)
+                    }
+                  }}
+                >
+                  <td className="col-wide">{order.order_no}</td>
+                  <td className="col-third">{order.customer}</td>
+                  <td className="col-third">{order.order_date}</td>
+                  <td className="col-third">{order.warehouse || '—'}</td>
+                  <td className="num col-third">{formatCubic(order.total_cubic)}</td>
                   {money && (
-                    <td className="num amount">{formatAmount(order.total_amount)}</td>
+                    <td className="num amount col-third">
+                      {formatAmount(order.total_amount)}
+                    </td>
                   )}
                   <td className="num">{order.item_count}</td>
                   <td>
+                    <div className="swipe-actions">
+                      <button
+                        type="button"
+                        className="swipe-btn"
+                        onClick={() => void openEdit({ id: order.id, order_no: order.order_no })}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        className="swipe-btn is-danger"
+                        onClick={() => {
+                          setSwipedId(null)
+                          setDeleteTarget({ id: order.id, order_no: order.order_no })
+                        }}
+                      >
+                        撤销出库
+                      </button>
+                    </div>
                     <div className="row-actions">
                       <button
                         className="btn btn-sm"
@@ -1176,6 +1302,17 @@ export default function Outbound({
                 {saving && <span className="btn-spinner" aria-hidden="true" />}
                 {saving ? '保存中…' : '保存'}
               </button>
+              {/* 连着录几张出库单时不用回列表 */}
+              <button
+                className="btn btn-continue"
+                onClick={() => {
+                  tapFeedback()
+                  void handleSave(true)
+                }}
+                disabled={saving}
+              >
+                保存并继续
+              </button>
               <button
                 className="btn"
                 onClick={() => {
@@ -1217,6 +1354,32 @@ export default function Outbound({
               {editing ? '；修改时会重新校验码单是否还在库' : ''}
             </span>
           </div>
+
+          {/*
+            常用规格：出库的规格是从码单带出来的（不能手填），所以这里的用法是
+            **点一下打开选码单、只看这个规格的包** —— 仓管常整批出同一个规格。
+          */}
+          {recentSpecs.length > 0 && (
+            <div className="spec-chips">
+              <span className="spec-chips-label">常用规格</span>
+              {recentSpecs.map((one) => (
+                <button
+                  key={`${one.species}-${one.thickness}-${one.width}-${one.length}`}
+                  type="button"
+                  className="spec-chip"
+                  title={`只看 ${one.species} ${one.grade || '（无等级）'} ${one.thickness}×${one.width}×${one.length} 的在库码单`}
+                  onClick={() => {
+                    tapFeedback()
+                    setSpecFilter(one)
+                    openPicker('multi')
+                  }}
+                >
+                  {one.thickness}×{one.width}×{one.length}
+                  <em>{one.species}</em>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="sheet-scroll">
             <table className="sheet-table">
@@ -1265,7 +1428,15 @@ export default function Outbound({
                 const reasons = rowErrors[row.key] ?? []
                 return (
                   <Fragment key={row.key}>
-                    <tr className={reasons.length > 0 ? 'is-error' : undefined}>
+                    <tr
+                      data-row-key={row.key}
+                      className={[
+                        reasons.length > 0 ? 'is-error' : '',
+                        expandedRows.includes(row.key) ? 'is-expanded' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ') || undefined}
+                    >
                       <td className="col-no">{index + 1}</td>
                       <td className="col-op">
                         {/*
@@ -1282,6 +1453,20 @@ export default function Outbound({
                             ✕ 删行
                           </button>
                         </span>
+                        {/* 手机端：展开/收起次要字段（桌面端不显示，18 列都在表里） */}
+                        <button
+                          type="button"
+                          className="sheet-act sheet-act-more"
+                          onClick={() =>
+                            setExpandedRows((prev) =>
+                              prev.includes(row.key)
+                                ? prev.filter((item) => item !== row.key)
+                                : [...prev, row.key],
+                            )
+                          }
+                        >
+                          {expandedRows.includes(row.key) ? '收起' : '更多'}
+                        </button>
                       </td>
                       <td className="col-check">
                         <input
@@ -1297,14 +1482,31 @@ export default function Outbound({
                           }
                         />
                       </td>
-                      <td className="col-code">{row.baleBarcode || '—'}</td>
+                      <td className="col-code col-more" data-label="条码号">
+                        {row.baleBarcode || '—'}
+                      </td>
                       {/* 选了包但没填包号 → 显示「—」；一行都没选才是「未选码单」 */}
-                      <td>{row.baleId ? row.baleNo || '—' : '未选码单'}</td>
+                      <td className="col-wide" data-label="包号">
+                        {row.baleId ? row.baleNo || '—' : '未选码单'}
+                      </td>
                       {specFields.map(({ field }) => (
-                        <td key={field}>
+                        <td
+                          key={field}
+                          className={field === 'species' ? 'col-wide' : 'col-third'}
+                          data-label={
+                            field === 'thickness'
+                              ? '厚'
+                              : field === 'width'
+                                ? '宽'
+                                : field === 'length'
+                                  ? '长'
+                                  : undefined
+                          }
+                        >
                           <input
                             className="sheet-input input-locked"
                             type="text"
+                            enterKeyHint="next"
                             readOnly
                             placeholder="未选"
                             value={row[field]}
@@ -1312,11 +1514,12 @@ export default function Outbound({
                         </td>
                       ))}
                       {numberFields.slice(0, 2).map(({ field }) => (
-                        <td key={field}>
+                        <td key={field} className="col-third">
                           <input
                             className="sheet-input"
                             type="text"
                             inputMode="decimal"
+                            enterKeyHint="next"
                             value={row[field]}
                             onChange={(event) =>
                               updateRow(row.key, field, event.target.value)
@@ -1324,14 +1527,19 @@ export default function Outbound({
                           />
                         </td>
                       ))}
-                      <td className="col-unit num">{formatCubic(row.cubic)}</td>
-                      <td className="col-unit">m³</td>
+                      <td className="col-unit num col-more" data-label="数量 (m³)">
+                        {formatCubic(row.cubic)}
+                      </td>
+                      <td className="col-unit col-more" data-label="单位">
+                        m³
+                      </td>
                       {numberFields.slice(2).map(({ field }) => (
-                        <td key={field}>
+                        <td key={field} className="col-third" data-label="单价">
                           <input
                             className="sheet-input"
                             type="text"
                             inputMode="decimal"
+                            enterKeyHint="next"
                             value={row[field]}
                             onChange={(event) =>
                               updateRow(row.key, field, event.target.value)
@@ -1339,8 +1547,20 @@ export default function Outbound({
                           />
                         </td>
                       ))}
-                      {money && <td className="num">{formatAmount(row.amount)}</td>}
-                      <td className={short ? 'col-stock num is-short' : 'col-stock num'}>
+                      {money && (
+                        <td className="num col-more" data-label="金额 (元)">
+                          {formatAmount(row.amount)}
+                        </td>
+                      )}
+                      {/* 当前库存：出库时最该看的一格，留着不收起 */}
+                      <td
+                        className={
+                          short
+                            ? 'col-stock num col-half is-short'
+                            : 'col-stock num col-half'
+                        }
+                        data-label="库存"
+                      >
                         {stock ? `${formatCubic(stock.cubic)} 立方 / ${stock.bundles} 件` : '—'}
                         {short ? ' 不足' : ''}
                       </td>
@@ -1613,6 +1833,17 @@ export default function Outbound({
               >
                 查询
               </button>
+              {/* 从「常用规格」点进来时：只看这个规格的包，随时能清掉 */}
+              {specFilter && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setSpecFilter(null)}
+                  title="取消规格筛选，显示全部在库码单"
+                >
+                  只看 {specFilter.thickness}×{specFilter.width}×{specFilter.length} ✕
+                </button>
+              )}
               <span className="spacer" />
               <span className="muted">
                 {pickerIntent === 'one'
@@ -1648,7 +1879,15 @@ export default function Outbound({
                 </tr>
               </thead>
               <tbody>
-                {pickerBales.map((row) => (
+                {(specFilter
+                  ? pickerBales.filter(
+                      (row) =>
+                        String(row.thickness) === specFilter.thickness &&
+                        String(row.width) === specFilter.width &&
+                        String(row.length_text ?? row.length).startsWith(specFilter.length),
+                    )
+                  : pickerBales
+                ).map((row) => (
                   <tr key={row.id}>
                     <td>
                       {pickerIntent === 'one' ? (

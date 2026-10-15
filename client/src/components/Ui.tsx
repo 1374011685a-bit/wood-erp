@@ -119,6 +119,21 @@ export function RouteProgress() {
   )
 }
 
+/**
+ * 下拉刷新的指示器（只有手机端会拉出来）。
+ * 文案跟着距离走：下拉刷新 → 松手刷新 → 刷新中…
+ */
+export function PullIndicator({ distance, busy }: { distance: number; busy: boolean }) {
+  if (distance <= 0) return null
+  const text = busy ? '刷新中…' : distance >= 52 ? '松手刷新' : '下拉刷新'
+  return (
+    <div className="pull-indicator" style={{ height: distance, opacity: Math.min(1, distance / 40) }}>
+      <span className={busy ? 'pull-spinner is-spinning' : 'pull-spinner'} />
+      <span>{text}</span>
+    </div>
+  )
+}
+
 /* 首页数字卡片 */
 export function StatCard({
   label,

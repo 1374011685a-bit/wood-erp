@@ -28,8 +28,14 @@ export default function Records() {
   const [typeInput, setTypeInput] = useState<'' | 'in' | 'out'>('')
   const [speciesInput, setSpeciesInput] = useState('')
   const [partnerInput, setPartnerInput] = useState('')
+  /** 手机端：筛选字段收进底部 sheet */
+  const [filterOpen, setFilterOpen] = useState(false)
   const [dateFromInput, setDateFromInput] = useState('')
   const [dateToInput, setDateToInput] = useState('')
+  /** 「筛选」按钮上的角标：当前生效了几个条件（不含关键词搜索框） */
+  const activeFilterCount = [typeInput, partnerInput, dateFromInput, dateToInput].filter(
+    Boolean,
+  ).length
 
   // 已生效的筛选条件
   const [query, setQuery] = useState<RecordQuery>({ limit: PAGE_SIZE, offset: 0 })
@@ -95,7 +101,35 @@ export default function Records() {
         ]}
       />
 
-      <div className="toolbar">
+      <div className="toolbar toolbar-sticky">
+        <input
+          className="input toolbar-search"
+          placeholder="品名 / 供应商 / 单号"
+          value={speciesInput}
+          onChange={(event) => setSpeciesInput(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') handleSearch()
+          }}
+        />
+        <button
+          type="button"
+          className="btn filter-toggle"
+          onClick={() => setFilterOpen((open) => !open)}
+        >
+          筛选
+          {activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
+        </button>
+        <div className={filterOpen ? 'filter-sheet is-open' : 'filter-sheet'}>
+          <div className="filter-sheet-head">
+            <span>筛选</span>
+            <button
+              type="button"
+              className="btn btn-sm btn-quiet"
+              onClick={() => setFilterOpen(false)}
+            >
+              关闭
+            </button>
+          </div>
         <select
           className="input"
           value={typeInput}
@@ -105,15 +139,6 @@ export default function Records() {
           <option value="in">入库</option>
           <option value="out">出库</option>
         </select>
-        <input
-          className="input"
-          placeholder="品名关键字"
-          value={speciesInput}
-          onChange={(event) => setSpeciesInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') handleSearch()
-          }}
-        />
         <input
           className="input"
           placeholder="供应商/客户关键字"
@@ -136,12 +161,24 @@ export default function Records() {
           value={dateToInput}
           onChange={(event) => setDateToInput(event.target.value)}
         />
-        <button className="btn" onClick={handleSearch}>
-          查询
-        </button>
-        <button className="btn" onClick={handleReset}>
-          重置
-        </button>
+          <div className="filter-sheet-actions">
+            <button className="btn" onClick={handleReset}>
+              重置
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                handleSearch()
+                setFilterOpen(false)
+              }}
+            >
+              查询
+            </button>
+          </div>
+        </div>
+        {filterOpen && (
+          <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
+        )}
         <span className="spacer" />
         <span className="muted">共 {total} 条</span>
       </div>
@@ -170,7 +207,7 @@ export default function Records() {
           <tbody>
             {rows.map((row) => (
               <tr key={row.record_id}>
-                <td>
+                <td className="col-third">
                   <span
                     className={
                       row.order_type === 'in' ? 'tag tag-in' : 'tag tag-out'
@@ -180,22 +217,29 @@ export default function Records() {
                   </span>
                 </td>
                 {/* 时间只显示到分（秒挂在 title 上）：这一列原来是 159px，是流水表里最宽的一列 */}
-                <td title={row.created_at}>{String(row.created_at ?? '').slice(0, 16)}</td>
-                <td>{row.order_no}</td>
-                <td>{row.partner}</td>
-                <td>{row.species}</td>
-                <td>{row.grade || '—'}</td>
-                <td className="num" title={`厚度 ${row.thickness} mm × 宽度 ${row.width} mm`}>
+                <td className="col-wide" title={row.created_at}>
+                  {String(row.created_at ?? '').slice(0, 16)}
+                </td>
+                <td className="col-third">{row.order_no}</td>
+                <td className="col-third">{row.partner}</td>
+                <td className="col-third">{row.species}</td>
+                <td className="col-third">{row.grade || '—'}</td>
+                <td
+                  className="num col-third"
+                  title={`厚度 ${row.thickness} mm × 宽度 ${row.width} mm`}
+                >
                   {row.thickness}×{row.width}
                 </td>
-                <td className="num">{row.length}</td>
-                <td className="num">{row.pieces}</td>
-                <td className="num">{row.bundles}</td>
-                <td className="num">{formatCubic(row.cubic)}</td>
+                <td className="num col-third">{row.length}</td>
+                <td className="num col-third">{row.pieces}</td>
+                <td className="num col-third">{row.bundles}</td>
+                <td className="num col-third">{formatCubic(row.cubic)}</td>
                 {money && (
-                  <td className="num amount">{formatAmount(row.unit_price)}</td>
+                  <td className="num amount col-third">{formatAmount(row.unit_price)}</td>
                 )}
-                {money && <td className="num amount">{formatAmount(row.amount)}</td>}
+                {money && (
+                  <td className="num amount col-third">{formatAmount(row.amount)}</td>
+                )}
               </tr>
             ))}
           </tbody>

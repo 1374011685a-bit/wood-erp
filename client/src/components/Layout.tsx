@@ -403,6 +403,24 @@ export default function Layout() {
 
   const initial = (username.trim().charAt(0) || 'U').toUpperCase()
 
+  /*
+   * 左上角「返回」：只给二级页用 —— 底部 4 个 Tab 那几个页面是"根"，
+   * 其它（新增/编辑表单、打印、AI、单据、我的…）都算二级页。
+   *
+   * 有历史就退历史；直接从深链进来（没有上一页）时退到它的上一层路径，
+   * 免得点了没反应。
+   */
+  const ROOT_PATHS = ['/', '/documents', '/stock', '/me']
+  const showBack = !ROOT_PATHS.includes(location.pathname)
+  const goBack = async () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    const parent = `/${location.pathname.split('/').filter(Boolean).slice(0, -1).join('/')}`
+    navigate(parent === '/' ? '/' : parent)
+  }
+
   const handleLogout = () => {
     clearSession()
     navigate('/login', { replace: true })
@@ -560,6 +578,31 @@ export default function Layout() {
 
       <main className="content">
         <div className="topbar">
+          {/*
+            二级页（不在底部 4 个 Tab 上的页面）在手机端左上角给一个「‹ 返回」：
+            手机上侧边栏收起来了、PWA 里也没有浏览器返回键，没这个按钮就只能靠底部 Tab 绕。
+          */}
+          {showBack && (
+            <button
+              type="button"
+              className="topbar-back"
+              aria-label="返回上一层"
+              onClick={() => void goBack()}
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M14.5 5.5 8 12l6.5 6.5" />
+              </svg>
+              <span>返回</span>
+            </button>
+          )}
           <button
             type="button"
             className="menu-toggle"

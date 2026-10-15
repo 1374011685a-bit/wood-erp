@@ -18,6 +18,8 @@ import {
 import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 import { tapFeedback } from '../utils/haptics'
+import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
+import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 
@@ -213,6 +215,11 @@ export default function Repack() {
   const [saving, setSaving] = useState(false)
   // 默认进来看改包记录，点「新增改包」才进录入界面
   const [formOpen, setFormOpen] = useState(false)
+
+  /** 键盘弹出来时把正在填的框顶到键盘上面（只在录入界面挂着） */
+  useKeyboardScroll(formOpen)
+  /** 常用规格（本机记的） */
+  const [recentSpecs, setRecentSpecs] = useState<RecentSpec[]>(() => readRecentSpecs())
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
 
@@ -632,6 +639,27 @@ export default function Repack() {
     )
   }
 
+  /** 点「常用规格」：填进第一个还没写品名的行；都写满了就填最后一行 */
+  const fillSpec = (spec: RecentSpec) => {
+    tapFeedback()
+    setRows((prev) => {
+      const index = prev.findIndex((row) => !row.species.trim())
+      const target = index >= 0 ? index : prev.length - 1
+      return prev.map((row, i) =>
+        i === target
+          ? {
+              ...row,
+              species: spec.species,
+              grade: spec.grade,
+              thickness: spec.thickness,
+              width: spec.width,
+              length: spec.length,
+            }
+          : row,
+      )
+    })
+  }
+
   /**
    * 一键拆包（按长度）：把**所有源包**的每一段规格各提成一行，包号留空。
    *
@@ -706,7 +734,7 @@ export default function Repack() {
   const perRowGroupCount = allNosBlank ? filledPreview.length : 0
 
 
-  const handleSave = async () => {
+  const handleSave = async (continueAfter = false) => {
     setError('')
     if (baleIds.length === 0) {
       setError('请先选择要改的那一包')
@@ -783,14 +811,18 @@ export default function Repack() {
       return
     }
 
-    await submitRepack(filled)
+    await submitRepack(filled, false, continueAfter)
   }
 
   /**
    * 真正提交（确认框点「确认继续 / 确认丢弃」也走这里）。
    * `force` = 用户已经确认过「改包后总量比改包前少」，后端才放行。
    */
-  const submitRepack = async (filled: AfterRow[], force = false) => {
+  const submitRepack = async (
+    filled: AfterRow[],
+    force = false,
+    continueAfter = false,
+  ) => {
     setSaving(true)
     try {
       const result = await createRepack({
@@ -838,8 +870,19 @@ export default function Repack() {
       setBaleIds([])
       setRows(blankRows())
       setBeforePrices({})
+      // 记住这次的改后规格，下次点一下就填好
+      setRecentSpecs(rememberSpecs(filled))
       setForm((prev) => ({ ...prev, summary: '', remark: '' }))
-      setFormOpen(false)
+      if (continueAfter) {
+        /**
+         * 「保存并继续」：留在录入界面接着改下一包 ——
+         * 选好的源包和改包后明细都清空（下一包得重新选货）。
+         */
+        setNotice(`已改包 ${result.repack_no}，可以接着改下一包`)
+        window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
+      } else {
+        setFormOpen(false)
+      }
       setReloadToken((n) => n + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : '改包失败')
@@ -1159,6 +1202,16 @@ export default function Repack() {
               {saving && <span className="btn-spinner" aria-hidden="true" />}
               {saving ? '保存中…' : '保存'}
             </button>
+            <button
+              className="btn btn-continue"
+              onClick={() => {
+                tapFeedback()
+                void handleSave(true)
+              }}
+              disabled={saving}
+            >
+              保存并继续
+            </button>
             {/* 手机上「取消」和页头那个「返回改包记录」是同一个动作，两个入口都留着 */}
             <button className="btn" onClick={() => setFormOpen(false)}>
               取消
@@ -1336,6 +1389,24 @@ export default function Repack() {
         </div>
 
         {/* 改包后：可编辑 */}
+        {/* 常用规格：手填新规格时点一下就填好（复制/拆包带出来的规格不用管） */}
+        {recentSpecs.length > 0 && (
+          <div className="spec-chips">
+            <span className="spec-chips-label">常用规格</span>
+            {recentSpecs.map((one) => (
+              <button
+                key={`${one.species}-${one.thickness}-${one.width}-${one.length}`}
+                type="button"
+                className="spec-chip"
+                title={`把品名/等级/规格填成 ${one.species} ${one.thickness}×${one.width}×${one.length}`}
+                onClick={() => fillSpec(one)}
+              >
+                {one.thickness}×{one.width}×{one.length}
+                <em>{one.species}</em>
+              </button>
+            ))}
+          </div>
+        )}
         <div className="sheet-toolbar">
           <span className="section-tag">改包后</span>
           <button className="btn btn-sm" onClick={copyBefore} disabled={!bale}>

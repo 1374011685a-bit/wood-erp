@@ -48,6 +48,17 @@
   --r-btn: 12px;
   --r-input: 12px;
   --r-pill: 999px;
+  /* 底部弹层的上圆角（比卡片大一档，和 iOS sheet 一致） */
+  --r-sheet: 18px;
+
+  /*
+   * 间距节奏：全站只用这四档（手机端另加一档 6）。
+   * 新写的样式尽量从这里取，别再出现 15 / 18 / 22 这种"随手写"的数。
+   */
+  --sp-1: 8px;
+  --sp-2: 12px;
+  --sp-3: 16px;
+  --sp-4: 24px;
 
   /* 苹果的字号阶梯（SF Pro 的常用档位） */
   --fs-title: 28px; /* 页面标题 */
@@ -1823,7 +1834,7 @@ button.mini-card:hover {
 section > .toolbar {
   background-color: var(--panel);
   border: 1px solid var(--border-panel);
-  border-radius: 14px;
+  border-radius: var(--r-card);
   padding: 14px 16px;
   margin-bottom: 20px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
@@ -2348,7 +2359,7 @@ section > .toolbar .btn-primary {
   width: 100%;
   max-width: 920px;
   background-color: #ffffff;
-  border-radius: 20px;
+  border-radius: var(--r-card);
   padding: 24px;
   border: 1px solid var(--border-panel);
   /*
@@ -2648,7 +2659,7 @@ section > .toolbar .btn-primary {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-panel);
-  border-radius: 14px;
+  border-radius: var(--r-card);
   background-color: #ffffff;
   transition: border-color var(--ease), box-shadow var(--ease), transform var(--ease);
 }
@@ -2662,7 +2673,7 @@ section > .toolbar .btn-primary {
   /* 右上角给删除按钮留位置 */
   padding: 14px 66px 14px 16px;
   border: none;
-  border-radius: 14px;
+  border-radius: var(--r-card);
   background: transparent;
   font-family: inherit;
   text-align: left;
@@ -2981,7 +2992,7 @@ section > .toolbar .btn-primary {
 
   .card {
     padding: 14px;
-    border-radius: 14px;
+    border-radius: var(--r-card);
     margin-bottom: 16px;
   }
 
@@ -3104,7 +3115,7 @@ section > .toolbar .btn-primary {
 
   .table-detail tbody tr {
     border: 1px solid var(--border-panel);
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background-color: #ffffff;
     padding: 12px 12px 8px;
     margin-bottom: 12px;
@@ -3262,7 +3273,7 @@ section > .toolbar .btn-primary {
     flex-direction: column;
     position: relative;
     border: 1px solid var(--border-panel);
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background-color: #ffffff;
     padding: 14px 14px 10px;
     margin-bottom: 12px;
@@ -4213,6 +4224,17 @@ section > .toolbar .btn-primary {
     width: 92px;
   }
 
+  /* 三个按钮：保存（占满）+ 保存并继续 + 取消 */
+  .sheet-actions .btn-continue {
+    flex: none;
+    width: 104px;
+  }
+
+  .sheet-actions .btn:not(.btn-primary):not(.btn-continue) {
+    flex: none;
+    width: 64px;
+  }
+
   /* ---------- 明细工具条：按钮换成两列，不再被右边缘截断 ---------- */
   .sheet-toolbar {
     flex-wrap: wrap;
@@ -4269,9 +4291,9 @@ section > .toolbar .btn-primary {
     align-items: center;
     position: relative;
     margin-bottom: 12px;
-    padding: 12px;
+    padding: 10px;
     border: 1px solid var(--border-panel);
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background-color: #ffffff;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
   }
@@ -5117,7 +5139,7 @@ section > .toolbar .btn-primary {
 .ai-bubble {
   max-width: 82%;
   padding: 11px 14px;
-  border-radius: 14px;
+  border-radius: var(--r-card);
   background-color: var(--panel-soft);
   color: var(--text);
   font-size: 14px;
@@ -5853,6 +5875,15 @@ section > .toolbar .btn-primary {
   }
 
   /*
+   * 表单页底部有一条固定操作栏（.sheet-actions，56~122px 那一带），
+   * 提示条原来正好压在「保存/取消」上 —— 虽然已经不吃点击，但看着糊成一团。
+   * 有操作栏的页面就把提示条抬到它上面去（:has 不支持的老浏览器保持原样，只是位置照旧）。
+   */
+  body:has(.sheet-actions) .toast-host {
+    bottom: calc(140px + env(safe-area-inset-bottom));
+  }
+
+  /*
    * 危险确认框（.modal-alert）也改成底部 sheet。
    * 原来这里特意让它居中"更像原生告警框"，但手机端其它弹窗全是底部弹层，
    * 只有它居中会显得跳；改成一致的底部升起来。
@@ -5913,6 +5944,501 @@ section > .toolbar .btn-primary {
   }
 }
 
+/* ============================================================
+   批次 3：表单分组标题 / 更多信息折叠 / 顶栏返回
+   ============================================================ */
+
+/* 分组小标题：左侧一条主色竖线 + 一行字（明细表、基本信息这些段落靠它分段） */
+.form-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.form-section::before {
+  content: '';
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background-color: var(--brand);
+}
+
+/* 「更多信息」折叠块和它的按钮：桌面端一直展开、按钮不显示 */
+.form-more {
+  display: contents;
+}
+
+.form-more-toggle {
+  display: none;
+}
+
+/* 顶栏返回按钮：桌面端有侧边栏，不需要 */
+.topbar-back {
+  display: none;
+}
+
+/* 常用规格：明细上方一排小胶囊，点一下就填好这一行 */
+.spec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 14px 10px;
+}
+
+.spec-chips-label {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.spec-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background-color: #ffffff;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.spec-chip em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.spec-chip:active {
+  background-color: var(--panel-soft);
+}
+
+/* 左滑快捷操作：桌面端没有（桌面每行本来就有整排按钮） */
+.swipe-actions {
+  display: none;
+}
+
+@media screen and (max-width: 767px) {
+  /* 卡片左滑 132px，露出后面的两个按钮 */
+  .table-cards tbody tr {
+    transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .table-cards tbody tr.is-swiped {
+    transform: translateX(-132px);
+  }
+
+  .table-cards tbody tr.is-swiped .swipe-actions {
+    display: flex;
+    position: absolute;
+    right: -132px;
+    top: 0;
+    bottom: 0;
+    width: 132px;
+    align-items: stretch;
+  }
+
+  .swipe-btn {
+    flex: 1;
+    border: 0;
+    background-color: var(--panel-soft);
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .swipe-btn + .swipe-btn {
+    border-left: 1px solid var(--line-strong);
+  }
+
+  .swipe-btn.is-danger {
+    background-color: rgba(255, 59, 48, 0.1);
+    color: var(--red);
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .form-section {
+    margin: 16px 0 8px;
+    font-size: 14px;
+  }
+
+  /* 手机端默认收起，点开才铺开（display: contents 让它融回 .sheet-bottom 的 flex 行） */
+  .form-more {
+    display: none;
+  }
+
+  .form-more.is-open {
+    display: contents;
+  }
+
+  .form-more-toggle {
+    display: block;
+    width: 100%;
+    padding: 10px 0 4px;
+    border: 0;
+    background: none;
+    color: var(--brand);
+    font-family: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  /* 顶栏左侧的「‹ 返回」：和原来的汉堡按钮同一个位置（手机上汉堡已经藏了） */
+  .topbar-back {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    gap: 1px;
+    height: 40px;
+    padding: 0 6px 0 0;
+    border: 0;
+    background: none;
+    color: var(--brand);
+    font-family: inherit;
+    font-size: 15px;
+    cursor: pointer;
+  }
+
+  .topbar-back svg {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* ============================================================
+   批次 2：列表提速（筛选 sheet / 搜索吸顶 / 下拉刷新）
+   ============================================================ */
+
+/* 「筛选」按钮、sheet 的标题行和动作行、下拉指示器：桌面端一律不出现 */
+.filter-toggle,
+.filter-sheet-head,
+.filter-sheet-mask,
+.filter-sheet-actions,
+.pull-indicator {
+  display: none;
+}
+
+/* 桌面端：筛选字段照旧平铺在工具栏那一行里（包一层不影响布局） */
+.filter-sheet,
+.filter-sheet-actions {
+  display: contents;
+}
+
+@media screen and (max-width: 767px) {
+  /*
+   * 工具栏吸顶：紧贴在手机顶栏下面（顶栏 56px）。
+   * 列表滚动时搜索框一直看得见，不用滚回去改条件。
+   */
+  .toolbar-sticky {
+    position: sticky;
+    top: 56px;
+    z-index: 30;
+    margin: -4px -16px 12px;
+    padding: 8px 16px;
+    background-color: rgba(240, 240, 242, 0.94);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border-bottom: 1px solid var(--line);
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .toolbar-sticky .toolbar-search {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .filter-toggle {
+    display: inline-flex;
+    flex: none;
+    height: 40px;
+    align-items: center;
+  }
+
+  /* ---------- 筛选：底部 sheet ---------- */
+  .filter-sheet {
+    display: none;
+  }
+
+  .filter-sheet.is-open {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: calc(56px + env(safe-area-inset-bottom));
+    z-index: 60;
+    flex-direction: column;
+    gap: 10px;
+    max-height: 76dvh;
+    overflow-y: auto;
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+    background-color: #ffffff;
+    border-top: 1px solid var(--line);
+    border-radius: 18px 18px 0 0;
+    animation: sheet-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .filter-sheet.is-open .input {
+    width: 100%;
+    height: 44px;
+  }
+
+  .filter-sheet.is-open .muted {
+    display: none; /* 「至」这种分隔字在竖排里没意义 */
+  }
+
+  .filter-sheet-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .filter-sheet-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 4px;
+  }
+
+  .filter-sheet-actions .btn {
+    flex: 1;
+    height: 44px;
+  }
+
+  /* 点空白处关掉 sheet */
+  .filter-sheet-mask {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background-color: rgba(0, 0, 0, 0.28);
+  }
+
+  /* ---------- 下拉刷新 ---------- */
+  .pull-indicator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    overflow: hidden;
+    margin: -8px 0 4px;
+    font-size: 13px;
+    color: var(--text-3);
+    transition: height 0.12s ease-out;
+  }
+
+  .pull-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--line-strong);
+    border-top-color: var(--brand);
+    border-radius: 50%;
+  }
+
+  .pull-spinner.is-spinning {
+    animation: spin 0.7s linear infinite;
+  }
+
+  /*
+   * 列表卡片紧凑化：和明细行同一套类名（col-wide / col-half / col-third）。
+   * 列表页的卡片是 .table-cards（不是 .sheet-cards），所以要在这里再写一遍 ——
+   * 上面那批只作用于明细录入表。
+   *
+   * ⚠️ 卡片原来是 `flex-direction: column`（一格一行），要两三个字段并排就得
+   * 改成 row + wrap；没带列宽类的格子仍然 flex: 1 1 100%（独占一行，和原来一样）。
+   */
+  .table-cards tbody tr {
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .table-cards td {
+    flex: 1 1 100%;
+    align-items: center;
+    padding: 1px 0;
+  }
+
+  /* 卡片自身的内边距也收一档 */
+  .table-cards tbody tr {
+    padding: 10px 12px 8px;
+  }
+
+  .table-cards td.col-wide {
+    flex: 1 1 100%;
+    min-height: 36px;
+  }
+
+  .table-cards td.col-half {
+    flex: 1 1 calc(50% - 2px);
+    min-height: 32px;
+    gap: 6px;
+  }
+
+  .table-cards td.col-third {
+    flex: 1 1 calc(33.333% - 3px);
+    min-height: 32px;
+    gap: 6px;
+  }
+
+  .table-cards td.col-half::before,
+  .table-cards td.col-third::before {
+    flex: 0 0 auto;
+    margin-right: 2px;
+    white-space: nowrap;
+  }
+
+  /*
+   * 格子里的第二行小字（「提单 BL-001」「在库 2 / 已出 0」）在手机上改成同一行内联：
+   * 一个字段占两行会让卡片平白高一截，而这些信息本来也不长。
+   */
+  .table-cards .cell-sub {
+    display: inline;
+    margin-left: 6px;
+  }
+
+  /*
+   * 面包屑精简：手机上一行放不下「全部合同 › A11 › 提单 C1」，
+   * 只留当前层，前面加个 ‹ 表示"上一层还在"（要退就点顶栏的返回）。
+   */
+  .breadcrumb-item:not(:last-child) {
+    display: none;
+  }
+
+  .breadcrumb-item:last-child .breadcrumb-sep {
+    display: none;
+  }
+
+  .breadcrumb-item:last-child::before {
+    content: '‹ ';
+    color: var(--text-3);
+  }
+
+  /* 页头在手机上收一档：标题小一点、说明最多两行（占位最狠的就是它） */
+  .page-head {
+    padding-bottom: 12px;
+    margin-bottom: 14px;
+  }
+
+  .page-head h1 {
+    font-size: 22px;
+  }
+
+  .page-head p {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+}
+
+/* ============================================================
+   批次 1：明细行紧凑化（只在手机端）
+   ------------------------------------------------------------
+   改前：一格里一行「字段名 + 输入框」，入库一行明细 734px（快一屏）
+   改后：包号 / 品名 独占一行，其余按三个一行排；柜号 / 品牌 / 数量 / 单位 /
+         金额 / 条码号默认收起，点操作列的「更多」展开
+   ============================================================ */
+
+/* 桌面端没有「更多」按钮：字段本来就都在表里 */
+@media (min-width: 768px) {
+  .sheet-act-more {
+    display: none;
+  }
+}
+
+@media screen and (max-width: 767px) {
+  /* 独占一行（包号、品名：值比较长） */
+  .sheet-cards tbody td.col-wide {
+    flex: 1 1 100%;
+    min-height: 38px;
+  }
+
+  /* 一行放三个（等级 / 厚 / 宽 / 长 / 片数 / 件数 / 单价） */
+  .sheet-cards tbody td.col-third {
+    flex: 1 1 calc(33.333% - 8px);
+    min-height: 36px;
+    gap: 6px;
+  }
+
+  /* 一行放两个（出库的「当前库存」这种要宽一点的） */
+  .sheet-cards tbody td.col-half {
+    flex: 1 1 calc(50% - 5px);
+    min-height: 36px;
+    gap: 6px;
+  }
+
+  /* 一格里挤三个字段，「厚」这种短名字不能再占死 4.4em */
+  .sheet-cards tbody td.col-third::before {
+    flex: 0 0 auto;
+    margin-right: 2px;
+    white-space: nowrap;
+  }
+
+  .sheet-cards tbody td.col-half::before {
+    flex: 0 0 auto;
+    margin-right: 2px;
+    white-space: nowrap;
+  }
+
+  .sheet-cards .col-third .sheet-input {
+    height: 36px;
+    padding: 0 8px;
+  }
+
+  /* 次要字段：默认收起 */
+  .sheet-cards tbody td.col-more {
+    display: none;
+  }
+
+  /* 点「更多」之后：次要字段按整行展开（字段名恢复成完整叫法） */
+  .sheet-cards tbody tr.is-expanded td.col-more {
+    display: flex;
+    flex: 1 1 100%;
+    min-height: 42px;
+  }
+
+  .sheet-cards tbody tr.is-expanded td.col-more::before {
+    flex: 0 0 4.4em;
+  }
+
+  /* 行操作排在最后一行：四个按钮（加行 / 复制 / 删行 / 更多）挤一行 */
+  .sheet-cards tbody td.col-op {
+    gap: 6px;
+    height: 38px;
+  }
+
+  /* 明细卡里的勾选框收一档：它和「单价」同一行，44px 会把那一行撑高 */
+  .sheet-cards tbody td.col-check {
+    width: 36px;
+    height: 36px;
+  }
+
+  /* 操作列的四个按钮收窄一档：好和勾选框挤在同一行，给卡片省一行 */
+  .sheet-cards .sheet-act {
+    padding: 0 10px;
+    font-size: 12.5px;
+  }
+
+  .sheet-cards .sheet-act-more {
+    border-color: var(--brand);
+    color: var(--brand);
+  }
+}
+
 @media screen and (max-width: 767px) {
   .app-home {
     display: block;
@@ -5931,7 +6457,7 @@ section > .toolbar .btn-primary {
     gap: 3px;
     padding: 12px 14px;
     border: 1px solid var(--border-panel);
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background-color: var(--panel);
   }
 
@@ -5977,7 +6503,7 @@ section > .toolbar .btn-primary {
     gap: 7px;
     padding: 13px 4px 11px;
     border: 1px solid var(--border-panel);
-    border-radius: 14px;
+    border-radius: var(--r-card);
     background-color: var(--panel);
     color: var(--text);
     font: inherit;

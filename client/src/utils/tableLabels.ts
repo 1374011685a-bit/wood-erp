@@ -91,8 +91,14 @@ function markSheetTables(root: ParentNode) {
       if (cells.length !== headers.length) continue
 
       cells.forEach((cell, index) => {
+        /*
+         * 作者显式写死的 data-label 优先：明细行在手机上要缩短字段名
+         * （「厚度 (mm)」在三分之一格里会把输入框挤没），那种格子带着自己的短名字，
+         * 别让表头的长名字覆盖掉。
+         */
+        if (cell.dataset.label) return
         const label = headers[index]?.textContent?.trim() ?? ''
-        if (label && cell.dataset.label !== label) cell.dataset.label = label
+        if (label) cell.dataset.label = label
       })
     }
   }

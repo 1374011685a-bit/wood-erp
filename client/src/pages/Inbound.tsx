@@ -38,13 +38,17 @@ import {
 import {
   EmptyState,
   Loading,
-  TableSkeleton,
   PageHead,
   Pager,
+  PullIndicator,
+  TableSkeleton,
   ToastHost,
 } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 import { tapFeedback } from '../utils/haptics'
+import { usePullToRefresh } from '../hooks/usePullToRefresh'
+import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
+import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -349,6 +353,48 @@ const rowFields: { field: RowField; label: string; hint?: string }[] = [
   { field: 'bundles', label: '件数 (件)' },
 ]
 
+/**
+ * 手机端明细行的排布（只在 <768px 生效，桌面那张宽表不受影响）。
+ *
+ *   col-wide  独占一行的字段（包号、品名 —— 值比较长）
+ *   col-third 一行放三个的字段（等级/厚/宽/长/片数/件数/单价，值都是短数字）
+ *   col-more  默认收起的次要字段（柜号/品牌/数量/单位/金额/条码号），点「更多」才展开
+ *
+ * 桌面端这些类名一个都不参与样式，所以 PC 那张表还是老样子。
+ */
+const FIELD_COL_CLASS: Partial<Record<RowField, string>> = {
+  baleLabel: 'col-wide',
+  boxNo: 'col-more',
+  brand: 'col-more',
+  species: 'col-wide',
+  grade: 'col-third',
+  thickness: 'col-third',
+  width: 'col-third',
+  length: 'col-third',
+  pieces: 'col-third',
+  bundles: 'col-third',
+}
+
+/**
+ * 手机端的短字段名（一行三个时，「厚度 (mm)」这种长名字会把输入框挤没）。
+ * 桌面的表头保持完整叫法 —— 这只是给手机卡片上的 label 用。
+ */
+const FIELD_SHORT_LABEL: Partial<Record<RowField, string>> = {
+  thickness: '厚',
+  width: '宽',
+  length: '长',
+  pieces: '片数',
+  bundles: '件数',
+}
+
+/**
+ * 明细里哪些字段是**文本**（要弹全键盘）。
+ *
+ * ⚠️ 包号 / 柜号 / 品牌必须是文本：包号能写「P1、P2、P3」这种范围，
+ * 品牌是中文名 —— 这几个之前被当成数字字段，手机上弹的是数字键盘，字母打不出来。
+ */
+const TEXT_FIELDS: RowField[] = ['baleLabel', 'boxNo', 'brand', 'species', 'grade']
+
 /** 明细表固定列：序号 / 勾选 / 操作 */
 const SHEET_LEAD_COLS = 3
 /** 明细表固定列：数量(m³) / 单位 / 单价(元)* / 金额(元) / 条码号 */
@@ -450,6 +496,32 @@ export default function Inbound({
 
   const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<InboundListFilters>(emptyFilters)
+  /** 手机端：筛选字段收进底部 sheet（桌面端还是平铺一行） */
+  const [filterOpen, setFilterOpen] = useState(false)
+  /** 手机端：表单里「更多信息」（操作员 / 柜数）是否展开 */
+  const [moreOpen, setMoreOpen] = useState(false)
+  /** 常用规格（本机记的，最近用过的排在前面） */
+  const [recentSpecs, setRecentSpecs] = useState<RecentSpec[]>(() => readRecentSpecs())
+  /** 手机端左滑：露出「编辑 / 移入回收站」（一次只开一行） */
+  const [swipedId, setSwipedId] = useState<number | null>(null)
+  const swipeStartX = useRef(0)
+  /** 「筛选」按钮上的角标：当前生效了几个筛选条件（不含单号关键字） */
+  const activeFilterCount = [
+    filters.supplier,
+    filters.warehouse,
+    filters.operator,
+    filters.date_from,
+    filters.date_to,
+  ].filter(Boolean).length
+
+  /** 手机端下拉刷新：拉一下重新拉当前筛选条件的列表 */
+  const { distance: pullDistance, busy: pullBusy } = usePullToRefresh(
+    () => loadList(filters, offset),
+    mode === 'list',
+  )
+
+  /** 键盘弹出来时把正在填的框顶到键盘上面（手机上录单必需） */
+  useKeyboardScroll(mode !== 'list')
   const [offset, setOffset] = useState(0)
   const [total, setTotal] = useState(0)
   // 每次增删改后 +1，强制重新拉列表（避免「筛选没变就不刷新」）
@@ -496,6 +568,13 @@ export default function Inbound({
   const [formError, setFormError] = useState('')
   const [rowErrors, setRowErrors] = useState<Record<number, string[]>>({})
   const [hasValidated, setHasValidated] = useState(false)
+  /** 手机端哪些明细行点了「更多」（展开柜号/品牌/数量/金额这些次要字段） */
+  const [expandedRows, setExpandedRows] = useState<number[]>([])
+
+  const toggleRowExpanded = (key: number) =>
+    setExpandedRows((prev) =>
+      prev.includes(key) ? prev.filter((item) => item !== key) : [...prev, key],
+    )
 
   // 「该规格已有库存」提醒（只提示，不影响保存）
   const [stockLookup, setStockLookup] = useState<
@@ -1148,7 +1227,46 @@ export default function Inbound({
    * `force = true` 表示用户已经确认过「这个提单号已经有活单，仍要新建」，
    * 重发时带上 `force:true` 让后端跳过那条校验（其余校验照旧）。
    */
-  const handleSave = async (force = false) => {
+  /**
+   * 把用户带到出问题的地方：滚过去 + 聚焦。
+   * 手机上一条明细就占大半屏，光在顶部弹一句"有 N 行有误"根本找不到。
+   */
+  const scrollToField = (field: string) => {
+    window.setTimeout(() => {
+      const input = document.querySelector<HTMLInputElement>(`input[data-field="${field}"]`)
+      if (!input) return
+      input.focus({ preventScroll: true })
+      input.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }, 60)
+  }
+
+  /**
+   * 点「常用规格」：填到**第一行还没填完的空行**；
+   * 没有空行就在最后加一行。只填规格，不碰包号（包号一包一个，得手写）。
+   */
+  const fillSpec = (spec: RecentSpec) => {
+    tapFeedback()
+    const empty = rows.find((row) => !row.species.trim() && !row.thickness.trim())
+    const target = empty ?? rows[rows.length - 1]
+    if (!target) return
+    if (!empty) insertRowAfter(target.key)
+    setRows((prev) =>
+      prev.map((row) =>
+        row.key === target.key
+          ? {
+              ...row,
+              species: spec.species,
+              grade: spec.grade,
+              thickness: spec.thickness,
+              width: spec.width,
+              length: spec.length,
+            }
+          : row,
+      ),
+    )
+  }
+
+  const handleSave = async (force = false, continueAfter = false) => {
     const supplier = form.supplier.trim()
 
     setHasValidated(true)
@@ -1158,15 +1276,18 @@ export default function Inbound({
 
     if (!supplier) {
       setFormError('供应商不能为空')
+      scrollToField('supplier')
       return
     }
     if (!form.warehouse.trim()) {
       setFormError('仓库不能为空')
+      scrollToField('warehouse')
       return
     }
     // 提单号必填；老单据（入库那会儿还没这条规则）允许继续空着保存
     if (!form.blNo.trim() && !legacyNoBl) {
       setFormError('提单号必填，一票货一个号')
+      scrollToField('blNo')
       return
     }
 
@@ -1179,6 +1300,14 @@ export default function Inbound({
     const errorRows = Object.keys(errors).length
     if (errorRows > 0) {
       setFormError(`明细有 ${errorRows} 行填写有误，请按红色提示修正后再保存`)
+      // 手机上滚一下很关键：录了十几行以后，光说"有误"等于让人自己一行行找
+      const firstKey = Object.keys(errors)[0]
+      window.setTimeout(() => {
+        const tr = document.querySelector<HTMLElement>(`tr[data-row-key="${firstKey}"]`)
+        if (!tr) return
+        tr.querySelector<HTMLInputElement>('input.sheet-input')?.focus({ preventScroll: true })
+        tr.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }, 60)
       return
     }
 
@@ -1222,6 +1351,26 @@ export default function Inbound({
       const result = editing
         ? await updateInbound(editing.id, payload)
         : await createInbound(payload)
+      // 记住这次用到的规格，下次录单在明细上方点一下就填好
+      setRecentSpecs(rememberSpecs(items))
+      if (continueAfter) {
+        /**
+         * 「保存并继续」：存完**留在表单**接着录下一张 ——
+         * 表头（供应商 / 日期 / 仓库 / 提单号 / 合同）保留，明细和备注清空。
+         * 提单号保留是有意的：同一票分批到货时直接往上加，
+         * 号重复了失焦提示会告诉他"这号已经有单"，可以一键去那张单追加。
+         */
+        setRows(padRows([]))
+        setPickedRows([])
+        setExpandedRows([])
+        setRowErrors({})
+        setForm((prev) => ({ ...prev, remark: '' }))
+        lookedUpSpecies.current.clear()
+        setStockLookup({})
+        setNotice(`已保存入库单 ${result.order_no}，可以接着录下一张`)
+        window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
+        return
+      }
       // 回到列表：清空筛选后重新加载，保证新单一定可见
       setMode('list')
       setEditing(null)
@@ -1417,9 +1566,10 @@ export default function Inbound({
         </div>
       ) : mode === 'list' ? (
         <>
-          <div className="toolbar">
+          <PullIndicator distance={pullDistance} busy={pullBusy} />
+          <div className="toolbar toolbar-sticky">
             <input
-              className="input"
+              className="input toolbar-search"
               placeholder="单号关键字"
               value={input.order_no}
               onChange={(event) =>
@@ -1429,6 +1579,26 @@ export default function Inbound({
                 if (event.key === 'Enter') handleSearch()
               }}
             />
+            {/* 手机端：搜索一行 + 「筛选」按钮，其余条件收进底部 sheet */}
+            <button
+              type="button"
+              className="btn filter-toggle"
+              onClick={() => setFilterOpen((open) => !open)}
+            >
+              筛选
+              {activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
+            </button>
+            <div className={filterOpen ? 'filter-sheet is-open' : 'filter-sheet'}>
+              <div className="filter-sheet-head">
+                <span>筛选</span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-quiet"
+                  onClick={() => setFilterOpen(false)}
+                >
+                  关闭
+                </button>
+              </div>
             <input
               className="input"
               placeholder="供应商关键字"
@@ -1479,12 +1649,18 @@ export default function Inbound({
                 setInput((prev) => ({ ...prev, date_to: event.target.value }))
               }
             />
-            <button className="btn" onClick={handleSearch}>
-              查询
-            </button>
-            <button className="btn" onClick={handleResetFilters}>
-              重置
-            </button>
+              <div className="filter-sheet-actions">
+                <button className="btn" onClick={handleResetFilters}>
+                  重置
+                </button>
+                <button className="btn btn-primary" onClick={() => { handleSearch(); setFilterOpen(false) }}>
+                  查询
+                </button>
+              </div>
+            </div>
+            {filterOpen && (
+              <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
+            )}
             <span className="spacer" />
           </div>
 
@@ -1506,12 +1682,32 @@ export default function Inbound({
             </thead>
             <tbody>
               {list.map((order) => (
-                <tr key={order.id}>
-                  <td>{order.order_no}</td>
-                  <td>{order.supplier}</td>
-                  <td>{order.order_date}</td>
-                  <td>{order.warehouse || '—'}</td>
-                  <td>
+                <tr
+                  key={order.id}
+                  className={swipedId === order.id ? 'is-swiped' : undefined}
+                  /* 手机端左滑露出快捷操作；桌面端不触发（没有 touch 事件） */
+                  onTouchStart={(event) => {
+                    swipeStartX.current = event.touches[0]?.clientX ?? 0
+                  }}
+                  onTouchMove={(event) => {
+                    const dx = (event.touches[0]?.clientX ?? 0) - swipeStartX.current
+                    if (dx < -34) setSwipedId(order.id)
+                    else if (dx > 34) setSwipedId(null)
+                  }}
+                  onClickCapture={(event) => {
+                    // 已经滑开时，点卡片本身先收起来（别顺手点了按钮）
+                    if (swipedId === order.id) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      setSwipedId(null)
+                    }
+                  }}
+                >
+                  <td className="col-wide">{order.order_no}</td>
+                  <td className="col-third">{order.supplier}</td>
+                  <td className="col-third">{order.order_date}</td>
+                  <td className="col-third">{order.warehouse || '—'}</td>
+                  <td className="col-wide">
                     {order.contract_no ? (
                       order.contract_id ? (
                         <button
@@ -1531,12 +1727,14 @@ export default function Inbound({
                       <span className="cell-sub">提单 {order.bl_no}</span>
                     ) : null}
                   </td>
-                  <td className="num">{formatCubic(order.total_cubic)}</td>
+                  <td className="num col-third">{formatCubic(order.total_cubic)}</td>
                   {money && (
-                    <td className="num amount">{formatAmount(order.total_amount)}</td>
+                    <td className="num amount col-third">
+                      {formatAmount(order.total_amount)}
+                    </td>
                   )}
-                  <td className="num">{order.item_count}</td>
-                  <td className="num">
+                  <td className="num col-third">{order.item_count}</td>
+                  <td className="num col-wide">
                     {order.bale_total > 0 ? (
                       <>
                         {order.bale_total} 包
@@ -1549,7 +1747,27 @@ export default function Inbound({
                       '—'
                     )}
                   </td>
-                  <td>
+                  <td className="cell-actions">
+                    {/* 左滑露出来的两个快捷按钮（桌面端隐藏：桌面有整排按钮） */}
+                    <div className="swipe-actions">
+                      <button
+                        type="button"
+                        className="swipe-btn"
+                        onClick={() => navigate(`/inbound/edit/${order.id}`)}
+                      >
+                        编辑
+                      </button>
+                      <button
+                        type="button"
+                        className="swipe-btn is-danger"
+                        onClick={() => {
+                          setSwipedId(null)
+                          setDeleteTarget({ id: order.id, order_no: order.order_no })
+                        }}
+                      >
+                        移入回收站
+                      </button>
+                    </div>
                     <div className="row-actions">
                       <button
                         className="btn btn-sm"
@@ -1623,13 +1841,16 @@ export default function Inbound({
           </datalist>
 
           {/* 表头一行：供应商 / 入库日期 / 单号，右侧保存 */}
+          <h2 className="form-section">基本信息</h2>
           <div className="sheet-top">
             <label className="sheet-field">
               <span>
                 供应商<b className="req">*</b>
               </span>
               <input
+                data-field="supplier"
                 className="input"
+                enterKeyHint="next"
                 value={form.supplier}
                 onChange={(event) =>
                   setForm((prev) => ({ ...prev, supplier: event.target.value }))
@@ -1669,6 +1890,17 @@ export default function Inbound({
                 {saving && <span className="btn-spinner" aria-hidden="true" />}
                 {saving ? '保存中…' : '保存'}
               </button>
+              {/* 连着录好几张单时不用每次回列表：存完留在表单，表头保留、明细清空 */}
+              <button
+                className="btn btn-continue"
+                onClick={() => {
+                  tapFeedback()
+                  void handleSave(false, true)
+                }}
+                disabled={saving}
+              >
+                保存并继续
+              </button>
               <button
                 className="btn"
                 onClick={() => {
@@ -1683,6 +1915,28 @@ export default function Inbound({
             </div>
           </div>
 
+          <h2 className="form-section">明细</h2>
+          {/*
+            常用规格：一点就把这一行的品名/等级/厚/宽/长填好。
+            数据是本机记的（上一次保存时存的），不需要服务端配合。
+          */}
+          {recentSpecs.length > 0 && (
+            <div className="spec-chips">
+              <span className="spec-chips-label">常用规格</span>
+              {recentSpecs.map((one) => (
+                <button
+                  key={`${one.species}-${one.grade}-${one.thickness}-${one.width}-${one.length}`}
+                  type="button"
+                  className="spec-chip"
+                  title={`${one.species} ${one.grade || '（无等级）'} ${one.thickness}×${one.width}×${one.length}`}
+                  onClick={() => fillSpec(one)}
+                >
+                  {one.thickness}×{one.width}×{one.length}
+                  <em>{one.species}</em>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="sheet-toolbar">
             {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
             <span
@@ -1762,7 +2016,15 @@ export default function Inbound({
                   const filler = isRowEmpty(row)
                   return (
                     <Fragment key={row.key}>
-                      <tr className={reasons.length > 0 ? 'is-error' : undefined}>
+                      <tr
+                        data-row-key={row.key}
+                        className={[
+                          reasons.length > 0 ? 'is-error' : '',
+                          expandedRows.includes(row.key) ? 'is-expanded' : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || undefined}
+                      >
                         <td className="col-no">{index + 1}</td>
                         <td className="col-op">
                           <button
@@ -1798,6 +2060,14 @@ export default function Inbound({
                               ✕ 删行
                             </button>
                           </span>
+                          {/* 手机端：展开/收起这一行的次要字段（桌面端这个按钮不显示，字段本来就都在） */}
+                          <button
+                            type="button"
+                            className="sheet-act sheet-act-more"
+                            onClick={() => toggleRowExpanded(row.key)}
+                          >
+                            {expandedRows.includes(row.key) ? '收起' : '更多'}
+                          </button>
                         </td>
                         <td className="col-check">
                           <input
@@ -1814,15 +2084,16 @@ export default function Inbound({
                           />
                         </td>
                         {rowFields.map(({ field }) => (
-                          <td key={field}>
+                          <td
+                            key={field}
+                            className={FIELD_COL_CLASS[field] ?? 'col-third'}
+                            data-label={FIELD_SHORT_LABEL[field]}
+                          >
                             <input
                               className="sheet-input"
                               type="text"
-                              inputMode={
-                                field === 'species' || field === 'grade'
-                                  ? undefined
-                                  : 'decimal'
-                              }
+                              enterKeyHint="next"
+                              inputMode={TEXT_FIELDS.includes(field) ? undefined : 'decimal'}
                               list={
                                 field === 'species'
                                   ? 'dict-species'
@@ -1842,13 +2113,16 @@ export default function Inbound({
                             />
                           </td>
                         ))}
-                        <td className="col-unit num">{filler ? '' : formatCubic(row.cubic)}</td>
-                        <td className="col-unit">{filler ? '' : 'm³'}</td>
-                        <td>
+                        <td className="col-unit num col-more">
+                          {filler ? '' : formatCubic(row.cubic)}
+                        </td>
+                        <td className="col-unit col-more">{filler ? '' : 'm³'}</td>
+                        <td className="col-third" data-label="单价">
                           <input
                             className="sheet-input num"
                             type="text"
                             inputMode="decimal"
+                            enterKeyHint="next"
                             value={row.unitPrice}
                             onChange={(event) =>
                               updateRow(row.key, 'unitPrice', event.target.value)
@@ -1856,9 +2130,13 @@ export default function Inbound({
                           />
                         </td>
                         {money && (
-                          <td className="num">{filler ? '' : formatAmount(row.amount)}</td>
+                          <td className="num col-more">
+                            {filler ? '' : formatAmount(row.amount)}
+                          </td>
                         )}
-                        <td className="col-code muted">{filler ? '' : '自动生成'}</td>
+                        <td className="col-code muted col-more">
+                          {filler ? '' : '自动生成'}
+                        </td>
                       </tr>
                       {reasons.length > 0 && (
                         <tr className="is-error">
@@ -1908,6 +2186,7 @@ export default function Inbound({
             </table>
           </div>
 
+          <h2 className="form-section">备注</h2>
           <textarea
             className="input textarea sheet-note"
             placeholder="备注（选填）"
@@ -1922,7 +2201,9 @@ export default function Inbound({
                 提单号{!legacyNoBl && <b className="req">*</b>}
               </span>
               <input
+                data-field="blNo"
                 className="input"
+                enterKeyHint="next"
                 placeholder="例如：BL-2026-0001"
                 list="shipment-options"
                 value={form.blNo}
@@ -1987,7 +2268,9 @@ export default function Inbound({
                 仓库<b className="req">*</b>
               </span>
               <input
+                data-field="warehouse"
                 className="input"
+                enterKeyHint="next"
                 placeholder="例如：一号仓"
                 value={form.warehouse}
                 onChange={(event) =>
@@ -1995,22 +2278,36 @@ export default function Inbound({
                 }
               />
             </label>
-            <label className="sheet-field">
-              <span>操作员</span>
-              <input
-                className="input"
-                placeholder="选填"
-                value={form.operator}
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, operator: event.target.value }))
-                }
-              />
-            </label>
-            {/* 柜数按明细里的柜号自动统计，不用手填 */}
-            <label className="sheet-field">
-              <span>柜数（自动统计）</span>
-              <input className="input input-readonly" readOnly value={`${boxCount} 个柜`} />
-            </label>
+            {/* 不常用的两项收进「更多信息」：手机上默认收起，桌面端照常平铺 */}
+            <div className={moreOpen ? 'form-more is-open' : 'form-more'}>
+              <label className="sheet-field">
+                <span>操作员</span>
+                <input
+                  className="input"
+                  placeholder="选填"
+                  value={form.operator}
+                  onChange={(event) =>
+                    setForm((prev) => ({ ...prev, operator: event.target.value }))
+                  }
+                />
+              </label>
+              {/* 柜数按明细里的柜号自动统计，不用手填 */}
+              <label className="sheet-field">
+                <span>柜数（自动统计）</span>
+                <input
+                  className="input input-readonly"
+                  readOnly
+                  value={`${boxCount} 个柜`}
+                />
+              </label>
+            </div>
+            <button
+              type="button"
+              className="form-more-toggle"
+              onClick={() => setMoreOpen((open) => !open)}
+            >
+              {moreOpen ? '收起更多信息' : '更多信息（操作员 / 柜数）'}
+            </button>
           </div>
 
           <p className="hint">
