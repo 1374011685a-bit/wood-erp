@@ -10,10 +10,21 @@ import rootPkg from '../package.json'
  */
 const appVersion: string = rootPkg.version
 
+/**
+ * 构建时间：手机上"是不是最新包"一眼就能看出来。
+ * 本地时间格式化成 `2026-10-16 12:30`，跟版本号一起显示在登录页 / 我的页。
+ */
+const pad = (value: number) => String(value).padStart(2, '0')
+const builtAt = new Date()
+const buildTime = `${builtAt.getFullYear()}-${pad(builtAt.getMonth() + 1)}-${pad(
+  builtAt.getDate(),
+)} ${pad(builtAt.getHours())}:${pad(builtAt.getMinutes())}`
+
 // 前端 5173，后端 3001；/api 由前端代理到后端
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    __BUILD_TIME__: JSON.stringify(buildTime),
   },
   plugins: [
     react(),

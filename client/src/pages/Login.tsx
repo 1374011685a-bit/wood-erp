@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { getRememberedUsername, login, setSession } from '../api'
 import { resetPassword } from '../api'
 import { useEscapeKey } from '../hooks/useEscapeKey'
-import { APP_VERSION_TEXT } from '../version'
+import { APP_BUILD_TEXT, APP_VERSION_TEXT } from '../version'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -248,7 +248,10 @@ export default function Login() {
         </form>
       </main>
 
-      <p className="login-version">{APP_VERSION_TEXT}</p>
+      <p className="login-version">
+        {APP_VERSION_TEXT}
+        <span className="build-stamp">{APP_BUILD_TEXT}</span>
+      </p>
 
       {showHelp && (
         <div className="overlay" onClick={() => setShowHelp(false)}>

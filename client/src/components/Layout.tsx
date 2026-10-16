@@ -421,6 +421,49 @@ export default function Layout() {
     navigate(parent === '/' ? '/' : parent)
   }
 
+  /**
+   * 滚动位置记忆：切 Tab / 进二级页再回来，回到原来的位置，不从顶部重新开始。
+   * 懒加载的页面渲染会晚一拍，所以恢复动作做两次（立刻一次、220ms 后一次）。
+   */
+  const scrollMemory = useRef(new Map<string, number>())
+  const lastPath = useRef(location.pathname)
+
+  /*
+   * 滚动位置要**持续记录**，不能等到切页时再读：
+   * 切页的那一刹那新页面已经渲染出来了，如果它比原来短，浏览器会把 scrollY 夹回 0，
+   * 那时候再读就拿不到"离开时滚到哪"了。所以挂在 scroll 事件上按帧记。
+   */
+  useEffect(() => {
+    let frame = 0
+    const onScroll = () => {
+      if (frame) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        scrollMemory.current.set(location.pathname, window.scrollY)
+      })
+    }
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => {
+      window.removeEventListener('scroll', onScroll)
+      if (frame) window.cancelAnimationFrame(frame)
+    }
+  }, [location.pathname])
+
+  useEffect(() => {
+    const from = lastPath.current
+    const to = location.pathname
+    if (from === to) return
+    lastPath.current = to
+    const target = scrollMemory.current.get(to) ?? 0
+    const restore = () => window.scrollTo({ top: target })
+    const first = window.setTimeout(restore, 0)
+    const second = window.setTimeout(restore, 220)
+    return () => {
+      window.clearTimeout(first)
+      window.clearTimeout(second)
+    }
+  }, [location.pathname])
+
   const handleLogout = () => {
     clearSession()
     navigate('/login', { replace: true })
@@ -768,10 +811,16 @@ export default function Layout() {
         )}
 
         {/* 页面是按需加载的，切页面时先显示一个轻量加载态 */}
-        {/* 切页加载：顶上一条细进度条 + 一块骨架（比整页空白/一个转圈更像 App） */}
-        <Suspense fallback={<RouteProgress />}>
-          <Outlet />
-        </Suspense>
+        {/*
+          切页：外层这层 div 用 pathname 做 key —— 换页时整块重新挂载，
+          CSS 的 page-in（140ms 淡入 + 8px 上移）就跑一遍，切页有"进场"的感觉。
+          切页加载：顶上一条细进度条 + 一块骨架（比整页空白/一个转圈更像 App）。
+        */}
+        <div className="page-transition" key={location.pathname}>
+          <Suspense fallback={<RouteProgress />}>
+            <Outlet />
+          </Suspense>
+        </div>
       </main>
 
       {/*

@@ -1189,8 +1189,8 @@ export default function Repack() {
             />
           </label>
           <span className="spacer" />
-          {/* 手机端这一组会固定到屏幕底部（Tab 栏上方），见 .sheet-actions */}
-          <div className="sheet-actions">
+          {/* 桌面端留在这里；手机端改用卡片外那份（见 .sheet-actions-fixed） */}
+          <div className="sheet-actions sheet-actions-inline">
             <button
               className="btn btn-primary"
               onClick={() => {
@@ -1665,6 +1665,36 @@ export default function Repack() {
           value={form.remark}
           onChange={(event) => setForm((prev) => ({ ...prev, remark: event.target.value }))}
         />
+        </div>
+      )}
+
+      {/* 手机端操作栏：放在卡片外面（iOS 上卡片内的 fixed 会被裁剪容器抓走，见 index.css） */}
+      {formOpen && (
+        <div className="sheet-actions sheet-actions-fixed">
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              tapFeedback()
+              void handleSave()
+            }}
+            disabled={saving}
+          >
+            {saving && <span className="btn-spinner" aria-hidden="true" />}
+            {saving ? '保存中…' : '保存'}
+          </button>
+          <button
+            className="btn btn-continue"
+            onClick={() => {
+              tapFeedback()
+              void handleSave(true)
+            }}
+            disabled={saving}
+          >
+            保存并继续
+          </button>
+          <button className="btn" onClick={() => setFormOpen(false)}>
+            取消
+          </button>
         </div>
       )}
 

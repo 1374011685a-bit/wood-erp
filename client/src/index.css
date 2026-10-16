@@ -3875,6 +3875,18 @@ section > .toolbar .btn-primary {
   gap: 8px;
 }
 
+/*
+ * 手机端专用的操作栏：**故意放在表单卡片外面**。
+ *
+ * 卡片 .card.sheet 是 overflow:hidden 的裁剪容器；iOS 上会把卡片内部的
+ * position:fixed 元素当成"相对卡片"定位（包含块被祖先抢走），于是保存按钮
+ * 落到卡片底部 = 表单最下面，必须滚到底才点得到（真机实测现象）。
+ * 搬到卡片外、挂在页面级，固定定位就一定是相对视口。
+ */
+.sheet-actions-fixed {
+  display: none;
+}
+
 .sheet-top {
   display: flex;
   align-items: flex-end;
@@ -4191,7 +4203,12 @@ section > .toolbar .btn-primary {
    * 看着像浮在内容上的一小块，不像"固定在页面底部的一条栏"；
    * 现在改成整条：贴住 Tab 栏上沿、有白底和上边线，一眼就知道是固定的。
    */
-  .sheet-actions {
+  /* 卡片里那份在手机上藏起来（改用卡片外固定那份） */
+  .sheet-actions-inline {
+    display: none;
+  }
+
+  .sheet-actions-fixed {
     position: fixed;
     left: 0;
     right: 0;
@@ -4210,27 +4227,27 @@ section > .toolbar .btn-primary {
     border-top: 1px solid var(--line);
   }
 
-  .sheet-actions .btn {
+  .sheet-actions-fixed .btn {
     height: 46px;
     font-size: 15px;
   }
 
-  .sheet-actions .btn-primary {
+  .sheet-actions-fixed .btn-primary {
     flex: 1;
   }
 
-  .sheet-actions .btn:not(.btn-primary) {
+  .sheet-actions-fixed .btn:not(.btn-primary) {
     flex: none;
     width: 92px;
   }
 
   /* 三个按钮：保存（占满）+ 保存并继续 + 取消 */
-  .sheet-actions .btn-continue {
+  .sheet-actions-fixed .btn-continue {
     flex: none;
     width: 104px;
   }
 
-  .sheet-actions .btn:not(.btn-primary):not(.btn-continue) {
+  .sheet-actions-fixed .btn:not(.btn-primary):not(.btn-continue) {
     flex: none;
     width: 64px;
   }
@@ -5340,6 +5357,15 @@ section > .toolbar .btn-primary {
   color: var(--text-3);
 }
 
+/* 构建时间：挂在版本号后面一行（手机上判断"是不是最新包"用） */
+.build-stamp {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  opacity: 0.85;
+}
+
 @media (max-width: 767px) {
   /*
    * 手机端不再用侧边栏 —— 抽屉也一起去掉，导航全部走底部 Tab。
@@ -5981,6 +6007,28 @@ section > .toolbar .btn-primary {
   display: none;
 }
 
+/* 切页进场：140ms 淡入 + 8px 上移（桌面手机都跑，位移很小不影响桌面观感） */
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.page-transition {
+  animation: page-in 0.14s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-transition {
+    animation: none;
+  }
+}
+
 /* 常用规格：明细上方一排小胶囊，点一下就填好这一行 */
 .spec-chips {
   display: flex;
@@ -6343,6 +6391,27 @@ section > .toolbar .btn-primary {
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  /*
+   * 顶栏统一：手机端顶栏已经写着当前页面名（‹ 返回 + 标题 + 账号），
+   * 页头再来一遍大标题 + 几行说明就是重复占屏 —— 手机上收掉，只留下操作按钮那一行。
+   * 桌面端保持原样（大标题 + 说明都在）。
+   */
+  .page-head h1,
+  .page-head p {
+    display: none;
+  }
+
+  .page-head {
+    align-items: center;
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+  }
+
+  .page-head .modal-actions {
+    flex: 1;
+    justify-content: flex-end;
+  }
 }
 
 /* ============================================================
@@ -6365,6 +6434,88 @@ section > .toolbar .btn-primary {
   .sheet-cards tbody td.col-wide {
     flex: 1 1 100%;
     min-height: 38px;
+  }
+
+  /*
+   * 一条明细压成两行：
+   *   第 1 行 = 包号 + 厚 / 宽 / 长
+   *   第 2 行 = 品名 + 片数 + 单价 + 勾选框
+   * 其余（等级/品牌/柜号/件数/数量/单位/金额/条码号）收进「更多」。
+   *
+   * ⚠️ 用 CSS `order` 改手机端的视觉顺序，**不动 DOM** —— 桌面端那张宽表的列序一点不变。
+   * ⚠️ 三个规格格**必须给 min-width**：只写 `flex: 1 1 0` 的话，它们会和包号/品名
+   *   一起按 grow 平分"剩余空间"，每个只分到十几像素，输入框被挤成 0 宽（点不着）。
+   */
+  .sheet-cards tbody td.col-lead {
+    order: 1;
+    /*
+     * 行内宽实测只有 295px（卡片 343 − 滚动容器左右 12×2 − 卡片行内边距 10×2），
+     * 按 118 + 56×3 = 286 ≤ 295 定：包号 + 厚 + 宽 + 长 四个稳稳一行。
+     */
+    flex: 1 1 110px;
+    min-width: 104px;
+    min-height: 36px;
+    gap: 6px;
+  }
+
+  .sheet-cards tbody td.col-tiny {
+    order: 2;
+    /* 58px：字段名改成占位符后，格子宽度几乎全给输入框（58 − 16 内边距 ≈ 42 内宽） */
+    flex: 1 1 58px;
+    min-width: 54px;
+    min-height: 36px;
+    gap: 4px;
+  }
+
+  /*
+   * 厚 / 宽 / 长：**藏掉左侧字段名**（改用输入框的 placeholder「厚 / 宽 / 长」）。
+   * 不藏的话：格 56px − 字段名 13 − 间隙 4 − 输入框内边距 16 = 23px 内宽，手指点不准。
+   */
+  .sheet-cards tbody td.col-tiny::before {
+    display: none;
+  }
+
+  /* 片数 / 单价同理：字段名进占位符，宽度全给输入框 */
+  .sheet-cards tbody td.col-qty::before,
+  .sheet-cards tbody td.col-price::before {
+    display: none;
+  }
+
+  /* 第 2 行：品名 + 片数 + 单价（勾选框跟在后面，order 98 已经在最后） */
+  .sheet-cards tbody td.col-name-row {
+    order: 5;
+    /* 30%：要给"片数 + 单价 + 勾选框(36)"留出位置，四个才在一行 */
+    flex: 1 1 30%;
+    min-width: 0;
+    min-height: 36px;
+    gap: 6px;
+  }
+
+  .sheet-cards tbody td.col-qty,
+  .sheet-cards tbody td.col-price {
+    order: 6;
+    flex: 1 1 78px;
+    min-width: 74px;
+    min-height: 36px;
+    gap: 6px;
+  }
+
+  .sheet-cards tbody td.col-lead::before,
+  .sheet-cards tbody td.col-tiny::before,
+  .sheet-cards tbody td.col-name-row::before,
+  .sheet-cards tbody td.col-qty::before,
+  .sheet-cards tbody td.col-price::before {
+    flex: 0 0 auto;
+    margin-right: 2px;
+    white-space: nowrap;
+  }
+
+  .sheet-cards .col-lead .sheet-input,
+  .sheet-cards .col-tiny .sheet-input,
+  .sheet-cards .col-name-row .sheet-input,
+  .sheet-cards .col-qty .sheet-input,
+  .sheet-cards .col-price .sheet-input {
+    padding: 0 8px;
   }
 
   /* 一行放三个（等级 / 厚 / 宽 / 长 / 片数 / 件数 / 单价） */

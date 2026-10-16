@@ -45,6 +45,7 @@ import { tapFeedback } from '../utils/haptics'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
+import { enterToNext } from '../utils/formNav'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -1289,8 +1290,8 @@ export default function Outbound({
               />
             </label>
             <span className="spacer" />
-            {/* 手机端这一组会固定到屏幕底部（Tab 栏上方），见 .sheet-actions */}
-            <div className="sheet-actions">
+            {/* 桌面端留在这里；手机端改用卡片外那份（见 .sheet-actions-fixed） */}
+            <div className="sheet-actions sheet-actions-inline">
               <button
                 className="btn btn-primary"
                 onClick={() => {
@@ -1518,8 +1519,10 @@ export default function Outbound({
                           <input
                             className="sheet-input"
                             type="text"
-                            inputMode="decimal"
+                            /* 片数 / 件数只要整数 */
+                            inputMode="numeric"
                             enterKeyHint="next"
+                            onKeyDown={enterToNext}
                             value={row[field]}
                             onChange={(event) =>
                               updateRow(row.key, field, event.target.value)
@@ -1539,7 +1542,8 @@ export default function Outbound({
                             className="sheet-input"
                             type="text"
                             inputMode="decimal"
-                            enterKeyHint="next"
+                            enterKeyHint="done"
+                            onKeyDown={enterToNext}
                             value={row[field]}
                             onChange={(event) =>
                               updateRow(row.key, field, event.target.value)
@@ -1645,6 +1649,42 @@ export default function Outbound({
               : '单号保存时自动生成（CK + 日期 + 流水）。'}
             单价必填；立方按规格和数量实时算。
           </p>
+        </div>
+      )}
+
+      {/* 手机端操作栏：放在卡片外面（iOS 上卡片内的 fixed 会被裁剪容器抓走，见 index.css） */}
+      {mode === 'create' && (
+        <div className="sheet-actions sheet-actions-fixed">
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              tapFeedback()
+              void handleSave()
+            }}
+            disabled={saving}
+          >
+            {saving && <span className="btn-spinner" aria-hidden="true" />}
+            {saving ? '保存中…' : '保存'}
+          </button>
+          <button
+            className="btn btn-continue"
+            onClick={() => {
+              tapFeedback()
+              void handleSave(true)
+            }}
+            disabled={saving}
+          >
+            保存并继续
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              setMode('list')
+              setEditing(null)
+            }}
+          >
+            取消
+          </button>
         </div>
       )}
 

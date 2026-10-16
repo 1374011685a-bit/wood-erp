@@ -49,6 +49,7 @@ import { tapFeedback } from '../utils/haptics'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
+import { enterToNext } from '../utils/formNav'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -363,16 +364,18 @@ const rowFields: { field: RowField; label: string; hint?: string }[] = [
  * 桌面端这些类名一个都不参与样式，所以 PC 那张表还是老样子。
  */
 const FIELD_COL_CLASS: Partial<Record<RowField, string>> = {
-  baleLabel: 'col-wide',
+  // 第 1 行：包号 + 厚 / 宽 / 长（手机端用 CSS order 排的，桌面端表列序不变）
+  baleLabel: 'col-lead',
   boxNo: 'col-more',
   brand: 'col-more',
-  species: 'col-wide',
-  grade: 'col-third',
-  thickness: 'col-third',
-  width: 'col-third',
-  length: 'col-third',
-  pieces: 'col-third',
-  bundles: 'col-third',
+  // 第 2 行：品名 + 片数 + 单价 + 勾选框
+  species: 'col-name-row',
+  grade: 'col-more',
+  thickness: 'col-tiny',
+  width: 'col-tiny',
+  length: 'col-tiny',
+  pieces: 'col-qty',
+  bundles: 'col-more',
 }
 
 /**
@@ -394,6 +397,19 @@ const FIELD_SHORT_LABEL: Partial<Record<RowField, string>> = {
  * 品牌是中文名 —— 这几个之前被当成数字字段，手机上弹的是数字键盘，字母打不出来。
  */
 const TEXT_FIELDS: RowField[] = ['baleLabel', 'boxNo', 'brand', 'species', 'grade']
+
+/**
+ * 手机上占位符文案（字段名不进卡片左侧）：
+ * 「厚 / 宽 / 长」三格太窄，左侧再塞一个字段名，输入框就只剩二三十像素、点都点不准。
+ * 手机端把这三个格的字段名改成占位符（见 index.css 的 .col-tiny::before{display:none}），
+ * 格子腾出来的宽度全给输入框。
+ */
+const FIELD_PLACEHOLDER: Partial<Record<RowField, string>> = {
+  thickness: '厚',
+  width: '宽',
+  length: '长',
+  pieces: '片数',
+}
 
 /** 明细表固定列：序号 / 勾选 / 操作 */
 const SHEET_LEAD_COLS = 3
@@ -1877,8 +1893,13 @@ export default function Inbound({
               />
             </label>
             <span className="spacer" />
-            {/* 手机端这一组会固定到屏幕底部（Tab 栏上方），见 .sheet-actions */}
-            <div className="sheet-actions">
+            {/*
+              桌面端：这一组就留在表单头部（静态）。
+              手机端：这里藏起来，改用卡片外那份 .sheet-actions-fixed ——
+              原因见 index.css 里 .sheet-actions-fixed 的注释（iOS 上
+              卡片自己的 overflow:hidden 会把 position:fixed 抓成相对卡片定位）。
+            */}
+            <div className="sheet-actions sheet-actions-inline">
               <button
                 className="btn btn-primary"
                 onClick={() => {
@@ -2092,8 +2113,20 @@ export default function Inbound({
                             <input
                               className="sheet-input"
                               type="text"
+                              placeholder={FIELD_PLACEHOLDER[field]}
                               enterKeyHint="next"
-                              inputMode={TEXT_FIELDS.includes(field) ? undefined : 'decimal'}
+                              onKeyDown={enterToNext}
+                              /*
+                               * 片数 / 件数只要整数（键盘上别出现小数点），
+                               * 其余数字字段留 decimal（长度可能是 1.8）。
+                               */
+                              inputMode={
+                                field === 'pieces' || field === 'bundles'
+                                  ? 'numeric'
+                                  : TEXT_FIELDS.includes(field)
+                                    ? undefined
+                                    : 'decimal'
+                              }
                               list={
                                 field === 'species'
                                   ? 'dict-species'
@@ -2117,12 +2150,15 @@ export default function Inbound({
                           {filler ? '' : formatCubic(row.cubic)}
                         </td>
                         <td className="col-unit col-more">{filler ? '' : 'm³'}</td>
-                        <td className="col-third" data-label="单价">
+                        <td className="col-price" data-label="单价">
                           <input
                             className="sheet-input num"
                             type="text"
+                            placeholder="单价*"
                             inputMode="decimal"
-                            enterKeyHint="next"
+                            /* 一行里最后一格：键盘上显示「完成」，按下去直接收起键盘 */
+                            enterKeyHint="done"
+                            onKeyDown={enterToNext}
                             value={row.unitPrice}
                             onChange={(event) =>
                               updateRow(row.key, 'unitPrice', event.target.value)
@@ -2321,6 +2357,48 @@ export default function Inbound({
               已打印的标签会失效。
             </p>
           )}
+        </div>
+      )}
+
+      {/*
+        手机端的操作栏：**放在卡片外面**。
+        卡片（.card.sheet）自己是 overflow:hidden 的裁剪容器，iOS 上会把里面的
+        position:fixed 抓成"相对卡片定位"—— 结果就是保存按钮跑到表单最底下，
+        要滚到底才点得到。搬出来之后它就是相对视口固定了。
+      */}
+      {mode === 'create' && (
+        <div className="sheet-actions sheet-actions-fixed">
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              tapFeedback()
+              void handleSave()
+            }}
+            disabled={saving}
+          >
+            {saving && <span className="btn-spinner" aria-hidden="true" />}
+            {saving ? '保存中…' : '保存'}
+          </button>
+          <button
+            className="btn btn-continue"
+            onClick={() => {
+              tapFeedback()
+              void handleSave(false, true)
+            }}
+            disabled={saving}
+          >
+            保存并继续
+          </button>
+          <button
+            className="btn"
+            onClick={() => {
+              setMode(defaultMode === 'edit' ? 'list' : defaultMode)
+              setEditing(null)
+              if (defaultMode === 'edit') navigate('/inbound')
+            }}
+          >
+            取消
+          </button>
         </div>
       )}
 
