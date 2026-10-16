@@ -605,7 +605,10 @@ export default function Bales() {
               {progress.map((row) => (
                 <tr
                   key={row.id}
-                  className={contract === row.contract_no ? 'row-active' : undefined}
+                  // is-tappable：整行可点，手机端按下去要有反馈
+                  className={`is-tappable${
+                    contract === row.contract_no ? ' row-active' : ''
+                  }`}
                   onClick={() => selectContract(contract === row.contract_no ? '' : row.contract_no)}
                   title="点一下看这张合同的提单和包"
                 >
@@ -668,7 +671,7 @@ export default function Bales() {
                   {visibleShipments.map((row) => (
                     <tr
                       key={row.id}
-                      className={shipmentId === row.id ? 'row-active' : undefined}
+                      className={`is-tappable${shipmentId === row.id ? ' row-active' : ''}`}
                       onClick={() => selectShipment(row.id, contract)}
                       title="点一下只看这张提单的包"
                     >
@@ -704,7 +707,7 @@ export default function Bales() {
                     {visibleUnlinked.map((row) => (
                       <tr
                         key={row.id}
-                        className={shipmentId === row.id ? 'row-active' : undefined}
+                        className={`is-tappable${shipmentId === row.id ? ' row-active' : ''}`}
                         onClick={() => selectShipment(row.id, '')}
                         title="这张提单没填合同号；点一下只看它的包"
                       >

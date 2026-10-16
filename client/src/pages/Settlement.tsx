@@ -13,7 +13,14 @@ import {
   type SettlementSummary,
   type Statement,
 } from '../api'
-import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import {
+  EmptyState,
+  Loading,
+  PageHead,
+  Pager,
+  TableSkeleton,
+  ToastHost,
+} from '../components/Ui'
 import { formatCubic, formatAmount, todayLocal } from '../utils/num'
 
 const PAGE_SIZE = 20
@@ -350,7 +357,7 @@ export default function Settlement() {
         {!loading && sortedRows.length === 0 && (
           <EmptyState text={`还没有和${text.label}的往来单据`} />
         )}
-        {loading && <Loading />}
+        {loading && <TableSkeleton rows={5} cols={5} />}
 
         <div className="totals">
           <span>合计发生：{formatAmount(totals?.order_amount ?? 0)}</span>

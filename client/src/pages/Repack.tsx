@@ -15,7 +15,14 @@ import {
   type RepackRow,
   type RepackSums,
 } from '../api'
-import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/Ui'
+import {
+  EmptyState,
+  Loading,
+  PageHead,
+  Pager,
+  TableSkeleton,
+  ToastHost,
+} from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 import { tapFeedback } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
@@ -1919,7 +1926,7 @@ export default function Repack() {
         </table>
 
         {!loading && list.length === 0 && <EmptyState text="还没有改包记录" />}
-        {loading && <Loading />}
+        {loading && <TableSkeleton rows={5} cols={5} />}
 
         <Pager
           total={total}

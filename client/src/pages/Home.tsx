@@ -7,7 +7,7 @@ import {
   type HomeCompositionDimension,
   type HomeSummary,
 } from '../api'
-import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
+import { EmptyState, PageHead, TableSkeleton, ToastHost } from '../components/Ui'
 import { formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { can, canVisit, seesMoney } from '../permissions'
@@ -760,7 +760,7 @@ export default function Home() {
           !loading && <EmptyState text="当前没有库存" />
         )}
 
-        {loading && <Loading />}
+        {loading && <TableSkeleton rows={3} cols={3} />}
       </div>
 
       <div className="card">

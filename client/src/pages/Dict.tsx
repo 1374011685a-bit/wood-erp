@@ -8,7 +8,12 @@ import {
   type DictItem,
   type DictKind,
 } from '../api'
-import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
+import {
+  EmptyState,
+  PageHead,
+  TableSkeleton,
+  ToastHost,
+} from '../components/Ui'
 
 type Column = {
   kind: DictKind
@@ -166,7 +171,7 @@ export default function Dict() {
             </div>
 
             {loading ? (
-              <Loading />
+              <TableSkeleton rows={4} cols={3} />
             ) : data[column.kind].length === 0 ? (
               <EmptyState text="还没有常用项，在上面输入后点「添加」" />
             ) : (

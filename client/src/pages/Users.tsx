@@ -9,7 +9,7 @@ import {
 } from '../api'
 import { ROLE_LABELS, ROLES } from '../permissions'
 import type { Role } from '../permissions'
-import { PageHead, ToastHost, type ToastItem } from '../components/Ui'
+import { PageHead, TableSkeleton, ToastHost, type ToastItem } from '../components/Ui'
 
 /**
  * 用户管理（只有管理员能进 —— 路由和菜单都按 NAV_ALLOW 挡过，后端还有 requireCap）。
@@ -129,7 +129,7 @@ export default function Users() {
 
       <div className="card">
         {loading ? (
-          <p className="muted">加载中…</p>
+          <TableSkeleton rows={4} cols={5} />
         ) : (
           <table className="table">
             <thead>

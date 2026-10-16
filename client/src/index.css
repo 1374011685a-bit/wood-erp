@@ -5833,11 +5833,15 @@ section > .toolbar .btn-primary {
   flex: 1 1 0;
   min-width: 0;
   border-radius: 6px;
+  /*
+   * 灰条要比页面底色（#f0f0f2）明显深一档 —— 原来那组 #f5f5f7/#ececf0
+   * 和底色只差 3% 亮度，在灰底上等于看不见，用户看到的是"空白页"。
+   */
   background: linear-gradient(
     90deg,
-    var(--panel-soft) 0%,
-    #ececf0 40%,
-    var(--panel-soft) 80%
+    #e4e4ea 0%,
+    #d2d2da 40%,
+    #e4e4ea 80%
   );
   background-size: 220% 100%;
   animation: skeleton-sweep 1.25s ease-in-out infinite;
@@ -6821,3 +6825,150 @@ section > .toolbar .btn-primary {
     color: var(--brand);
   }
 }
+
+/* ============================================================
+   手机端「企业级」第一批：启动闪屏 / 骨架 / 触摸目标 / 按压反馈
+   ============================================================ */
+
+/*
+ * 启动闪屏（React 版）。
+ * 样式必须和 index.html 里那块内联闪屏**逐条对齐**（84px logo、16px 间距、
+ * 14px 灰字），两块的交接才看不出接缝。所以这里宁可重复写一遍，也不共用变量。
+ */
+.boot-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  display: grid;
+  place-items: center;
+  background-color: #ffffff;
+}
+
+.boot-splash-inner {
+  text-align: center;
+}
+
+.boot-splash img {
+  display: block;
+  width: auto;
+  height: 84px;
+  margin: 0 auto;
+}
+
+.boot-splash p {
+  margin: 16px 0 0;
+  font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+  letter-spacing: 0.02em;
+  color: #86868b;
+}
+
+/* 菜单项 / 可点行的按压反馈：和 .btn:active 一套逻辑，桌面也受用 */
+.entry-item:active {
+  background-color: var(--panel-soft);
+}
+
+.table-cards tbody tr.is-tappable:active {
+  background-color: #f2f2f4;
+}
+
+@media (max-width: 767px) {
+  /*
+   * 「已打开功能」标签条是桌面端的东西：手机端已经有底部 Tab + 左上角返回，
+   * 这一条又和顶栏标题完全重复，白占 44px 首屏。手机端收掉，桌面端不动。
+   */
+  .tabbar {
+    display: none;
+  }
+
+  /*
+   * 列表骨架：套上和真实卡片一样的白壳（白底 + 发丝边 + 圆角 + 轻投影），
+   * 灰条在卡里按"标题 + 几行正文"的宽度错开，看起来就是"内容正在长出来"，
+   * 而不是灰底上飘着几条浅灰线。
+   */
+  .skeleton {
+    gap: 12px;
+    padding: 2px 0 0;
+  }
+
+  .skeleton-row {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 11px;
+    padding: 16px 14px;
+    border: 1px solid var(--border-panel);
+    border-radius: var(--r-card);
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  }
+
+  .skeleton-cell {
+    flex: none;
+    width: 100%;
+    height: 12px;
+  }
+
+  .skeleton-cell.is-wide {
+    width: 58%;
+    height: 16px;
+  }
+
+  .skeleton-row .skeleton-cell:nth-child(n + 2) {
+    width: 84%;
+  }
+
+  .skeleton-row .skeleton-cell:nth-child(n + 3) {
+    width: 68%;
+  }
+
+  .skeleton-row .skeleton-cell:nth-child(n + 4) {
+    width: 76%;
+  }
+
+  /*
+   * 触摸目标 ≥ 44px（苹果 HIG 和 Material 都是这个数）。
+   * 只在手机端抬 —— 桌面端用鼠标，38px 的按钮反而更紧凑，不动。
+   */
+  .btn,
+  .btn-sm,
+  .topbar-back,
+  .account-trigger,
+  .pager-btn,
+  .segmented-item,
+  .segmented.is-sm .segmented-item {
+    min-height: 44px;
+  }
+
+  .topbar-back,
+  .account-trigger,
+  .pager-btn {
+    min-width: 44px;
+  }
+
+  /* 段控（7天/14天/30天 这种）整体跟着长高，别让里面的按钮顶出来 */
+  .segmented-item,
+  .segmented.is-sm .segmented-item {
+    height: 44px;
+  }
+
+  /* 按住可点的行：浅灰底 + 轻微缩一点，手指按下去有"被接住"的感觉 */
+  .table-cards tbody tr.is-tappable:active {
+    transform: scale(0.99);
+  }
+
+  /*
+   * 卡片里的行内链接（合同号那种）本身只有 20px 高。
+   * 用「padding 撑开 + 负边距抵消」把触摸区做到 44px，视觉位置一点不动；
+   * 它上下都是纯文字，扩大一点不会抢走别人的点击。
+   */
+  .link-btn {
+    display: inline-flex;
+    align-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 12px 6px;
+    margin: -12px -6px;
+  }
+}
+

@@ -8,7 +8,7 @@ import {
   setStoredUsername,
 } from '../api'
 import { setStoredRole } from '../permissions'
-import { Loading } from './Ui'
+import BootSplash from './BootSplash'
 
 type Status = 'checking' | 'ok' | 'anonymous'
 
@@ -46,11 +46,11 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   }
 
   if (status === 'checking') {
-    return (
-      <div className="auth-checking">
-        <Loading text="正在校验登录状态…" />
-      </div>
-    )
+    /*
+     * 校验登录态期间显示品牌闪屏（和 index.html 里那块同款）：
+     * 用户看到的是"应用正在启动"，而不是一屏灰底 + 一行小字。
+     */
+    return <BootSplash />
   }
 
   return <>{children}</>
