@@ -939,6 +939,8 @@ export type BaleRow = {
   inbound_order_id: number | null
   outbound_order_id: number | null
   outbound_order_no: string
+  /** 品牌（选填；混装包里多行品牌不一样时用「/」串起来） */
+  brand: string
   species: string
   grade: string
   thickness: number

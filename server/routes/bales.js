@@ -51,6 +51,20 @@ export const BALE_OWN_CUBIC_COL = `
 `
 
 /**
+ * 这一包的品牌。混装包可能一行一个品牌，用「/」串起来（口径同长度 / 片数）。
+ *
+ * 只给列表用 —— 原来列表压根不返回品牌，用户在码单页查货时看不到。
+ * 放在 bales.js 里单独一个常量，不塞进 BALE_TEXT_COLS：那个常量还被
+ * inbound / outbound / repacks / aiTools 共用，动它等于改一圈查询的返回形状。
+ */
+export const BALE_BRAND_COL = `
+  (SELECT GROUP_CONCAT(t.brand, '/') FROM
+     (SELECT DISTINCT TRIM(brand) AS brand
+        FROM bale_items
+       WHERE bale_id = b.id AND brand IS NOT NULL AND TRIM(brand) <> '') t) AS brand_text
+`
+
+/**
  * 把上面那三列整理成给前端的字段。
  * `spec_text`：混装时是 `33×22×1.8/2.1/2.4`，单规格时退回原来的 `33×22×2`。
  */
@@ -75,6 +89,7 @@ const listSql = (where) => `
          s.contract_no,
          ${BALE_TEXT_COLS},
          ${BALE_OWN_CUBIC_COL},
+         ${BALE_BRAND_COL},
          o.order_no AS outbound_order_no
     FROM bales b
     LEFT JOIN shipments s       ON s.id = b.shipment_id
@@ -204,6 +219,8 @@ router.get('/', (req, res) => {
       inbound_order_id: row.inbound_order_id,
       outbound_order_id: row.outbound_order_id,
       outbound_order_no: row.outbound_order_no ?? '',
+      // 品牌（混装包用「/」串起来）；这一包没填品牌就是空字符串
+      brand: row.brand_text ?? '',
       species: row.species ?? '',
       grade: row.grade ?? '',
       thickness: row.thickness,

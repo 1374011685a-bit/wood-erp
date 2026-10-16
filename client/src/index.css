@@ -6972,3 +6972,13 @@ section > .toolbar .btn-primary {
   }
 }
 
+/*
+ * 码单编辑弹窗里的品牌列：只读文字（不是输入框）。
+ * 品牌在建单时就定了，改码单 / 改包都不动它，所以这里一眼看出"这格不能改"。
+ */
+.table-detail .bale-brand-cell {
+  color: var(--text-2);
+  font-size: var(--fs-ui);
+  white-space: nowrap;
+}
+

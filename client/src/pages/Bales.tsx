@@ -841,6 +841,7 @@ export default function Bales() {
               <th>柜号</th>
               <th>提单码</th>
               <th>合同号</th>
+              <th>品牌</th>
               <th>品名</th>
               <th>等级</th>
               <th className="num">厚度 (mm)</th>
@@ -878,6 +879,7 @@ export default function Bales() {
                 <td>{row.box_no || '—'}</td>
                 <td>{row.bl_no || '—'}</td>
                 <td>{row.contract_no || '—'}</td>
+                <td>{row.brand || '—'}</td>
                 <td>{row.species}</td>
                 <td>{row.grade || '—'}</td>
                 {/* 厚度 / 宽度永远单值；长度和片数是混装包才用斜杠串（1.8/2.1/2.4、17/30/247） */}
@@ -1063,6 +1065,7 @@ export default function Bales() {
             <table className="table table-detail">
               <thead>
                 <tr>
+                  <th>品牌</th>
                   <th>品名</th>
                   <th>等级</th>
                   <th className="num">厚度 (mm)</th>
@@ -1075,6 +1078,12 @@ export default function Bales() {
               <tbody>
                 {editLines.map((line, index) => (
                   <tr key={index}>
+                    {/*
+                      品牌只读展示：这一包的品牌在建单时定的，改包 / 改码单都不动它。
+                      （后端 updateBale 没带 brand 时会原样保留，所以这里也不放输入框。
+                      混装包里多行品牌不一样时，这里会看到每行各自的品牌。）
+                    */}
+                    <td className="bale-brand-cell">{line.brand || '—'}</td>
                     {(['species', 'grade', 'thickness', 'width', 'length', 'pieces'] as const).map(
                       (field) => (
                         <td key={field}>
