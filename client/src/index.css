@@ -6468,10 +6468,19 @@ section > .toolbar .btn-primary {
   }
 
   /*
-   * 厚 / 宽 / 长：**藏掉左侧字段名**（改用输入框的 placeholder「厚 / 宽 / 长」）。
+   * 厚 / 宽 / 长（只在入库表）：**藏掉左侧字段名**（改用输入框的 placeholder「厚 / 宽 / 长」）。
    * 不藏的话：格 56px − 字段名 13 − 间隙 4 − 输入框内边距 16 = 23px 内宽，手指点不准。
+   * ⚠️ 只对 .sheet-inbound：出库那边这三格是**只读**的（规格从码单带出来），
+   * 字段名一藏就没人知道那三个数是厚/宽/长了。
    */
-  .sheet-cards tbody td.col-tiny::before {
+  .sheet-cards.sheet-inbound tbody td.col-tiny::before {
+    display: none;
+  }
+
+  /* 改包「改包后」表同理：厚/宽/长/片数 的字段名进占位符，宽度全给输入框 */
+  .sheet-cards.sheet-repack-after tbody td.col-tiny::before,
+  .sheet-cards.sheet-repack-after tbody td.col-qty::before,
+  .sheet-cards.sheet-repack-after tbody td.col-price::before {
     display: none;
   }
 
@@ -6560,6 +6569,31 @@ section > .toolbar .btn-primary {
     display: flex;
     flex: 1 1 100%;
     min-height: 42px;
+  }
+
+  /* 出库：这一行的码单不够发（库存不足）时整行标红 —— 手机端「当前库存」收进了「更多」，靠这个提示 */
+  .sheet-cards tbody tr.is-short {
+    border-color: rgba(255, 59, 48, 0.42);
+    background-color: #fffafa;
+  }
+
+  /*
+   * 出库的厚/宽/长是**只读展示**（值从码单带出来，比如混装包的「2/3」「60/40」），
+   * 字段名不能藏；所以给它们多匀 8px：66 − 13(字段名) − 4(间隙) − 16(内边距) = 33px 内宽，
+   * 「60/40」这种四五个字符才放得下。
+   */
+  .sheet-cards.sheet-outbound tbody td.col-tiny {
+    flex: 1 1 62px;
+    min-width: 58px;
+  }
+
+  /*
+   * 出库的包号是**静态文字**（不是输入框），不需要 110px ——
+   * 收窄到 90px，把宽度让给厚/宽/长，四个才在"包号 + 规格"这一行里。
+   */
+  .sheet-cards.sheet-outbound tbody td.col-lead {
+    flex: 1 1 90px;
+    min-width: 84px;
   }
 
   .sheet-cards tbody tr.is-expanded td.col-more::before {

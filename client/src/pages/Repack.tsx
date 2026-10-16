@@ -1257,7 +1257,7 @@ export default function Repack() {
         )}
 
         <div className="sheet-scroll">
-          <table className="sheet-table">
+          <table className="sheet-table sheet-repack-before">
             <thead>
               <tr>
                 <th className="col-no">#</th>
@@ -1293,7 +1293,8 @@ export default function Repack() {
                   return (
                     <tr key={`before-${line.srcBaleId}-${line.id ?? index}`}>
                       <td className="col-no">{index + 1}</td>
-                      <td>
+                      {/* 手机端：源包号 + 品名 一行，厚/宽/长 + 片数 + 立方 一行 */}
+                      <td className="col-lead" data-label="源包号">
                         <span>{line.srcBaleNo || '—'}</span>
                         {isFirstOfBale && (
                           <button
@@ -1307,22 +1308,42 @@ export default function Repack() {
                           </button>
                         )}
                       </td>
-                      <td>{line.brand || '—'}</td>
-                      <td>{line.species}</td>
-                      <td>{line.grade || '—'}</td>
-                      <td>{line.thickness}</td>
-                      <td>{line.width}</td>
-                      <td>{line.length}</td>
-                      <td>{line.pieces}</td>
-                      <td className="col-unit num">{formatCubic(lineCubic(line))}</td>
-                      <td className="col-unit">m³</td>
+                      <td className="col-more" data-label="品牌">
+                        {line.brand || '—'}
+                      </td>
+                      <td className="col-name-row" data-label="品名">
+                        {line.species}
+                      </td>
+                      <td className="col-more" data-label="等级">
+                        {line.grade || '—'}
+                      </td>
+                      <td className="col-tiny" data-label="厚度">
+                        {line.thickness}
+                      </td>
+                      <td className="col-tiny" data-label="宽度">
+                        {line.width}
+                      </td>
+                      <td className="col-tiny" data-label="长度">
+                        {line.length}
+                      </td>
+                      <td className="col-qty" data-label="片数">
+                        {line.pieces}
+                      </td>
+                      <td className="col-price num" data-label="立方 (m³)">
+                        {formatCubic(lineCubic(line))}
+                      </td>
+                      <td className="col-more" data-label="单位">
+                        m³
+                      </td>
                       {money && <td className="num">{formatAmount(beforePriceOf(line))}</td>}
                       {money && (
-                        <td className="num">
+                        <td className="num col-more" data-label="金额">
                           {formatAmount(lineCubic(line) * beforePriceOf(line))}
                         </td>
                       )}
-                      <td className="col-code">{line.srcBarcode || '—'}</td>
+                      <td className="col-code col-more" data-label="条码号">
+                        {line.srcBarcode || '—'}
+                      </td>
                     </tr>
                   )
                 })}
@@ -1469,7 +1490,7 @@ export default function Repack() {
         )}
 
         <div className="sheet-scroll">
-          <table className="sheet-table">
+          <table className="sheet-table sheet-repack-after">
             <thead>
               <tr>
                 <th className="col-no">#</th>
@@ -1538,11 +1559,11 @@ export default function Repack() {
                       </span>
                     </td>
                     {/* 旧包号：这一行是从哪一包搬来的（手填的行没有 → 「—」） */}
-                    <td className="col-no">
+                    <td className="col-more" data-label="旧包号">
                       {pickedBales.find((one) => one.id === row.srcBaleId)?.bale_no || '—'}
                     </td>
                     {/* 新包号：相同的算同一包；留空就是空的，系统不会替你编一个 */}
-                    <td className="col-split-no">
+                    <td className="col-lead" data-label="新包号">
                       <input
                         className="sheet-input"
                         placeholder="可留空"
@@ -1550,14 +1571,14 @@ export default function Repack() {
                         onChange={(event) => updateRow(row.key, 'baleNo', event.target.value)}
                       />
                     </td>
-                    <td>
+                    <td className="col-more" data-label="品牌">
                       <input
                         className="sheet-input"
                         value={row.brand}
                         onChange={(event) => updateRow(row.key, 'brand', event.target.value)}
                       />
                     </td>
-                    <td>
+                    <td className="col-name-row" data-label="品名 *">
                       <input
                         className="sheet-input"
                         list="repack-species"
@@ -1565,7 +1586,7 @@ export default function Repack() {
                         onChange={(event) => updateRow(row.key, 'species', event.target.value)}
                       />
                     </td>
-                    <td>
+                    <td className="col-more" data-label="等级">
                       <input
                         className="sheet-input"
                         list="repack-grade"
@@ -1574,20 +1595,45 @@ export default function Repack() {
                       />
                     </td>
                     {(['thickness', 'width', 'length', 'pieces'] as const).map((field) => (
-                      <td key={field}>
+                      <td
+                        key={field}
+                        className={field === 'pieces' ? 'col-qty' : 'col-tiny'}
+                        data-label={
+                          field === 'thickness'
+                            ? '厚'
+                            : field === 'width'
+                              ? '宽'
+                              : field === 'length'
+                                ? '长'
+                                : '片数'
+                        }
+                      >
                         <input
                           className="sheet-input"
                           type="text"
                           inputMode="decimal"
+                          placeholder={
+                            field === 'thickness'
+                              ? '厚'
+                              : field === 'width'
+                                ? '宽'
+                                : field === 'length'
+                                  ? '长'
+                                  : '片数'
+                          }
                           value={row[field]}
                           onChange={(event) => updateRow(row.key, field, event.target.value)}
                         />
                       </td>
                     ))}
-                    <td className="col-unit num">{cubic ? formatCubic(cubic) : ''}</td>
-                    <td className="col-unit">{cubic ? 'm³' : ''}</td>
+                    <td className="col-more" data-label="立方 (m³)">
+                      {cubic ? formatCubic(cubic) : ''}
+                    </td>
+                    <td className="col-more" data-label="单位">
+                      {cubic ? 'm³' : ''}
+                    </td>
                     {money && (
-                      <td>
+                      <td className="col-price" data-label="单价">
                         <input
                           className="sheet-input"
                           type="text"
@@ -1601,7 +1647,7 @@ export default function Repack() {
                       </td>
                     )}
                     {money && (
-                      <td className="num">
+                      <td className="num col-more" data-label="金额">
                         {cubic ? formatAmount(cubic * priceOf(row)) : ''}
                       </td>
                     )}

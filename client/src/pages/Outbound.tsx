@@ -1383,7 +1383,7 @@ export default function Outbound({
           )}
 
           <div className="sheet-scroll">
-            <table className="sheet-table">
+            <table className="sheet-table sheet-outbound">
               <thead>
                 <tr>
                   <th className="col-no">#</th>
@@ -1433,6 +1433,7 @@ export default function Outbound({
                       data-row-key={row.key}
                       className={[
                         reasons.length > 0 ? 'is-error' : '',
+                        short ? 'is-short' : '',
                         expandedRows.includes(row.key) ? 'is-expanded' : '',
                       ]
                         .filter(Boolean)
@@ -1487,13 +1488,23 @@ export default function Outbound({
                         {row.baleBarcode || '—'}
                       </td>
                       {/* 选了包但没填包号 → 显示「—」；一行都没选才是「未选码单」 */}
-                      <td className="col-wide" data-label="包号">
+                      <td className="col-lead" data-label="包号">
                         {row.baleId ? row.baleNo || '—' : '未选码单'}
                       </td>
                       {specFields.map(({ field }) => (
                         <td
                           key={field}
-                          className={field === 'species' ? 'col-wide' : 'col-third'}
+                          /*
+                           * 手机端两行版：包号 + 厚 / 宽 / 长 一行（.col-tiny），
+                           * 品名 + 片数 + 单价 一行（.col-name-row / .col-qty / .col-price）。
+                           */
+                          className={
+                            field === 'species'
+                              ? 'col-name-row'
+                              : field === 'grade'
+                                ? 'col-more'
+                                : 'col-tiny'
+                          }
                           data-label={
                             field === 'thickness'
                               ? '厚'
@@ -1515,10 +1526,15 @@ export default function Outbound({
                         </td>
                       ))}
                       {numberFields.slice(0, 2).map(({ field }) => (
-                        <td key={field} className="col-third">
+                        <td
+                          key={field}
+                          className={field === 'pieces' ? 'col-qty' : 'col-more'}
+                          data-label={field === 'pieces' ? '片数' : '件数'}
+                        >
                           <input
                             className="sheet-input"
                             type="text"
+                            placeholder={field === 'pieces' ? '片数' : undefined}
                             /* 片数 / 件数只要整数 */
                             inputMode="numeric"
                             enterKeyHint="next"
@@ -1537,11 +1553,12 @@ export default function Outbound({
                         m³
                       </td>
                       {numberFields.slice(2).map(({ field }) => (
-                        <td key={field} className="col-third" data-label="单价">
+                        <td key={field} className="col-price" data-label="单价">
                           <input
                             className="sheet-input"
                             type="text"
                             inputMode="decimal"
+                            placeholder="单价"
                             enterKeyHint="done"
                             onKeyDown={enterToNext}
                             value={row[field]}
@@ -1556,12 +1573,16 @@ export default function Outbound({
                           {formatAmount(row.amount)}
                         </td>
                       )}
-                      {/* 当前库存：出库时最该看的一格，留着不收起 */}
+                      {/*
+                        当前库存：出库时该看的那一格。
+                        手机上整行压成两行，放不下这一格了 → 收进「更多」；
+                        库存不够时整行会标红（tr.is-short），提示不会丢。
+                      */}
                       <td
                         className={
                           short
-                            ? 'col-stock num col-half is-short'
-                            : 'col-stock num col-half'
+                            ? 'col-stock num col-more is-short'
+                            : 'col-stock num col-more'
                         }
                         data-label="库存"
                       >
