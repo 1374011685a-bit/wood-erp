@@ -4263,26 +4263,15 @@ section > .toolbar .btn-primary {
   .sheet-actions-fixed .btn {
     height: 46px;
     font-size: 15px;
-  }
-
-  .sheet-actions-fixed .btn-primary {
-    flex: 1;
-  }
-
-  .sheet-actions-fixed .btn:not(.btn-primary) {
-    flex: none;
-    width: 92px;
-  }
-
-  /* 三个按钮：保存（占满）+ 保存并继续 + 取消 */
-  .sheet-actions-fixed .btn-continue {
-    flex: none;
-    width: 104px;
-  }
-
-  .sheet-actions-fixed .btn:not(.btn-primary):not(.btn-continue) {
-    flex: none;
-    width: 64px;
+    /*
+     * 三等分：保存 / 保存并继续 / 取消 各占一份（≈109px），主次靠**颜色**区分。
+     * 原来是"主按钮 flex:1 吃掉剩余宽度"，另外两个固定宽 —— 中间那个的中心
+     * 比整条栏的中心右偏 53px，看着像被挤到右边（用户反馈的"不居中"）。
+     */
+    flex: 1 1 0;
+    width: auto;
+    min-width: 0;
+    padding: 0 8px;
   }
 
   /* ---------- 明细工具条：按钮换成两列，不再被右边缘截断 ---------- */
@@ -6577,7 +6566,7 @@ section > .toolbar .btn-primary {
 
   .sheet-cards tbody td.col-tiny {
     order: 2;
-    /* 58px：字段名改成占位符后，格子宽度几乎全给输入框（58 − 16 内边距 ≈ 42 内宽） */
+    /* 58px：字段名挪到输入框上方之后，格子宽度几乎全给输入框 */
     flex: 1 1 58px;
     min-width: 54px;
     min-height: 36px;
@@ -6585,26 +6574,38 @@ section > .toolbar .btn-primary {
   }
 
   /*
-   * 厚 / 宽 / 长（只在入库表）：**藏掉左侧字段名**（改用输入框的 placeholder「厚 / 宽 / 长」）。
-   * 不藏的话：格 56px − 字段名 13 − 间隙 4 − 输入框内边距 16 = 23px 内宽，手指点不准。
-   * ⚠️ 只对 .sheet-inbound：出库那边这三格是**只读**的（规格从码单带出来），
-   * 字段名一藏就没人知道那三个数是厚/宽/长了。
+   * 字段名回到输入框上方（P0）。
+   *
+   * 之前为了让输入框宽一点，把厚/宽/长/片数/单价的字段名塞进了 placeholder ——
+   * 一填值名字就没了，一行里五个数字认不出谁是谁（用户实测反馈）。
+   * 现在改成：每格上方永远一行 10px 小字，placeholder 只当示例值（33 / 22 / 2 …）。
+   *
+   * 包号 / 品名一起竖排：一格横排一格竖排的话，同一行里的输入框会错开 6px。
    */
-  .sheet-cards.sheet-inbound tbody td.col-tiny::before {
-    display: none;
+  .sheet-cards tbody td.col-lead,
+  .sheet-cards tbody td.col-tiny,
+  .sheet-cards tbody td.col-name-row,
+  .sheet-cards tbody td.col-qty,
+  .sheet-cards tbody td.col-price {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-end;
+    gap: 3px;
   }
 
-  /* 改包「改包后」表同理：厚/宽/长/片数 的字段名进占位符，宽度全给输入框 */
-  .sheet-cards.sheet-repack-after tbody td.col-tiny::before,
-  .sheet-cards.sheet-repack-after tbody td.col-qty::before,
-  .sheet-cards.sheet-repack-after tbody td.col-price::before {
-    display: none;
-  }
-
-  /* 片数 / 单价同理：字段名进占位符，宽度全给输入框 */
+  .sheet-cards tbody td.col-lead::before,
+  .sheet-cards tbody td.col-tiny::before,
+  .sheet-cards tbody td.col-name-row::before,
   .sheet-cards tbody td.col-qty::before,
   .sheet-cards tbody td.col-price::before {
-    display: none;
+    /* 基础规则里是 flex: 0 0 4.4em —— 竖排时会当成"标签高度"，必须覆盖 */
+    flex: none;
+    margin-right: 0;
+    font-size: 10px;
+    line-height: 1.2;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--text-3);
   }
 
   /* 第 2 行：品名 + 片数 + 单价（勾选框跟在后面，order 98 已经在最后） */
@@ -6631,8 +6632,9 @@ section > .toolbar .btn-primary {
   .sheet-cards tbody td.col-name-row::before,
   .sheet-cards tbody td.col-qty::before,
   .sheet-cards tbody td.col-price::before {
-    flex: 0 0 auto;
-    margin-right: 2px;
+    /* 竖排：标签占一行、自然高度（别让它吃弹性空间） */
+    flex: none;
+    margin-right: 0;
     white-space: nowrap;
   }
 

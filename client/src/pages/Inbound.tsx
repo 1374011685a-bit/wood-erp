@@ -317,8 +317,12 @@ const PAGE_SIZE = 20
 const PICKER_PAGE_SIZE = 20
 /** 表格里一直留这么多空行，点进去就能填（和千木云一样） */
 const MIN_SHEET_ROWS = 10
-/** 手机上卡片一行很高，少铺几行，要用「+」自己加 */
-const MIN_SHEET_ROWS_MOBILE = 4
+/**
+ * 手机上卡片一行很高（字段名回到输入框上方后约 170px），默认铺 2 行就够：
+ * 铺 4 行的话首屏基本被空行占满，只录一行的人得先滚过三行空白。
+ * 要更多行点「+ 加行」，或者用第 2 行的「复制上一行」。
+ */
+const MIN_SHEET_ROWS_MOBILE = 2
 const sheetRowFloor = () =>
   typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches
     ? MIN_SHEET_ROWS_MOBILE
@@ -404,17 +408,13 @@ const FIELD_SHORT_LABEL: Partial<Record<RowField, string>> = {
 const TEXT_FIELDS: RowField[] = ['baleLabel', 'boxNo', 'brand', 'species', 'grade']
 
 /**
- * 手机上占位符文案（字段名不进卡片左侧）：
- * 「厚 / 宽 / 长」三格太窄，左侧再塞一个字段名，输入框就只剩二三十像素、点都点不准。
- * 手机端把这三个格的字段名改成占位符（见 index.css 的 .col-tiny::before{display:none}），
- * 格子腾出来的宽度全给输入框。
+ * 占位符文案：**一律不填**。
+ *
+ * 字段名已经永远显示在输入框上方（见 index.css 里那组竖排规则），
+ * placeholder 再放个示例数字（33 / 22 / 2 …）反而被当成"已经填好的数据"了
+ * —— 用户实测反馈过。空着就空着，一眼看出这格还没填。
  */
-const FIELD_PLACEHOLDER: Partial<Record<RowField, string>> = {
-  thickness: '厚',
-  width: '宽',
-  length: '长',
-  pieces: '片数',
-}
+const FIELD_PLACEHOLDER: Partial<Record<RowField, string>> = {}
 
 /** 明细表固定列：序号 / 勾选 / 操作 */
 const SHEET_LEAD_COLS = 3
@@ -1074,28 +1074,36 @@ export default function Inbound({
   }
 
   /**
-   * 复制本行：字段照抄、**包号清空**（一个包号只能对应一包货，复制过来必然撞号），
-   * 新行插在这一行的下面（点第 N 行 → 新行落在第 N+1 行）。
+   * 复制上一行：把**第 N-1 行**的规格抄到第 N 行（原地覆盖，不新增行）。
+   *
+   * 用户的心智是"新加的这行跟上一行一样" —— 所以按钮挂在**要填的那一行**上，
+   * 点一下这一行就填好了。原来的实现是"复制本行、插到下面"，
+   * 用户在空行上点只会再多一个空行（实测点一次行数 6→7、值全空），很容易点错。
+   *
+   * 包号不抄：一个包号只能对应一包货，抄过来必然撞号（这条一直保留）。
+   * 第 1 行没有"上一行"，所以那一行不显示这个按钮。
    */
-  const copyRow = (key: number) => {
+  const copyPrevRow = (key: number) => {
     setRows((prev) => {
       const index = prev.findIndex((row) => row.key === key)
-      if (index < 0) return prev
-      const row = prev[index]
+      if (index <= 0) return prev
+      const src = prev[index - 1]
       const next = [...prev]
-      next.splice(index + 1, 0, {
-        ...createRow(),
-        boxNo: row.boxNo,
-        brand: row.brand,
-        species: row.species,
-        grade: row.grade,
-        thickness: row.thickness,
-        width: row.width,
-        length: row.length,
-        pieces: row.pieces,
-        bundles: row.bundles,
-        unitPrice: row.unitPrice,
-      })
+      next[index] = {
+        ...prev[index],
+        boxNo: src.boxNo,
+        brand: src.brand,
+        species: src.species,
+        grade: src.grade,
+        thickness: src.thickness,
+        width: src.width,
+        length: src.length,
+        pieces: src.pieces,
+        bundles: src.bundles,
+        unitPrice: src.unitPrice,
+        // 包号留空，自己填（一包一个号）
+        baleLabel: '',
+      }
       return next
     })
     if (formError) setFormError('')
@@ -1433,6 +1441,12 @@ export default function Inbound({
       // 回到列表：清空筛选后重新加载，保证新单一定可见
       setMode('list')
       setEditing(null)
+      /*
+       * 地址栏也要跟着回列表：/inbound/new 是"录单页"的地址，
+       * 保存完还停在那儿的话，用户一刷新就又开出一张空白单（实测过）。
+       * 用 replace —— 后退不该回到那张已经提交掉的表单。
+       */
+      if (defaultMode !== 'list') navigate('/inbound', { replace: true })
       setLegacyNoBl(false)
       setForm({
         supplier: '',
@@ -2010,10 +2024,10 @@ export default function Inbound({
               <button
                 className="btn"
                 onClick={() => {
-                  // 「取消」回到进来时的那个列表（/inbound/edit/:id 进来就是 /inbound）
-                  setMode(defaultMode === 'edit' ? 'list' : defaultMode)
+                  // 「取消」一律回列表：地址栏也归位（/inbound/new 进来时原来停在原地不动）
+                  setMode('list')
                   setEditing(null)
-                  if (defaultMode === 'edit') navigate('/inbound')
+                  if (defaultMode !== 'list') navigate('/inbound', { replace: true })
                 }}
               >
                 取消
@@ -2141,14 +2155,17 @@ export default function Inbound({
                           >
                             + 加行
                           </button>
-                          <button
-                            type="button"
-                            className="sheet-act"
-                            title="复制本行（包号会清空，自己填）"
-                            onClick={() => copyRow(row.key)}
-                          >
-                            复制
-                          </button>
+                          {/* 第 1 行没有"上一行"，这个按钮就不出现（省一行按钮、也不误导） */}
+                          {index > 0 && (
+                            <button
+                              type="button"
+                              className="sheet-act"
+                              title="把上一行的规格抄到这一行（包号留空，自己填）"
+                              onClick={() => copyPrevRow(row.key)}
+                            >
+                              复制上一行
+                            </button>
+                          )}
                           {/* title 挂在 span 上：按钮 disabled 时原生 tooltip 不弹，外面的包裹层还能弹 */}
                           <span
                             title={
@@ -2239,7 +2256,8 @@ export default function Inbound({
                           <input
                             className="sheet-input num"
                             type="text"
-                            placeholder="单价*"
+                            /* 不填占位符：字段名在上面，示例值容易被当成已填数据 */
+                            placeholder=""
                             inputMode="decimal"
                             /* 一行里最后一格：键盘上显示「完成」，按下去直接收起键盘 */
                             enterKeyHint="done"
@@ -2478,9 +2496,10 @@ export default function Inbound({
           <button
             className="btn"
             onClick={() => {
-              setMode(defaultMode === 'edit' ? 'list' : defaultMode)
+              setMode('list')
               setEditing(null)
-              if (defaultMode === 'edit') navigate('/inbound')
+              // 取消之后也是"回列表"，地址栏一起归位（新建 / 修改两种入口都要）
+              if (defaultMode !== 'list') navigate('/inbound', { replace: true })
             }}
           >
             取消

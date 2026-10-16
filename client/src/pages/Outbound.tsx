@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 import { useEscapeKey } from '../hooks/useEscapeKey'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   createOutbound,
   deleteOutbound,
@@ -230,6 +230,13 @@ export default function Outbound({
   defaultMode?: 'list' | 'create'
 }) {
   const [mode, setMode] = useState<'list' | 'create'>(defaultMode)
+  const navigate = useNavigate()
+  /** 回列表并把地址栏一起归位（/outbound/new 保存完还停着的话，刷新会又开一张空白单） */
+  const backToList = () => {
+    setMode('list')
+    setEditing(null)
+    if (defaultMode !== 'list') navigate('/outbound', { replace: true })
+  }
 
   /**
    * 看不到金额的角色（业务员 / 仓管）：
@@ -965,8 +972,8 @@ export default function Outbound({
         window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
         return
       }
-      setMode('list')
-      setEditing(null)
+      // 回列表 + 地址栏归位（/outbound/new → /outbound）
+      backToList()
       setForm({
         customer: '',
         orderDate: todayISO(),
@@ -1415,10 +1422,7 @@ export default function Outbound({
               </button>
               <button
                 className="btn"
-                onClick={() => {
-                  setMode('list')
-                  setEditing(null)
-                }}
+                onClick={backToList}
               >
                 取消
               </button>
@@ -1633,7 +1637,7 @@ export default function Outbound({
                           <input
                             className="sheet-input"
                             type="text"
-                            placeholder={field === 'pieces' ? '片数' : undefined}
+                            /* 字段名显示在输入框上方，这里不放占位符（示例值会被当成已填数据） */
                             /* 片数 / 件数只要整数 */
                             inputMode="numeric"
                             enterKeyHint="next"
@@ -1657,7 +1661,7 @@ export default function Outbound({
                             className="sheet-input"
                             type="text"
                             inputMode="decimal"
-                            placeholder="单价"
+                            /* 字段名在上面，不放占位符 */
                             enterKeyHint="done"
                             onKeyDown={enterToNext}
                             value={row[field]}
@@ -1799,10 +1803,7 @@ export default function Outbound({
           </button>
           <button
             className="btn"
-            onClick={() => {
-              setMode('list')
-              setEditing(null)
-            }}
+            onClick={backToList}
           >
             取消
           </button>

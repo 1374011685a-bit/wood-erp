@@ -1638,15 +1638,7 @@ export default function Repack() {
                           className="sheet-input"
                           type="text"
                           inputMode="decimal"
-                          placeholder={
-                            field === 'thickness'
-                              ? '厚'
-                              : field === 'width'
-                                ? '宽'
-                                : field === 'length'
-                                  ? '长'
-                                  : '片数'
-                          }
+                          /* 字段名在输入框上方，这里不放占位符（示例值会被当成已填数据） */
                           value={row[field]}
                           onChange={(event) => updateRow(row.key, field, event.target.value)}
                         />

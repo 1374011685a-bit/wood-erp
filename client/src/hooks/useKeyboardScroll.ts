@@ -15,14 +15,26 @@ export function useKeyboardScroll(enabled = true) {
     const vv = window.visualViewport
     if (!vv) return
 
+    /**
+     * 只在**被键盘挡住**的时候才滚：把输入框抬到键盘上沿之上、留 24px 余量。
+     *
+     * ⚠️ 这里的判断方向以前写反了（`hidden > -24` 就 return，然后 scrollBy(hidden - 24)）：
+     *    输入框在可视区**里面**时 hidden 是很大的负数 → 反而触发 scrollBy(负数) →
+     *    页面被往上推一大截。实测：滚到 724 点第 3 行的「片数」，页面跳到 212；
+     *    滚到 1200 点「供应商」，直接跳回 0（用户报的"点框就跳最顶上"）。
+     *    现在改成：只有 bottom 超过可视区底部（hidden > 0）才滚，且只滚超出那点距离。
+     *
+     * 另外用 vv.offsetTop 换算成"相对可视区"的坐标：键盘弹出时可视区可能整体上移，
+     * 直接用 getBoundingClientRect()（相对布局视口）会算多。
+     */
     const reveal = () => {
       const el = document.activeElement
       if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) return
       const rect = el.getBoundingClientRect()
-      // 键盘上沿以下（可视区底部）就算被挡住
-      const hidden = rect.bottom - vv.height
-      if (hidden > -24) return
-      window.scrollBy({ top: hidden - 24, behavior: 'smooth' })
+      // 输入框底部相对**可视区**的位置，超出可视区底部多少才算被挡住
+      const hidden = rect.bottom - vv.offsetTop - vv.height
+      if (hidden <= 24) return
+      window.scrollBy({ top: hidden + 24, behavior: 'smooth' })
     }
 
     const onFocusIn = () => window.setTimeout(reveal, 260)
