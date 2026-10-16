@@ -64,6 +64,31 @@ export default function Bales() {
   // 勾选要批量打印标签的包
   const [labelPicked, setLabelPicked] = useState<number[]>([])
   /**
+   * 表头那个全选框。
+   *
+   * React 里复选框的"半选"（部分勾选）没有对应的属性可写，只能拿 ref 手动设
+   * `indeterminate`；所以下面用 effect 跟着勾选状态同步。
+   */
+  const pickAllRef = useRef<HTMLInputElement | null>(null)
+  /** 当前页所有行的 id —— 全选的范围就是"这一页" */
+  const pageIds = rows.map((row) => row.id)
+  const pickedOnPage = pageIds.filter((id) => labelPicked.includes(id))
+  const allPicked = pageIds.length > 0 && pickedOnPage.length === pageIds.length
+  useEffect(() => {
+    if (pickAllRef.current) {
+      pickAllRef.current.indeterminate = pickedOnPage.length > 0 && !allPicked
+    }
+  }, [pickedOnPage.length, allPicked])
+  /**
+   * 换页 / 换筛选之后，勾选作废：全选的范围只有"当前页"，
+   * 留着上一页的 id 会让「批量打印（N）」数出一个页面上看不见的数字。
+   * 按当前页的 id 串做依赖：同一页数据刷新（id 没变）不会把勾选清掉。
+   */
+  const pageIdsKey = pageIds.join(',')
+  useEffect(() => {
+    setLabelPicked([])
+  }, [pageIdsKey])
+  /**
    * 行内「⋯」菜单开在哪一行（存这一包的 id）。
    *
    * 操作列原来挂着「打印标签 / 编辑 / 删除」三个文字按钮，光这一列就占 230px ——
@@ -799,6 +824,21 @@ export default function Bales() {
         <button className="btn" onClick={handleReset}>
           重置
         </button>
+        {/*
+          全选本页：手机端表头是隐藏的（表格在手机上变成卡片，thead 不显示），
+          够不到表头那个复选框，所以这里给一个看得见的按钮。
+          桌面端和表头复选框并存 —— 两边读写的是同一个状态，不会打架。
+        */}
+        <button
+          className="btn"
+          disabled={pageIds.length === 0}
+          title={
+            allPicked ? `清空本页 ${pageIds.length} 包的勾选` : `勾选本页全部 ${pageIds.length} 包`
+          }
+          onClick={() => setLabelPicked(allPicked ? [] : pageIds)}
+        >
+          {allPicked ? '取消全选' : '全选本页'}
+        </button>
         <button
           className="btn"
           disabled={labelPicked.length === 0}
@@ -829,10 +869,18 @@ export default function Bales() {
             <tr>
               <th className="col-check">
                 <input
+                  ref={pickAllRef}
                   type="checkbox"
-                  checked={rows.length > 0 && labelPicked.length === rows.length}
+                  /* 全选 = 勾上**当前页可见**的全部包（一页 50 条） */
+                  checked={allPicked}
+                  aria-label="全选本页"
+                  title={
+                    allPicked
+                      ? `取消全选（本页 ${pageIds.length} 包）`
+                      : `全选本页 ${pageIds.length} 包`
+                  }
                   onChange={(event) =>
-                    setLabelPicked(event.target.checked ? rows.map((row) => row.id) : [])
+                    setLabelPicked(event.target.checked ? pageIds : [])
                   }
                 />
               </th>

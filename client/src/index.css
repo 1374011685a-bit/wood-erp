@@ -15,6 +15,12 @@
   --line-strong: #dcdce1;
   --border-panel: #d6d6db;
   --border-control: #c9c9cf;
+  /*
+   * 输入框的**默认描边**：比 --border-control 浅一档。
+   * 表单字段（.input）本来就是白底 + 深一档描边；明细格里那批是灰底、原来没描边，
+   * 用户看不出哪里能填 —— 现在统一补上这一条。
+   */
+  --border-input: #e3e3e8;
 
   --text: #1d1d1f;
   --text-2: #6e6e73;
@@ -4123,7 +4129,11 @@ section > .toolbar .btn-primary {
   width: 100%;
   height: 32px;
   padding: 0 3px;
-  border: none;
+  /*
+   * 默认给一条浅灰描边：原来只有聚焦时才画框（focus 是 inset 主色环），
+   * 没聚焦时"看不出这格能填"。底色不动，只补描边。
+   */
+  border: 1px solid var(--border-input);
   border-radius: 5px;
   background: transparent;
   font: inherit;
@@ -4133,12 +4143,14 @@ section > .toolbar .btn-primary {
 
 .sheet-input:focus {
   background-color: #ffffff;
+  border-color: var(--brand);
   box-shadow: inset 0 0 0 2px var(--brand);
 }
 
 /* 需要用户先确认的输入（同一规格匹配到多个成本价） */
 .sheet-input.is-attention {
   background-color: #fff8e6;
+  border-color: #f0c36d;
   box-shadow: inset 0 0 0 1px #f0c36d;
   font-weight: 600;
 }
@@ -4427,6 +4439,7 @@ section > .toolbar .btn-primary {
     height: 40px;
     padding: 0 10px;
     border-radius: 9px;
+    /* 灰底 + 浅描边（描边来自 .sheet-input 的基础规则） */
     background-color: #f6f6f8;
     text-align: left;
   }
@@ -4437,12 +4450,14 @@ section > .toolbar .btn-primary {
 
   .sheet-cards .sheet-input:focus {
     background-color: #ffffff;
+    border-color: var(--brand);
     box-shadow: inset 0 0 0 2px var(--brand);
   }
 
   .sheet-cards .sheet-input.input-locked {
     background-color: #f1f1f4;
     color: var(--text-3);
+    border-color: #e6e6eb;
   }
 
   .sheet-cards .same-bale-cell {
