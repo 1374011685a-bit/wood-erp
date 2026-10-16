@@ -18,6 +18,7 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { toNumber, formatAmount, todayLocal } from '../utils/num'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -71,6 +72,8 @@ export default function Contracts() {
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(false)
+  /** 有缓存时后台静默刷新中 */
+  const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   // 查看（只读）弹层：明细要另拉一次详情接口
@@ -105,7 +108,16 @@ export default function Contracts() {
   const [deleting, setDeleting] = useState(false)
 
   const load = useCallback(async (nextFilters: typeof filters, nextOffset: number) => {
-    setLoading(true)
+    // 缓存先渲染 + 后台静默刷新（同入库/出库列表一个口径）
+    const cacheKey = `contracts:${JSON.stringify(nextFilters)}:${nextOffset}`
+    const cached = readListCache<{ rows: ContractRow[]; total: number }>(cacheKey)
+    if (cached) {
+      setRows(cached.rows)
+      setTotal(cached.total)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
       const result = await fetchContracts({
         ...nextFilters,
@@ -114,10 +126,12 @@ export default function Contracts() {
       })
       setRows(result.rows)
       setTotal(result.total)
+      writeListCache(cacheKey, { rows: result.rows, total: result.total })
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -347,6 +361,7 @@ export default function Contracts() {
         <button className="btn" onClick={handleReset}>
           重置
         </button>
+        {refreshing && <span className="list-refreshing">刷新中…</span>}
       </div>
 
       <div className="card">

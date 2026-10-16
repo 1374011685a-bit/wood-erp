@@ -24,6 +24,7 @@ import {
 } from '../components/Ui'
 import Breadcrumb from '../components/Breadcrumb'
 import { roundTo, formatCubic } from '../utils/num'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -148,6 +149,8 @@ export default function Bales() {
   const [editError, setEditError] = useState('')
   const [editSaving, setEditSaving] = useState(false)
   const [baleDeleteTarget, setBaleDeleteTarget] = useState<BaleRow | null>(null)
+  /** 有缓存时后台静默刷新中 */
+  const [refreshing, setRefreshing] = useState(false)
 
   const load = useCallback(
     async (
@@ -156,7 +159,23 @@ export default function Bales() {
       nextShipmentId: number,
       nextOffset: number,
     ) => {
-      setLoading(true)
+      // 缓存先渲染 + 后台静默刷新（L3 包列表）
+      const cacheKey = `bales:${JSON.stringify(nextFilters)}:${nextContract}:${nextShipmentId}:${nextOffset}`
+      const cached = readListCache<{
+        rows: BaleRow[]
+        total: number
+        totalInStock: number
+        cubicInStock: number
+      }>(cacheKey)
+      if (cached) {
+        setRows(cached.rows)
+        setTotal(cached.total)
+        setTotalInStock(cached.totalInStock)
+        setCubicInStock(cached.cubicInStock)
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
       try {
         const page = await fetchBales({
           keyword: nextFilters.keyword.trim() || undefined,
@@ -177,10 +196,17 @@ export default function Bales() {
         setTotal(page.total)
         setTotalInStock(page.total_in_stock ?? 0)
         setCubicInStock(page.cubic_in_stock ?? 0)
+        writeListCache(cacheKey, {
+          rows: page.rows,
+          total: page.total,
+          totalInStock: page.total_in_stock ?? 0,
+          cubicInStock: page.cubic_in_stock ?? 0,
+        })
       } catch (err) {
         setError(err instanceof Error ? err.message : '加载失败')
       } finally {
         setLoading(false)
+        setRefreshing(false)
       }
     },
     [],
@@ -792,6 +818,7 @@ export default function Bales() {
         <div className="l3-head">
           <h2 className="section-title">包明细</h2>
           <span className="l3-sub">共 {total} 包</span>
+          {refreshing && <span className="list-refreshing">刷新中…</span>}
         </div>
         {/* bales-table：只在桌面端冻结「勾选 + 包号 + 条码号」三列（横滑时钉在左边） */}
         <table className="table bales-table">

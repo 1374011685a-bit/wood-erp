@@ -9,6 +9,7 @@ import { EmptyState, PageHead, TableSkeleton, ToastHost } from '../components/Ui
 import { formatCubic, formatAmount } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
+import { readListCache, writeListCache } from '../utils/listCache'
 
 const typeLabel = (type: RecycleRow['type']) =>
   type === 'in' ? '入库' : type === 'out' ? '出库' : '合同'
@@ -26,19 +27,31 @@ export default function Recycle() {
 
   const [rows, setRows] = useState<RecycleRow[]>([])
   const [loading, setLoading] = useState(false)
+  /** 有缓存时后台静默刷新中 */
+  const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [purgeTarget, setPurgeTarget] = useState<RecycleRow | null>(null)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    // 缓存先渲染 + 后台静默刷新
+    const cached = readListCache<RecycleRow[]>('recycle:list')
+    if (cached) {
+      setRows(cached)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
-      setRows(await fetchRecycleList())
+      const next = await fetchRecycleList()
+      setRows(next)
+      writeListCache('recycle:list', next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -84,9 +97,12 @@ export default function Recycle() {
         title="回收站"
         subtitle="删除的单据会先放到这里，库存已经同步扣减；可以整单恢复，也可以彻底删除"
         extra={
-          <button className="btn" onClick={() => void load()} disabled={loading}>
-            刷新
-          </button>
+          <>
+            {refreshing && <span className="list-refreshing">刷新中…</span>}
+            <button className="btn" onClick={() => void load()} disabled={loading}>
+              刷新
+            </button>
+          </>
         }
       />
 

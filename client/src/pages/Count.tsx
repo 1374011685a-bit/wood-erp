@@ -19,6 +19,7 @@ import {
 import { roundTo, formatCubic, formatAmount, todayLocal } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
+import { readListCache, writeListCache } from '../utils/listCache'
 
 /** 本地日期 YYYY-MM-DD */
 type FormRow = {
@@ -68,6 +69,8 @@ export default function Count() {
 
   const [list, setList] = useState<CountListRow[]>([])
   const [listLoading, setListLoading] = useState(false)
+  /** 有缓存时后台静默刷新中 */
+  const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
 
@@ -82,13 +85,23 @@ export default function Count() {
   const [deleting, setDeleting] = useState(false)
 
   const loadList = useCallback(async () => {
-    setListLoading(true)
+    // 缓存先渲染 + 后台静默刷新
+    const cached = readListCache<CountListRow[]>('count:list')
+    if (cached) {
+      setList(cached)
+      setRefreshing(true)
+    } else {
+      setListLoading(true)
+    }
     try {
-      setList(await fetchCountList())
+      const next = await fetchCountList()
+      setList(next)
+      writeListCache('count:list', next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setListLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -364,9 +377,12 @@ export default function Count() {
         subtitle="按规格录入实盘件数，差异自动生成盘盈入库单 / 盘亏出库单"
         extra={
           mode === 'list' ? (
-            <button className="btn btn-primary" onClick={() => void openCreate()}>
-              新增盘点
-            </button>
+            <>
+              {refreshing && <span className="list-refreshing">刷新中…</span>}
+              <button className="btn btn-primary" onClick={() => void openCreate()}>
+                新增盘点
+              </button>
+            </>
           ) : (
             <button className="btn" onClick={() => setMode('list')}>
               返回列表

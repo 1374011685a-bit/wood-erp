@@ -9,9 +9,12 @@ import {
   useState,
 } from 'react'
 import { useEscapeKey } from '../hooks/useEscapeKey'
+import { useSearchParams } from 'react-router-dom'
 import {
   createOutbound,
   deleteOutbound,
+  purgeRecycleOrder,
+  restoreRecycleOrder,
   downloadFile,
   fetchOutboundDetail,
   fetchOutboundList,
@@ -46,6 +49,9 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { enterToNext } from '../utils/formNav'
+import { readListCache, writeListCache } from '../utils/listCache'
+import { useOnline } from '../hooks/useOnline'
+import { isNetworkError } from '../utils/network'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -244,6 +250,14 @@ export default function Outbound({
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
+  /** 提示条里的「撤销」（保存/删除刚做完 3 秒内有效） */
+  const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null)
+  /** 后台静默刷新中 */
+  const [listRefreshing, setListRefreshing] = useState(false)
+  /** 保存失败后可以「重试」的那一下 */
+  const [retrySave, setRetrySave] = useState<null | (() => void)>(null)
+  /** 离线时禁用保存 */
+  const online = useOnline()
 
   // 客户候选：从已录过的单里取，录单时可以直接选
   const customerOptions = useMemo(
@@ -335,6 +349,21 @@ export default function Outbound({
   const [stockMap, setStockMap] = useState<Record<string, StockSnapshot>>({})
   const requestedSpecs = useRef<Set<string>>(new Set())
 
+  /**
+   * 首页宫格的「扫码」落到 /outbound/new?scan=1：
+   * 进来就把扫码弹窗打开（仓管少点「进出库 → 扫一扫」这两下）。
+   * 参数读完立刻清掉 —— 之后刷新、前进后退都不会再自动弹一次。
+   */
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    if (searchParams.get('scan') !== '1') return
+    setScanHint('')
+    setScannerOpen(true)
+    const next = new URLSearchParams(searchParams)
+    next.delete('scan')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
   // 详情弹层的关闭入口统一走这里，Esc / 点遮罩 / 关闭按钮行为一致
   const closeDetail = useCallback(() => {
     setDetail(null)
@@ -357,7 +386,16 @@ export default function Outbound({
 
   const loadList = useCallback(
     async (nextFilters: OutboundListFilters, nextOffset: number) => {
-      setListLoading(true)
+      // 有缓存先渲染（不闪空白），再后台静默刷新；没缓存才给骨架
+      const cacheKey = `outbound:${JSON.stringify(nextFilters)}:${nextOffset}`
+      const cached = readListCache<{ rows: OutboundListItem[]; total: number }>(cacheKey)
+      if (cached) {
+        setList(cached.rows)
+        setTotal(cached.total)
+        setListRefreshing(true)
+      } else {
+        setListLoading(true)
+      }
       setListError('')
       try {
         const result = await fetchOutboundList({
@@ -367,10 +405,12 @@ export default function Outbound({
         })
         setList(result.rows)
         setTotal(result.total)
+        writeListCache(cacheKey, { rows: result.rows, total: result.total })
       } catch (err) {
         setListError(err instanceof Error ? err.message : '加载失败')
       } finally {
         setListLoading(false)
+        setListRefreshing(false)
       }
     },
     [],
@@ -795,7 +835,25 @@ export default function Outbound({
       await deleteOutbound(deleteTarget.id)
       setDeleteTarget(null)
       setDetail(null)
-      setNotice(`已撤销出库 ${deleteTarget.order_no}，库存已回退`)
+      const target = deleteTarget
+      setNotice(`已撤销出库 ${target.order_no}，库存已回退`)
+      // 撤销 = 把这张出库单从回收站恢复回来（库存会重新扣回去）
+      setUndo({
+        label: '撤销',
+        run: () => {
+          void (async () => {
+            try {
+              await restoreRecycleOrder('out', target.id)
+              setNotice(`已恢复出库单 ${target.order_no}，库存已重新扣回`)
+              requestedSpecs.current.clear()
+              setStockMap({})
+              setReloadToken((n) => n + 1)
+            } catch (err) {
+              setActionError(err instanceof Error ? err.message : '恢复失败')
+            }
+          })()
+        },
+      })
       // 出库单删掉后库存回涨，「当前库存」提示要重新取
       requestedSpecs.current.clear()
       setStockMap({})
@@ -931,9 +989,38 @@ export default function Outbound({
           ? `已保存出库单 ${result.order_no} 的修改`
           : `已保存出库单 ${result.order_no}`,
       )
+      // 新建才给「撤销」：删掉刚建的那张（连回收站里也不留）
+      setUndo(
+        editing
+          ? null
+          : {
+              label: '撤销',
+              run: () => {
+                void (async () => {
+                  try {
+                    await deleteOutbound(result.id)
+                    await purgeRecycleOrder('out', result.id)
+                    setNotice(`已撤销：出库单 ${result.order_no} 已删除，库存已回退`)
+                    requestedSpecs.current.clear()
+                    setStockMap({})
+                    setReloadToken((n) => n + 1)
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : '撤销失败')
+                  }
+                })()
+              },
+            },
+      )
     } catch (err) {
       // 后端返回的库存不足信息原样展示，不吞掉
-      setFormError(err instanceof Error ? err.message : '保存失败')
+      // 网络层错误给人话 + 「重试」；服务端业务错误（400/409）原样展示
+      if (isNetworkError(err)) {
+        setFormError('网络不可用，请检查网络后重试')
+        setRetrySave(() => () => void handleSave(continueAfter))
+      } else {
+        setFormError(err instanceof Error ? err.message : '保存失败')
+        setRetrySave(null)
+      }
     } finally {
       setSaving(false)
     }
@@ -974,7 +1061,12 @@ export default function Outbound({
                 id: 'outbound-notice',
                 kind: 'success' as const,
                 message: notice,
-                onClose: () => setNotice(''),
+                onClose: () => {
+                  setNotice('')
+                  setUndo(null)
+                },
+                actionLabel: undo?.label,
+                onAction: undo?.run,
               }
             : null,
           actionError
@@ -998,7 +1090,12 @@ export default function Outbound({
                 id: 'outbound-form-error',
                 kind: 'error' as const,
                 message: formError,
-                onClose: () => setFormError(''),
+                onClose: () => {
+                  setFormError('')
+                  setRetrySave(null)
+                },
+                actionLabel: retrySave ? '重试' : undefined,
+                onAction: retrySave ?? undefined,
               }
             : null,
           detailError
@@ -1126,6 +1223,7 @@ export default function Outbound({
               <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
             )}
             <span className="spacer" />
+            {listRefreshing && <span className="list-refreshing">刷新中…</span>}
             {canWrite && (
               <button className="btn btn-primary" onClick={openCreate}>
                 新增出库
@@ -1292,13 +1390,14 @@ export default function Outbound({
             <span className="spacer" />
             {/* 桌面端留在这里；手机端改用卡片外那份（见 .sheet-actions-fixed） */}
             <div className="sheet-actions sheet-actions-inline">
+              {!online && <span className="action-offline-hint">请检查网络</span>}
               <button
                 className="btn btn-primary"
                 onClick={() => {
                   tapFeedback()
                   void handleSave()
                 }}
-                disabled={saving}
+                disabled={saving || !online}
               >
                 {saving && <span className="btn-spinner" aria-hidden="true" />}
                 {saving ? '保存中…' : '保存'}
@@ -1676,13 +1775,14 @@ export default function Outbound({
       {/* 手机端操作栏：放在卡片外面（iOS 上卡片内的 fixed 会被裁剪容器抓走，见 index.css） */}
       {mode === 'create' && (
         <div className="sheet-actions sheet-actions-fixed">
+          {!online && <span className="action-offline-hint">请检查网络</span>}
           <button
             className="btn btn-primary"
             onClick={() => {
               tapFeedback()
               void handleSave()
             }}
-            disabled={saving}
+            disabled={saving || !online}
           >
             {saving && <span className="btn-spinner" aria-hidden="true" />}
             {saving ? '保存中…' : '保存'}

@@ -215,6 +215,12 @@ export type ToastItem = {
   kind?: 'success' | 'error' | 'info'
   message: string
   onClose: () => void
+  /**
+   * 可选的一个「撤销」按钮（保存 / 删除之后 3 秒内可点）。
+   * 点了会先关掉这条提示，再执行 action。
+   */
+  actionLabel?: string
+  onAction?: () => void
 }
 
 function Toast({ item }: { item: ToastItem }) {
@@ -234,6 +240,18 @@ function Toast({ item }: { item: ToastItem }) {
   return (
     <div className={`toast toast-${item.kind ?? 'success'}`}>
       <span className="toast-text">{item.message}</span>
+      {item.actionLabel && item.onAction && (
+        <button
+          type="button"
+          className="toast-action"
+          onClick={() => {
+            item.onClose()
+            item.onAction?.()
+          }}
+        >
+          {item.actionLabel}
+        </button>
+      )}
       <button
         type="button"
         className="toast-close"

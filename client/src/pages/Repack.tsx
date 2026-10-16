@@ -19,6 +19,8 @@ import { EmptyState, Loading, PageHead, Pager, ToastHost } from '../components/U
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 import { tapFeedback } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
+import { useOnline } from '../hooks/useOnline'
+import { isNetworkError } from '../utils/network'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
@@ -213,6 +215,10 @@ export default function Repack() {
     remark: '',
   })
   const [saving, setSaving] = useState(false)
+  /** 保存失败后可以「重试」的那一下 */
+  const [retrySave, setRetrySave] = useState<null | (() => void)>(null)
+  /** 离线时禁用保存 */
+  const online = useOnline()
   // 默认进来看改包记录，点「新增改包」才进录入界面
   const [formOpen, setFormOpen] = useState(false)
 
@@ -885,7 +891,14 @@ export default function Repack() {
       }
       setReloadToken((n) => n + 1)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '改包失败')
+      // 网络层错误给人话 + 「重试」；业务错误原样展示
+      if (isNetworkError(err)) {
+        setError('网络不可用，请检查网络后重试')
+        setRetrySave(() => () => void handleSave(continueAfter))
+      } else {
+        setError(err instanceof Error ? err.message : '改包失败')
+        setRetrySave(null)
+      }
     } finally {
       setSaving(false)
     }
@@ -1141,7 +1154,12 @@ export default function Repack() {
                 id: 'repack-error',
                 kind: 'error' as const,
                 message: error,
-                onClose: () => setError(''),
+                onClose: () => {
+                  setError('')
+                  setRetrySave(null)
+                },
+                actionLabel: retrySave ? '重试' : undefined,
+                onAction: retrySave ?? undefined,
               }
             : null,
         ]}
@@ -1191,6 +1209,7 @@ export default function Repack() {
           <span className="spacer" />
           {/* 桌面端留在这里；手机端改用卡片外那份（见 .sheet-actions-fixed） */}
           <div className="sheet-actions sheet-actions-inline">
+            {!online && <span className="action-offline-hint">请检查网络</span>}
             <button
               className="btn btn-primary"
               onClick={() => {
@@ -1717,13 +1736,14 @@ export default function Repack() {
       {/* 手机端操作栏：放在卡片外面（iOS 上卡片内的 fixed 会被裁剪容器抓走，见 index.css） */}
       {formOpen && (
         <div className="sheet-actions sheet-actions-fixed">
+          {!online && <span className="action-offline-hint">请检查网络</span>}
           <button
             className="btn btn-primary"
             onClick={() => {
               tapFeedback()
               void handleSave()
             }}
-            disabled={saving}
+            disabled={saving || !online}
           >
             {saving && <span className="btn-spinner" aria-hidden="true" />}
             {saving ? '保存中…' : '保存'}
@@ -1734,7 +1754,7 @@ export default function Repack() {
               tapFeedback()
               void handleSave(true)
             }}
-            disabled={saving}
+            disabled={saving || !online}
           >
             保存并继续
           </button>

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
+  fetchBales,
+  fetchContractPicker,
   fetchHomeSummary,
   type HomeCompositionDimension,
   type HomeSummary,
@@ -9,6 +11,7 @@ import { EmptyState, Loading, PageHead, ToastHost } from '../components/Ui'
 import { formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { can, canVisit, seesMoney } from '../permissions'
+import type { Role } from '../permissions'
 import { tapFeedback } from '../utils/haptics'
 
 const formatMoney = (value: number) =>
@@ -63,12 +66,46 @@ const APP_TILES: { to: string; label: string; cap?: AppTileCap; icon: ReactNode 
     ),
   },
   {
+    /*
+     * 扫码：仓管一天里点得最多的一格。
+     * 直接落到出库表单并把扫码枪打开（?scan=1 由出库页读），
+     * 省掉「进出库 → 点扫一扫」这两下。
+     */
+    to: '/outbound/new?scan=1',
+    label: '扫码',
+    cap: 'outbound.write',
+    icon: (
+      <>
+        <path d="M4 8.4V5.8A1.8 1.8 0 0 1 5.8 4h2.6" />
+        <path d="M15.6 4h2.6A1.8 1.8 0 0 1 20 5.8v2.6" />
+        <path d="M20 15.6v2.6a1.8 1.8 0 0 1-1.8 1.8h-2.6" />
+        <path d="M8.4 20H5.8A1.8 1.8 0 0 1 4 18.2v-2.6" />
+        <path d="M4.8 12h14.4" />
+      </>
+    ),
+  },
+  {
     to: '/bales',
     label: '码单',
     icon: (
       <>
         <path d="M11.5 3.9h7.6a1 1 0 0 1 1 1v7.6a1 1 0 0 1-.3.7l-7.2 7.2a1 1 0 0 1-1.4 0l-6.6-6.6a1 1 0 0 1 0-1.4l6.9-6.9a1 1 0 0 1 .7-.3z" />
         <circle cx="15.6" cy="8.4" r="1.3" />
+      </>
+    ),
+  },
+  {
+    /*
+     * 打印：标签打印的入口。
+     * 落到码单列表（每行都能点「打印标签」），因为要先挑包再打印。
+     */
+    to: '/bales',
+    label: '打印',
+    icon: (
+      <>
+        <path d="M7 9V4.8h10V9" />
+        <path d="M7 18H5.4A1.4 1.4 0 0 1 4 16.6v-4.8a1.4 1.4 0 0 1 1.4-1.4h13.2A1.4 1.4 0 0 1 20 11.8v4.8a1.4 1.4 0 0 1-1.4 1.4H17" />
+        <path d="M7 14.6h10v4.6H7z" />
       </>
     ),
   },
@@ -107,6 +144,19 @@ const APP_TILES: { to: string; label: string; cap?: AppTileCap; icon: ReactNode 
     ),
   },
 ]
+
+/**
+ * 手机端首页宫格的**角色白名单**（按「名字」列，因为扫码/码单/打印里有两条指向同一路径）。
+ *
+ * 只列出来的角色受这份名单约束；没列的角色（管理员 / 财务 / 只读）沿用老口径 ——
+ * 「有权限才给格子」，所以只读角色看到的就是 码单 / 打印 / 合同 / 库存 这四个。
+ *
+ * 白名单只是"上限"，格子本身还要过一遍权限判断（比如仓管的改包要 repack.write）。
+ */
+const TILE_ALLOW: Partial<Record<Role, string[]>> = {
+  warehouse: ['入库', '出库', '扫码', '码单', '打印', '改包'],
+  sales: ['合同', '入库', '出库', '码单', '库存'],
+}
 
 /**
  * 数字跑动：从上一个值滚到新值，缓出收尾（苹果那种「不弹、不急停」的手感）。
@@ -193,6 +243,49 @@ export default function Home() {
     void load(days, dimension)
   }, [load, days, dimension])
 
+  /**
+   * 业务员首页要的两个数，首页汇总接口里没有：
+   *   - 合同未到货：把「合同选择器」那份列表的 left_cubic 加起来（合同超过一页就继续翻）
+   *   - 在库包数：包列表接口顺手带的 total_in_stock（只要 1 条的正文，不拉整表）
+   * 只有业务员会去取，其它角色一次多余的请求都不发。
+   */
+  const [pendingCubic, setPendingCubic] = useState<number | null>(null)
+  const [inStockBales, setInStockBales] = useState<number | null>(null)
+  const salesSeq = useRef(0)
+
+  const loadSalesExtras = useCallback(async () => {
+    if (role !== 'sales') return
+    const seq = ++salesSeq.current
+    const alive = () => salesSeq.current === seq
+
+    try {
+      const first = await fetchContractPicker({ limit: 200 })
+      let sum = first.rows.reduce((acc, row) => acc + (row.left_cubic || 0), 0)
+      let count = first.rows.length
+      // 合同多于 200 张就接着翻（最多 10 页 = 2000 张，兜住打转的可能）
+      for (let page = 1; count < first.total && page < 10; page += 1) {
+        const next = await fetchContractPicker({ limit: 200, offset: page * 200 })
+        if (next.rows.length === 0) break
+        sum += next.rows.reduce((acc, row) => acc + (row.left_cubic || 0), 0)
+        count += next.rows.length
+      }
+      if (alive()) setPendingCubic(Math.round(sum * 10000) / 10000)
+    } catch {
+      // 拿不到就让它显示「—」，不打断首页其它内容
+    }
+
+    try {
+      const bales = await fetchBales({ limit: 1 })
+      if (alive()) setInStockBales(bales.total_in_stock)
+    } catch {
+      /* 同上 */
+    }
+  }, [role])
+
+  useEffect(() => {
+    void loadSalesExtras()
+  }, [loadSalesExtras])
+
   const records = summary?.recent_records ?? []
   const trend = summary?.trend ?? []
   const composition = summary?.composition ?? []
@@ -217,10 +310,97 @@ export default function Home() {
   const delta = summary?.stock_delta_cubic ?? 0
   const supplyDays = summary?.days_of_supply ?? null
 
-  /** 手机端首页的格子：没权限的入口不显示（和侧边栏一个口径） */
-  const appTiles = APP_TILES.filter((tile) =>
-    tile.cap ? can(role, tile.cap) : canVisit(role, tile.to),
+  /**
+   * 手机端首页的格子：先过角色白名单（仓管 / 业务员各一套），
+   * 再按权限收一遍 —— 没权限的入口不显示（和侧边栏一个口径）。
+   * 有白名单的角色按名单里的顺序排（业务员最常用的「合同」排在最前面）。
+   */
+  const tileAllow = TILE_ALLOW[role]
+  const appTiles = APP_TILES.filter((tile) => {
+    const allow = tileAllow
+    if (allow && !allow.includes(tile.label)) return false
+    return tile.cap ? can(role, tile.cap) : canVisit(role, tile.to)
+  }).sort((a, b) =>
+    tileAllow ? tileAllow.indexOf(a.label) - tileAllow.indexOf(b.label) : 0,
   )
+
+  /**
+   * 手机端首页的 4 张数字卡：**按角色给不同的 4 个数**。
+   *
+   * 桌面那套看板不看这里（还是同一份"老板视角"，一行没动）；手机上换成各角色
+   * 打开就想看到的那几个数：
+   *   仓管  → 今天到了多少、发走多少、库里还剩多少
+   *   业务员→ 合同还差多少没到、出得怎么样、库里压着多少包
+   *   财务 / 管理员 → 原来那四张（带金额）
+   *   只读  → 不带金额的四张大数
+   * 看不到金额的角色后端根本不返回金额字段，这里也不会去读。
+   */
+  const appCards: Array<{ label: string; value: string; unit: string; hint?: string }> =
+    (() => {
+      /** summary 还没回来时统一显示「—」，卡片高度不跳 */
+      const num = (value: number, fmt: (n: number) => string) =>
+        summary ? fmt(value) : '—'
+
+      if (role === 'warehouse') {
+        return [
+          { label: '今日到货', value: num(todayIn, formatCubic), unit: '立方' },
+          { label: '今日出库', value: num(todayOut, formatCubic), unit: '立方' },
+          { label: '在库总量', value: num(heroCubic, formatCubic), unit: '立方' },
+          { label: '在库件数', value: num(heroBundles, formatInt), unit: '件' },
+        ]
+      }
+
+      if (role === 'sales') {
+        return [
+          {
+            label: '合同未到货',
+            value: pendingCubic === null ? '—' : formatCubic(pendingCubic),
+            unit: '立方',
+          },
+          { label: '今日出库', value: num(todayOut, formatCubic), unit: '立方' },
+          {
+            label: '在库包数',
+            value: inStockBales === null ? '—' : formatInt(inStockBales),
+            unit: '包',
+          },
+          { label: '近 30 天出库', value: num(out30, formatCubic), unit: '立方' },
+        ]
+      }
+
+      if (role === 'viewer') {
+        return [
+          { label: '在库总量', value: num(heroCubic, formatCubic), unit: '立方' },
+          { label: '今日入库', value: num(todayIn, formatCubic), unit: '立方' },
+          { label: '今日出库', value: num(todayOut, formatCubic), unit: '立方' },
+          { label: '近 30 天出库', value: num(out30, formatCubic), unit: '立方' },
+        ]
+      }
+
+      // 管理员 / 财务：原来那四张
+      return [
+        {
+          label: '今日入库',
+          value: num(todayIn, formatCubic),
+          unit: '立方',
+          hint: money ? `${num(summary?.today_in_amount ?? 0, formatMoney)} 元` : undefined,
+        },
+        {
+          label: '今日出库',
+          value: num(todayOut, formatCubic),
+          unit: '立方',
+          hint: money ? `${num(summary?.today_out_amount ?? 0, formatMoney)} 元` : undefined,
+        },
+        {
+          label: '库存总量',
+          value: num(heroCubic, formatCubic),
+          unit: '立方',
+          hint: `共 ${num(heroBundles, formatInt)} 件`,
+        },
+        money
+          ? { label: '库存总值', value: num(heroAmount, formatMoney), unit: '元' }
+          : { label: '库存件数', value: num(heroBundles, formatInt), unit: '件' },
+      ]
+    })()
 
   return (
     // .page-home 只用来做「手机端要收哪些桌面块」的样式作用域（见 index.css 末尾）
@@ -254,7 +434,11 @@ export default function Home() {
             </span>
             <button
               className="btn"
-              onClick={() => void load(days, dimension)}
+              onClick={() => {
+                void load(days, dimension)
+                // 业务员那两张卡是单独取的，刷新要一起跟
+                void loadSalesExtras()
+              }}
               disabled={loading}
             >
               刷新
@@ -283,67 +467,23 @@ export default function Home() {
       */}
       <div className="app-home">
         <div className="app-cards">
-          <div className="app-card">
-            <span className="app-card-label">今日入库</span>
-            <span className="app-card-value">
-              {summary ? formatCubic(todayIn) : '—'}
-              <small>立方</small>
-            </span>
-            {money && (
-              <span className="app-card-hint">
-                {summary ? formatMoney(summary.today_in_amount) : '—'} 元
-              </span>
-            )}
-          </div>
-
-          <div className="app-card">
-            <span className="app-card-label">今日出库</span>
-            <span className="app-card-value">
-              {summary ? formatCubic(todayOut) : '—'}
-              <small>立方</small>
-            </span>
-            {money && (
-              <span className="app-card-hint">
-                {summary ? formatMoney(summary.today_out_amount) : '—'} 元
-              </span>
-            )}
-          </div>
-
-          <div className="app-card">
-            <span className="app-card-label">库存总量</span>
-            <span className="app-card-value">
-              {summary ? formatCubic(heroCubic) : '—'}
-              <small>立方</small>
-            </span>
-            <span className="app-card-hint">
-              共 {summary ? formatInt(heroBundles) : '—'} 件
-            </span>
-          </div>
-
-          {/* 看不到金额的角色：这一张改成「库存件数」，不然只能空着 */}
-          {money ? (
-            <div className="app-card">
-              <span className="app-card-label">库存总值</span>
+          {appCards.map((card) => (
+            <div className="app-card" key={card.label}>
+              <span className="app-card-label">{card.label}</span>
               <span className="app-card-value">
-                {summary ? formatMoney(heroAmount) : '—'}
-                <small>元</small>
+                {card.value}
+                <small>{card.unit}</small>
               </span>
+              {card.hint && <span className="app-card-hint">{card.hint}</span>}
             </div>
-          ) : (
-            <div className="app-card">
-              <span className="app-card-label">库存件数</span>
-              <span className="app-card-value">
-                {summary ? formatInt(heroBundles) : '—'}
-                <small>件</small>
-              </span>
-            </div>
-          )}
+          ))}
         </div>
 
         <div className="app-grid">
           {appTiles.map((tile) => (
             <button
-              key={tile.to}
+              // 扫码 / 打印可能指向同一个路径（打印落到码单），所以 key 用「路径+名字」
+              key={`${tile.to}#${tile.label}`}
               type="button"
               className="app-tile"
               onClick={() => {

@@ -22,6 +22,8 @@ import {
   fetchShipmentOptions,
   fetchDict,
   openContractFile,
+  purgeRecycleOrder,
+  restoreRecycleOrder,
   fetchStockList,
   inboundExportUrl,
   updateInbound,
@@ -50,6 +52,9 @@ import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { enterToNext } from '../utils/formNav'
+import { readListCache, writeListCache } from '../utils/listCache'
+import { useOnline } from '../hooks/useOnline'
+import { isNetworkError } from '../utils/network'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -509,6 +514,14 @@ export default function Inbound({
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
+  /** 提示条里那个「撤销」按钮要干的事（保存/删除刚做完 3 秒内有效） */
+  const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null)
+  /** 有缓存时后台静默刷新中（列表头上挂个小角标） */
+  const [listRefreshing, setListRefreshing] = useState(false)
+  /** 保存失败后可以「重试」的那一下（网络错误最常见） */
+  const [retrySave, setRetrySave] = useState<null | (() => void)>(null)
+  /** 当前是不是离线（断网或请求发不出去）：离线下保存按钮禁用 */
+  const online = useOnline()
 
   const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<InboundListFilters>(emptyFilters)
@@ -614,7 +627,19 @@ export default function Inbound({
 
   const loadList = useCallback(
     async (nextFilters: InboundListFilters, nextOffset: number) => {
-      setListLoading(true)
+      /*
+       * 有缓存就先画出来（切走再切回来不闪空白），然后后台静默刷新；
+       * 没缓存才给骨架屏。刷新期间列表头上挂「刷新中」角标。
+       */
+      const cacheKey = `inbound:${JSON.stringify(nextFilters)}:${nextOffset}`
+      const cached = readListCache<{ rows: InboundListItem[]; total: number }>(cacheKey)
+      if (cached) {
+        setList(cached.rows)
+        setTotal(cached.total)
+        setListRefreshing(true)
+      } else {
+        setListLoading(true)
+      }
       setListError('')
       try {
         const result = await fetchInboundList({
@@ -624,10 +649,12 @@ export default function Inbound({
         })
         setList(result.rows)
         setTotal(result.total)
+        writeListCache(cacheKey, { rows: result.rows, total: result.total })
       } catch (err) {
         setListError(err instanceof Error ? err.message : '加载失败')
       } finally {
         setListLoading(false)
+        setListRefreshing(false)
       }
     },
     [],
@@ -1227,7 +1254,23 @@ export default function Inbound({
       await deleteInbound(deleteTarget.id)
       setDeleteTarget(null)
       setDetail(null)
-      setNotice(`已把入库单 ${deleteTarget.order_no} 移入回收站`)
+      const target = deleteTarget
+      setNotice(`已把入库单 ${target.order_no} 移入回收站`)
+      // 撤销 = 从回收站恢复（3 秒内可点，之后提示条消失）
+      setUndo({
+        label: '撤销',
+        run: () => {
+          void (async () => {
+            try {
+              await restoreRecycleOrder('in', target.id)
+              setNotice(`已恢复入库单 ${target.order_no}`)
+              setReloadToken((n) => n + 1)
+            } catch (err) {
+              setActionError(err instanceof Error ? err.message : '恢复失败')
+            }
+          })()
+        },
+      })
       setReloadToken((n) => n + 1)
     } catch (err) {
       // 后端返回的原因（比如删了会超卖）原样展示
@@ -1416,6 +1459,29 @@ export default function Inbound({
           ? `已保存入库单 ${result.order_no} 的修改`
           : `已保存入库单 ${result.order_no}`,
       )
+      /*
+       * 新建的才给「撤销」（= 删掉刚建的那张单，连回收站里也不留）；
+       * 改老单不给 —— 撤销一次"修改"要把历史版本还原，那是另一个功能。
+       */
+      setUndo(
+        editing
+          ? null
+          : {
+              label: '撤销',
+              run: () => {
+                void (async () => {
+                  try {
+                    await deleteInbound(result.id)
+                    await purgeRecycleOrder('in', result.id)
+                    setNotice(`已撤销：入库单 ${result.order_no} 已删除`)
+                    setReloadToken((n) => n + 1)
+                  } catch (err) {
+                    setActionError(err instanceof Error ? err.message : '撤销失败')
+                  }
+                })()
+              },
+            },
+      )
     } catch (err) {
       /**
        * 这个提单号已经有一张活单（后端 409 + BL_HAS_ORDER）：
@@ -1426,7 +1492,14 @@ export default function Inbound({
         setBlConflict({ message: err.message, order: err.payload?.order ?? null })
         return
       }
-      setFormError(err instanceof Error ? err.message : '保存失败')
+      // 网络层错误给一句人话 + 一个「重试」；服务端业务错误（400/409）原样展示
+      if (isNetworkError(err)) {
+        setFormError('网络不可用，请检查网络后重试')
+        setRetrySave(() => () => void handleSave(force, continueAfter))
+      } else {
+        setFormError(err instanceof Error ? err.message : '保存失败')
+        setRetrySave(null)
+      }
     } finally {
       setSaving(false)
     }
@@ -1474,7 +1547,12 @@ export default function Inbound({
                 id: 'inbound-notice',
                 kind: 'success' as const,
                 message: notice,
-                onClose: () => setNotice(''),
+                onClose: () => {
+                  setNotice('')
+                  setUndo(null)
+                },
+                actionLabel: undo?.label,
+                onAction: undo?.run,
               }
             : null,
           actionError
@@ -1498,7 +1576,12 @@ export default function Inbound({
                 id: 'inbound-form-error',
                 kind: 'error' as const,
                 message: formError,
-                onClose: () => setFormError(''),
+                onClose: () => {
+                  setFormError('')
+                  setRetrySave(null)
+                },
+                actionLabel: retrySave ? '重试' : undefined,
+                onAction: retrySave ?? undefined,
               }
             : null,
           detailError
@@ -1678,6 +1761,7 @@ export default function Inbound({
               <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
             )}
             <span className="spacer" />
+            {listRefreshing && <span className="list-refreshing">刷新中…</span>}
           </div>
 
           <div className="card">
@@ -1900,13 +1984,14 @@ export default function Inbound({
               卡片自己的 overflow:hidden 会把 position:fixed 抓成相对卡片定位）。
             */}
             <div className="sheet-actions sheet-actions-inline">
+              {!online && <span className="action-offline-hint">请检查网络</span>}
               <button
                 className="btn btn-primary"
                 onClick={() => {
                   tapFeedback()
                   void handleSave()
                 }}
-                disabled={saving}
+                disabled={saving || !online}
               >
                 {saving && <span className="btn-spinner" aria-hidden="true" />}
                 {saving ? '保存中…' : '保存'}
@@ -2368,13 +2453,14 @@ export default function Inbound({
       */}
       {mode === 'create' && (
         <div className="sheet-actions sheet-actions-fixed">
+          {!online && <span className="action-offline-hint">请检查网络</span>}
           <button
             className="btn btn-primary"
             onClick={() => {
               tapFeedback()
               void handleSave()
             }}
-            disabled={saving}
+            disabled={saving || !online}
           >
             {saving && <span className="btn-spinner" aria-hidden="true" />}
             {saving ? '保存中…' : '保存'}

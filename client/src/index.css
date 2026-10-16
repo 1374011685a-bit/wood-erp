@@ -2838,6 +2838,37 @@ section > .toolbar .btn-primary {
   color: var(--text);
 }
 
+/*
+ * 提示条里的「撤销」：保存 / 删除刚做完那 3 秒内可以点。
+ * 提示条本身在手机端不吃点击（避免挡住下面的按钮），所以这个按钮要单独放开。
+ */
+.toast-action {
+  flex: none;
+  margin-left: 2px;
+  padding: 3px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background-color: #ffffff;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.toast-action:hover {
+  background-color: var(--panel-soft);
+}
+
+/* 离线时操作栏里的一行提示（在按钮上方，独占一行） */
+.action-offline-hint {
+  flex: 1 1 100%;
+  font-size: 12.5px;
+  color: var(--text-2);
+  text-align: center;
+}
+
 .toast-close {
   border: none;
   background: transparent;
@@ -3871,6 +3902,7 @@ section > .toolbar .btn-primary {
 
 .sheet-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
@@ -4193,7 +4225,8 @@ section > .toolbar .btn-primary {
      * + Tab 栏（56px）+ 一点余量 + 安全区。
      * 不留的话最后几行内容会被盖住。
      */
-    padding-bottom: calc(140px + env(safe-area-inset-bottom));
+    /* 离线时操作栏上面还会多一行「请检查网络」，所以留 164（正常时多出的那点只是底部余量） */
+    padding-bottom: calc(164px + env(safe-area-inset-bottom));
   }
 
   /*
@@ -4287,7 +4320,8 @@ section > .toolbar .btn-primary {
 
   .sheet-cards {
     min-width: 0;
-    font-size: 14px;
+    /* 手机端字号收敛：明细表也只用 15 / 13 / 12 三档 */
+    font-size: 13px;
   }
 
   .sheet-cards thead {
@@ -4340,7 +4374,7 @@ section > .toolbar .btn-primary {
   .sheet-cards tbody td::before {
     content: attr(data-label);
     flex: 0 0 4.4em;
-    font-size: 13px;
+    font-size: 12px;
     color: var(--text-3);
   }
 
@@ -5016,7 +5050,20 @@ section > .toolbar .btn-primary {
   }
 
   .modal-alert::before {
-    display: none;
+    /* 危险弹窗现在也能拖着关：把把手显示出来（外壳里有统一的拖拽处理） */
+    display: block;
+  }
+
+  /* 筛选 sheet / 账号菜单：也给一条把手，手感一致 */
+  .filter-sheet.is-open::before,
+  .account-menu::before {
+    content: '';
+    display: block;
+    width: 38px;
+    height: 5px;
+    margin: 0 auto 10px;
+    border-radius: 999px;
+    background-color: #d8d8dd;
   }
 
   .overlay:has(.modal-alert) {
@@ -6023,6 +6070,48 @@ section > .toolbar .btn-primary {
   animation: page-in 0.14s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/*
+ * 离线灰条：顶栏下面一条，贴在内容区上方（桌面就贴页面顶部）。
+ * 手机端顶栏是 56px，所以 top 也是 56px；z 比吸顶工具栏（30）高一档。
+ */
+.offline-bar {
+  position: sticky;
+  top: 0;
+  z-index: 31;
+  margin: -10px 0 12px;
+  padding: 7px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-input);
+  background-color: #ececf0;
+  color: var(--text-2);
+  font-size: 12.5px;
+  text-align: center;
+  animation: offline-in 0.18s ease-out;
+}
+
+.offline-bar.is-hiding {
+  opacity: 0;
+  transition: opacity 0.18s ease-out;
+}
+
+@keyframes offline-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media screen and (max-width: 767px) {
+  .offline-bar {
+    top: 56px;
+    margin: -4px 0 10px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .page-transition {
     animation: none;
@@ -6319,24 +6408,48 @@ section > .toolbar .btn-primary {
 
   /* 卡片自身的内边距也收一档 */
   .table-cards tbody tr {
-    padding: 10px 12px 8px;
+    padding: 8px 12px 6px;
+    margin-bottom: 10px;
   }
 
   .table-cards td.col-wide {
     flex: 1 1 100%;
-    min-height: 36px;
+    min-height: 34px;
   }
 
   .table-cards td.col-half {
     flex: 1 1 calc(50% - 2px);
-    min-height: 32px;
+    min-height: 30px;
     gap: 6px;
   }
 
   .table-cards td.col-third {
     flex: 1 1 calc(33.333% - 3px);
-    min-height: 32px;
+    min-height: 30px;
     gap: 6px;
+  }
+
+  /* 卡片标题（单号那行）也压一点 */
+  .table-cards td.cell-primary {
+    padding-bottom: 5px;
+    margin-bottom: 3px;
+    font-size: 15px;
+  }
+
+  /* 卡片里的字号收敛到 13 / 12（手机端只留 12、13、15 三档） */
+  .table-cards td {
+    font-size: 13px;
+  }
+
+  .table-cards td::before {
+    font-size: 12px;
+  }
+
+  /* 列表头上「刷新中…」的小角标 */
+  .list-refreshing {
+    flex: none;
+    font-size: 12px;
+    color: var(--brand);
   }
 
   .table-cards td.col-half::before,

@@ -1,5 +1,6 @@
 import { clearStoredRole, setStoredRole } from './permissions'
 import type { Role } from './permissions'
+import { reportNetworkError, reportNetworkOk } from './utils/network'
 
 /** 分页列表的统一返回结构 */
 export type Paged<T> = {
@@ -215,7 +216,19 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const token = getToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const response = await fetch(url, { ...init, headers })
+  /*
+   * 网络层错误（连不上 / DNS / 超时）在这里统一上报：
+   * 全站只有一个 fetch 出口，所以离线状态不用每个页面各写一遍。
+   * 4xx / 5xx 不算离线（那是服务端的业务/程序错误），所以成功拿到 response 就代表"网是通的"。
+   */
+  let response: Response
+  try {
+    response = await fetch(url, { ...init, headers })
+    reportNetworkOk()
+  } catch (err) {
+    reportNetworkError(err)
+    throw err
+  }
   const text = await response.text()
 
   let data: unknown = null

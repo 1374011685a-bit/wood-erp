@@ -14,6 +14,7 @@ import {
 import { roundTo, formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
+import { readListCache, writeListCache } from '../utils/listCache'
 
 const formatPrice = (value: number | null) =>
   value === null ? '—' : value.toFixed(2)
@@ -24,6 +25,8 @@ export default function Stock() {
 
   const [rows, setRows] = useState<StockRow[]>([])
   const [loading, setLoading] = useState(false)
+  /** 有缓存时后台静默刷新中 */
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [speciesInput, setSpeciesInput] = useState('')
   const [appliedSpecies, setAppliedSpecies] = useState('')
@@ -31,14 +34,25 @@ export default function Stock() {
   const [exportHint, setExportHint] = useState('')
 
   const load = useCallback(async (species: string) => {
-    setLoading(true)
+    // 缓存先渲染 + 后台静默刷新（同入库/出库列表一个口径）
+    const cacheKey = `stock:${species}`
+    const cached = readListCache<StockRow[]>(cacheKey)
+    if (cached) {
+      setRows(cached)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     setError('')
     try {
-      setRows(await fetchStockList(species))
+      const next = await fetchStockList(species)
+      setRows(next)
+      writeListCache(cacheKey, next)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -126,6 +140,7 @@ export default function Stock() {
         <button className="btn" onClick={handleReset}>
           重置
         </button>
+        {refreshing && <span className="list-refreshing">刷新中…</span>}
       </div>
 
       <div className="card">
@@ -149,15 +164,36 @@ export default function Stock() {
           <tbody>
             {rows.map((row) => (
               <tr key={[row.species, row.grade, row.thickness, row.width, row.length].join('|')}>
-                <td>{row.species}</td>
-                <td>{row.grade || '—'}</td>
-                <td className="num">{row.thickness}</td>
-                <td className="num">{row.width}</td>
-                <td className="num">{row.length}</td>
-                <td className="num">{row.total_bundles}</td>
-                <td className="num">{row.total_pieces}</td>
-                <td className="num">{formatCubic(row.total_cubic)}</td>
-                {money && <td className="num amount">{formatPrice(row.avg_unit_price)}</td>}
+                {/* 手机端：品名独占一行；等级/厚/宽/长 一行；件数/片数/立方 一行 */}
+                <td className="col-name-row" data-label="品名">
+                  {row.species}
+                </td>
+                <td className="col-third" data-label="等级">
+                  {row.grade || '—'}
+                </td>
+                <td className="col-third num" data-label="厚">
+                  {row.thickness}
+                </td>
+                <td className="col-third num" data-label="宽">
+                  {row.width}
+                </td>
+                <td className="col-third num" data-label="长">
+                  {row.length}
+                </td>
+                <td className="col-third num" data-label="件数">
+                  {row.total_bundles}
+                </td>
+                <td className="col-third num" data-label="片数">
+                  {row.total_pieces}
+                </td>
+                <td className="col-third num" data-label="立方">
+                  {formatCubic(row.total_cubic)}
+                </td>
+                {money && (
+                  <td className="col-third num amount" data-label="均价">
+                    {formatPrice(row.avg_unit_price)}
+                  </td>
+                )}
                 {money && (
                   <td className="num amount">
                     {formatPrice(

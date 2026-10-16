@@ -10,6 +10,7 @@ import {
 import { formatCubic, formatAmount } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
+import { readListCache, writeListCache } from '../utils/listCache'
 
 const typeLabel = (type: 'in' | 'out') => (type === 'in' ? '入库' : '出库')
 
@@ -22,6 +23,8 @@ export default function Records() {
   const [rows, setRows] = useState<RecordRow[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
+  /** 有缓存时后台静默刷新中 */
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
 
   // 筛选条件（输入中的草稿）
@@ -41,16 +44,27 @@ export default function Records() {
   const [query, setQuery] = useState<RecordQuery>({ limit: PAGE_SIZE, offset: 0 })
 
   const load = useCallback(async (next: RecordQuery) => {
-    setLoading(true)
+    // 有缓存先渲染（切回来不闪空白），再后台静默刷新；没缓存才给骨架
+    const cacheKey = `records:${JSON.stringify(next)}`
+    const cached = readListCache<{ rows: RecordRow[]; total: number }>(cacheKey)
+    if (cached) {
+      setRows(cached.rows)
+      setTotal(cached.total)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     setError('')
     try {
       const result = await fetchRecords(next)
       setRows(result.records)
       setTotal(result.total)
+      writeListCache(cacheKey, { rows: result.records, total: result.total })
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载失败')
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -180,6 +194,7 @@ export default function Records() {
           <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
         )}
         <span className="spacer" />
+        {refreshing && <span className="list-refreshing">刷新中…</span>}
         <span className="muted">共 {total} 条</span>
       </div>
 

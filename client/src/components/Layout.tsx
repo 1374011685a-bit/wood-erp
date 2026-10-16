@@ -10,6 +10,7 @@ import {
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useRole } from '../hooks/useRole'
 import { canVisit } from '../permissions'
+import { useOnline } from '../hooks/useOnline'
 import { applyTableLabels } from '../utils/tableLabels'
 import BottomNav from './BottomNav'
 import { RouteProgress, ToastHost, type ToastItem } from './Ui'
@@ -292,6 +293,78 @@ export default function Layout() {
   }, [menuOpen])
 
   useEscapeKey(menuOpen, () => setMenuOpen(false))
+
+  /*
+   * 底部 sheet 的「按住把手往下拖 = 关闭」。
+   *
+   * 放在外壳里统一做：筛选 sheet / 账号菜单 / 危险弹窗各写一遍太啰嗦。
+   * 只认 sheet 顶部那 30px 的把手区（往下拖才生效），拖过 60px 松手才关；
+   * 关闭动作复用各页面**现成的关闭入口**（遮罩 / 关闭按钮 / 点空白），
+   * 所以加这个功能一个页面都不用改。
+   */
+  useEffect(() => {
+    const HANDLE_ZONE = 30
+    const CLOSE_AT = 60
+    let sheet: HTMLElement | null = null
+    let startY = 0
+    let moved = 0
+
+    const onStart = (event: TouchEvent) => {
+      const el = (event.target as HTMLElement | null)?.closest<HTMLElement>(
+        '.modal-alert, .filter-sheet.is-open, .account-menu',
+      )
+      if (!el) return
+      const y = event.touches[0]?.clientY ?? 0
+      // 只有"把手那一带"算拖拽区，免得在表单里往下滑就把它关了
+      if (y - el.getBoundingClientRect().top > HANDLE_ZONE) return
+      sheet = el
+      startY = y
+      moved = 0
+      el.style.transition = 'none'
+    }
+
+    const onMove = (event: TouchEvent) => {
+      if (!sheet) return
+      moved = Math.max(0, (event.touches[0]?.clientY ?? 0) - startY)
+      sheet.style.transform = moved > 0 ? `translateY(${Math.min(moved, 240)}px)` : ''
+      if (event.cancelable && moved > 4) event.preventDefault()
+    }
+
+    const onEnd = () => {
+      const el = sheet
+      sheet = null
+      if (!el) return
+      el.style.transition = 'transform 0.18s cubic-bezier(0.32, 0.72, 0, 1)'
+      if (moved > CLOSE_AT) {
+        el.style.transform = 'translateY(110%)'
+        window.setTimeout(() => {
+          el.style.transform = ''
+          const overlay = el.closest('.overlay')
+          if (el.classList.contains('filter-sheet')) {
+            document.querySelector<HTMLElement>('.filter-sheet-mask')?.click()
+          } else if (overlay instanceof HTMLElement) {
+            overlay.click()
+          } else {
+            // 账号菜单：它监听的是 mousedown（点空白处收起）
+            document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }))
+          }
+        }, 170)
+      } else {
+        el.style.transform = ''
+      }
+    }
+
+    window.addEventListener('touchstart', onStart, { passive: true })
+    window.addEventListener('touchmove', onMove, { passive: false })
+    window.addEventListener('touchend', onEnd)
+    window.addEventListener('touchcancel', onEnd)
+    return () => {
+      window.removeEventListener('touchstart', onStart)
+      window.removeEventListener('touchmove', onMove)
+      window.removeEventListener('touchend', onEnd)
+      window.removeEventListener('touchcancel', onEnd)
+    }
+  }, [])
   useEscapeKey(passwordOpen, () => setPasswordOpen(false))
   useEscapeKey(drawerOpen, () => setDrawerOpen(false))
 
@@ -420,6 +493,51 @@ export default function Layout() {
     const parent = `/${location.pathname.split('/').filter(Boolean).slice(0, -1).join('/')}`
     navigate(parent === '/' ? '/' : parent)
   }
+
+  /**
+   * 离线灰条：断网（或请求根本发不出去）时顶栏下面挂一条，
+   * 恢复网络后淡出。手机上它正好在顶栏（56px）下面，桌面端贴在页面顶部。
+   *
+   * 最短展示 3 秒：网络层错误往往只影响一个接口，紧跟其后的另一个请求
+   * 一旦成功就会把状态判回"在线"，灰条闪一下就没 —— 用户只会觉得莫名。
+   * 所以挂上去之后至少停 3 秒；超过 3 秒再恢复网络就立刻淡出，不硬等。
+   */
+  const OFFLINE_BAR_MIN_MS = 3000
+  const OFFLINE_BAR_FADE_MS = 180
+  const online = useOnline()
+  const [offlineBarVisible, setOfflineBarVisible] = useState(false)
+  const [offlineBarFading, setOfflineBarFading] = useState(false)
+  /** 这一轮离线是什么时候开始的（决定 3 秒怎么算） */
+  const offlineSinceRef = useRef(0)
+  /** 灰条当前是不是挂着（ref 版，给 effect 里读，避免进依赖） */
+  const offlineBarMountedRef = useRef(false)
+  useEffect(() => {
+    if (!online) {
+      setOfflineBarFading(false) // 淡出途中又断了：取消淡出
+      if (offlineBarMountedRef.current) return // 同一轮离线，别重置计时
+      offlineBarMountedRef.current = true
+      offlineSinceRef.current = Date.now()
+      setOfflineBarVisible(true)
+      return
+    }
+    if (!offlineBarMountedRef.current) return
+    // 恢复网络：先补足最短展示时长，再淡出（180ms），别"啪"一下消失
+    const elapsed = Date.now() - offlineSinceRef.current
+    const wait = Math.max(0, OFFLINE_BAR_MIN_MS - elapsed)
+    let fadeTimer = 0
+    const holdTimer = window.setTimeout(() => {
+      setOfflineBarFading(true)
+      fadeTimer = window.setTimeout(() => {
+        offlineBarMountedRef.current = false
+        setOfflineBarVisible(false)
+        setOfflineBarFading(false)
+      }, OFFLINE_BAR_FADE_MS)
+    }, wait)
+    return () => {
+      window.clearTimeout(holdTimer)
+      if (fadeTimer) window.clearTimeout(fadeTimer)
+    }
+  }, [online])
 
   /**
    * 滚动位置记忆：切 Tab / 进二级页再回来，回到原来的位置，不从顶部重新开始。
@@ -811,6 +929,11 @@ export default function Layout() {
         )}
 
         {/* 页面是按需加载的，切页面时先显示一个轻量加载态 */}
+        {offlineBarVisible && (
+          <div className={offlineBarFading ? 'offline-bar is-hiding' : 'offline-bar'}>
+            当前离线，展示的是上次数据
+          </div>
+        )}
         {/*
           切页：外层这层 div 用 pathname 做 key —— 换页时整块重新挂载，
           CSS 的 page-in（140ms 淡入 + 8px 上移）就跑一遍，切页有"进场"的感觉。
