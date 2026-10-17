@@ -572,6 +572,18 @@
   background-color: var(--bg-1);
 }
 
+/* 2×2 网格：4 张数字卡一次全在首屏（原来横滑条一屏只放得下 2.1 张） */
+.m-grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+
+.m-grid2 .m-stat {
+  flex: none;
+  padding: var(--s-4);
+}
+
 .m-stat-label {
   display: block;
   font-size: var(--t-13);
@@ -941,4 +953,210 @@
 .m-page-title {
   font-size: var(--t-22);
   font-weight: 600;
+}
+
+/* ---------- 问候头 ---------- */
+.m-hello {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-bottom: var(--s-3);
+}
+
+.m-hello-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.m-hello-date {
+  display: block;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-hello-name {
+  display: block;
+  font-size: var(--t-22);
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+/* ---------- 待办 ---------- */
+.m-todo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--s-3) 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.m-todo + .m-todo {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+
+.m-todo-label {
+  font-size: var(--t-15);
+  color: var(--ink-2);
+}
+
+.m-todo-value {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: var(--t-22);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-todo-value small {
+  font-size: var(--t-13);
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+.m-todo.is-warn .m-todo-value {
+  color: #a15c00;
+}
+
+/* ---------- 宫格（4 列）---------- */
+.m-grid4 {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--s-2);
+}
+
+.m-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 76px;
+  border: 0;
+  border-radius: var(--r-12);
+  background-color: var(--bg-2);
+  color: var(--ink-1);
+  font-family: inherit;
+  font-size: var(--t-13);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--dur-press) var(--ease-out);
+}
+
+.m-tile svg {
+  width: 24px;
+  height: 24px;
+  color: var(--brand);
+}
+
+.m-tile:active {
+  transform: scale(0.97);
+}
+
+/* ---------- 迷你柱图 ---------- */
+.m-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 96px;
+  margin-top: var(--s-3);
+}
+
+.m-bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background-color: var(--action);
+  opacity: 0.85;
+}
+
+.m-bars-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 库存构成条 ---------- */
+.m-stack-bar {
+  display: flex;
+  height: 12px;
+  margin: var(--s-3) 0;
+  border-radius: var(--r-10);
+  overflow: hidden;
+}
+
+.m-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.m-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-size: var(--t-13);
+}
+
+.m-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 8px;
+}
+
+.m-legend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-2);
+}
+
+.m-legend-num {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 应收/应付 ---------- */
+.m-money-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s-3);
+}
+
+.m-money {
+  padding: var(--s-4);
+  border-radius: var(--r-12);
+  background-color: var(--bg-2);
+  cursor: pointer;
+  border: 0;
+  text-align: left;
+  font-family: inherit;
+  touch-action: manipulation;
+}
+
+.m-money-label {
+  display: block;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
+
+.m-money-value {
+  font-size: var(--t-22);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }

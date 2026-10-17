@@ -7,6 +7,7 @@ import InboundListMobile from './mobile/InboundListMobile'
 import DocumentsMobile from './mobile/DocumentsMobile'
 import StockMobile from './mobile/StockMobile'
 import RecordsMobile from './mobile/RecordsMobile'
+import OutboundListMobile from './mobile/OutboundListMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { useIsMobileViewport } from './mobile/ShellSwitch'
@@ -40,6 +41,12 @@ function StockSwitch() {
 function RecordsSwitch() {
   const mobile = useIsMobileViewport()
   return mobile ? <RecordsMobile /> : <Records />
+}
+
+/** 出库列表分流：手机端走 OutboundListMobile，桌面端原样（第 3 步） */
+function OutboundSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <OutboundListMobile /> : <Outbound />
 }
 
 /**
@@ -109,7 +116,7 @@ export default function App() {
           <Route path="inbound/new" element={<Inbound defaultMode="method" />} />
           {/* 编辑某张入库单：可直接分享/跳转的地址（列表的「编辑」按钮也走这里） */}
           <Route path="inbound/edit/:id" element={<Inbound defaultMode="edit" />} />
-          <Route path="outbound" element={<Outbound />} />
+          <Route path="outbound" element={<OutboundSwitch />} />
           <Route path="outbound/new" element={<Outbound defaultMode="create" />} />
           <Route path="stock" element={<StockSwitch />} />
           <Route path="count" element={<Count />} />
