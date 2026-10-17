@@ -372,11 +372,20 @@ export function createUser(payload: { username: string; password: string; role: 
 }
 
 /** 改角色 / 停用启用。只传要改的字段即可 */
-export function updateUser(id: number, payload: { role?: Role; active?: boolean }) {
+export function updateUser(
+  id: number,
+  payload: { username?: string; role?: Role; active?: boolean },
+) {
   return request<UserRow>(`/api/users/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+  })
+}
+
+export function deleteUser(id: number) {
+  return request<{ ok: boolean; id: number; username: string }>(`/api/users/${id}`, {
+    method: 'DELETE',
   })
 }
 

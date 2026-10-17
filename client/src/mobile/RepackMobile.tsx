@@ -5,9 +5,11 @@ import {
   deleteRepack,
   fetchBaleDetail,
   fetchBales,
+  fetchDict,
   fetchRepackList,
   isBaleNoTakenError,
   type BaleRow,
+  type DictAll,
   type RepackBale,
   type RepackLine,
   type RepackRow,
@@ -158,11 +160,13 @@ const lineDescription = (line: RepackLine) =>
 function LineField({
   label,
   value,
+  list,
   onChange,
   inputMode = 'decimal',
 }: {
   label: string
   value: string
+  list?: string
   onChange: (next: string) => void
   inputMode?: 'text' | 'decimal'
 }) {
@@ -172,6 +176,7 @@ function LineField({
       <input
         className="m-line-input"
         value={value}
+        list={list}
         inputMode={inputMode}
         enterKeyHint="next"
         onChange={(event) => onChange(event.target.value)}
@@ -215,6 +220,24 @@ export default function RepackMobile() {
   const [saving, setSaving] = useState(false)
   const [confirm, setConfirm] = useState<ConfirmState>(null)
   const [continueAfterConfirm, setContinueAfterConfirm] = useState(false)
+  const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
+  const [brandOptions, setBrandOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    void fetchDict().then(setDict).catch(() => undefined)
+    void fetchBales({ limit: 200 })
+      .then((page) => {
+        const brands = new Set<string>()
+        for (const row of page.rows) {
+          for (const brand of String(row.brand ?? '').split('/')) {
+            const name = brand.trim()
+            if (name) brands.add(name)
+          }
+        }
+        setBrandOptions([...brands])
+      })
+      .catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(keyword.trim()), 300)
@@ -584,6 +607,21 @@ export default function RepackMobile() {
   if (formOpen) {
     return (
       <div className="m-stack repack-form" style={{ paddingBottom: 56 }}>
+        <datalist id="m-repack-species">
+          {dict.species.map((item) => (
+            <option value={item.name} key={item.id} />
+          ))}
+        </datalist>
+        <datalist id="m-repack-grade">
+          {dict.grade.map((item) => (
+            <option value={item.name} key={item.id} />
+          ))}
+        </datalist>
+        <datalist id="m-repack-brand">
+          {brandOptions.map((name) => (
+            <option value={name} key={name} />
+          ))}
+        </datalist>
         <MobileCard title="改包信息">
           <MobileDatePicker label="改包日期" value={repackDate} onChange={setRepackDate} />
           <MobileInput label="摘要" value={summary} onChange={setSummary} />
@@ -697,6 +735,7 @@ export default function RepackMobile() {
                 <LineField
                   label="品牌"
                   value={row.brand}
+                  list="m-repack-brand"
                   inputMode="text"
                   onChange={(value) => updateRow(row.key, 'brand', value)}
                 />
@@ -705,6 +744,7 @@ export default function RepackMobile() {
                 <LineField
                   label="品名 *"
                   value={row.species}
+                  list="m-repack-species"
                   inputMode="text"
                   onChange={(value) => updateRow(row.key, 'species', value)}
                 />
@@ -713,6 +753,7 @@ export default function RepackMobile() {
                 <LineField
                   label="等级"
                   value={row.grade}
+                  list="m-repack-grade"
                   inputMode="text"
                   onChange={(value) => updateRow(row.key, 'grade', value)}
                 />

@@ -11,7 +11,9 @@ import {
   createInbound,
   fetchBales,
   fetchContractOptions,
+  fetchDict,
   type ContractOption,
+  type DictAll,
   type InboundItemPayload,
 } from '../api'
 import { todayISO, toNumber } from '../utils/num'
@@ -95,7 +97,25 @@ export default function InboundFormMobile() {
   const [contractKeyword, setContractKeyword] = useState('')
   const [contracts, setContracts] = useState<ContractOption[]>([])
   const [contractLoading, setContractLoading] = useState(false)
+  const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
+  const [brandOptions, setBrandOptions] = useState<string[]>([])
   const supplierRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    void fetchDict().then(setDict).catch(() => undefined)
+    void fetchBales({ limit: 200 })
+      .then((page) => {
+        const brands = new Set<string>()
+        for (const row of page.rows) {
+          for (const brand of String(row.brand ?? '').split('/')) {
+            const name = brand.trim()
+            if (name) brands.add(name)
+          }
+        }
+        setBrandOptions([...brands])
+      })
+      .catch(() => undefined)
+  }, [])
 
   useEffect(() => {
     if (!contractOpen) return
@@ -294,6 +314,21 @@ export default function InboundFormMobile() {
 
   return (
     <div className="m-stack" style={{ paddingBottom: 56 }}>
+      <datalist id="m-inbound-species">
+        {dict.species.map((item) => (
+          <option value={item.name} key={item.id} />
+        ))}
+      </datalist>
+      <datalist id="m-inbound-grade">
+        {dict.grade.map((item) => (
+          <option value={item.name} key={item.id} />
+        ))}
+      </datalist>
+      <datalist id="m-inbound-brand">
+        {brandOptions.map((name) => (
+          <option value={name} key={name} />
+        ))}
+      </datalist>
       <MobileTopbarActions>
         <MobileTopbarButton
           label="选合同"
@@ -457,6 +492,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="species"
+                      list="m-inbound-species"
                       style={rowErrors[row.key]?.some((m) => m.startsWith('品名')) ? { boxShadow: '0 0 0 1px var(--danger)' } : undefined}
                       value={row.species}
                       placeholder="樟子松"
@@ -471,6 +507,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="brand"
+                      list="m-inbound-brand"
                       value={row.brand}
                       placeholder="选填"
                       onChange={(event) => updateRow(row.key, 'brand', event.target.value)}
@@ -481,6 +518,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="grade"
+                      list="m-inbound-grade"
                       value={row.grade}
                       placeholder="选填，例：PR"
                       onChange={(event) => updateRow(row.key, 'grade', event.target.value)}

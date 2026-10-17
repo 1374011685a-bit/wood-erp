@@ -36,6 +36,7 @@ const WHITELIST = [
   '/settings',
   '/users',
   '/ai',
+  '/dict',
 ]
 
 /** 视口是不是手机尺寸（和现有 CSS 的 767px 断点一个口径） */

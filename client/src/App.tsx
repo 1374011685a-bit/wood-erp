@@ -20,6 +20,7 @@ import RecycleMobile from './mobile/RecycleMobile'
 import SettingsMobile from './mobile/SettingsMobile'
 import UsersMobile from './mobile/UsersMobile'
 import AiMobile from './mobile/AiMobile'
+import DictMobile from './mobile/DictMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { useIsMobileViewport } from './mobile/ShellSwitch'
@@ -124,6 +125,11 @@ function AiSwitch() {
   return mobile ? <AiMobile /> : <Ai />
 }
 
+function DictSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <DictMobile /> : <Dict />
+}
+
 /**
  * 页面按需加载：首屏只下载登录页和外壳，
  * 点到哪个功能才拉那个页面的代码（表单页最大，省下来的就是首屏时间）。
@@ -202,7 +208,7 @@ export default function App() {
           <Route path="recycle" element={<RecycleSwitch />} />
           <Route path="settings" element={<SettingsSwitch />} />
           <Route path="settlement" element={<Settlement />} />
-          <Route path="dict" element={<Dict />} />
+          <Route path="dict" element={<DictSwitch />} />
           {/* 手机端底部 Tab 的路由（PC 端也能直接打开） */}
           <Route path="documents" element={<DocumentsSwitch />} />
           <Route path="me" element={<MeSwitch />} />

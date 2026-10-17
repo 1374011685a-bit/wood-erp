@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { getStoredUsername } from '../api'
 import { useRole } from '../hooks/useRole'
 import { ROLE_LABELS } from '../permissions'
@@ -6,6 +7,8 @@ import { APP_BUILD_TEXT, APP_VERSION_TEXT } from '../version'
 import {
   MobileAvatar,
   MobileCard,
+  MobileList,
+  MobileListItem,
 } from './components'
 
 type NotifyState = {
@@ -57,6 +60,7 @@ function ToggleRow({
 }
 
 export default function SettingsMobile() {
+  const navigate = useNavigate()
   const role = useRole()
   const username = getStoredUsername()
   const [notify, setNotify] = useState(readNotify)
@@ -96,6 +100,16 @@ export default function SettingsMobile() {
             <em>{ROLE_LABELS[role]}</em>
           </div>
         </div>
+      </MobileCard>
+
+      <MobileCard title="常用项">
+        <MobileList>
+          <MobileListItem
+            title="常用项维护"
+            sub="维护录单时可下拉选择的品名和等级"
+            onClick={() => navigate('/dict')}
+          />
+        </MobileList>
       </MobileCard>
 
       <MobileCard title="通知设置">

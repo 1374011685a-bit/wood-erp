@@ -1506,6 +1506,62 @@
   height: 20px;
 }
 
+/* ---------- 常用项 Mobile ---------- */
+.m-dict-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.m-dict-add .m-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.m-dict-add .m-btn {
+  flex: 0 0 76px;
+}
+
+.m-dict-list {
+  margin-top: 10px;
+}
+
+.m-dict-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 48px;
+  padding: 8px 0;
+  box-shadow: 0 0.5px 0 var(--line);
+}
+
+.m-dict-row b {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--t-15);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-dict-row > div {
+  display: flex;
+  gap: 10px;
+}
+
+.m-dict-row button {
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: var(--t-13);
+}
+
+.m-dict-row button.is-danger {
+  color: var(--danger);
+}
+
 /* ---------- 按钮 ---------- */
 .m-btn {
   display: inline-flex;

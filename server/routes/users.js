@@ -11,9 +11,8 @@ import { ROLES, ROLE_LABELS, isRole } from '../permissions.js'
  *   2. 不能停用自己（误点一下就把自己踢出去了）；
  *   3. 改角色 / 停用 / 重置密码都要把 token_version 加一，
  *      否则对方手上那个 7 天的 token 还照样能用，等于没改。
- *
- * 不提供「删除用户」：删了以后 created_by / operator 这些审计字段就成孤儿了。
- * 要停用就用 active = 0。
+ *   4. 删除账号只删 users 表：业务表里的 created_by / operator 本来就是文本留痕，
+ *      不会产生外键孤儿；被删账号手上的 token 会在下一次请求时回查失败。
  */
 
 const router = express.Router()
@@ -40,6 +39,9 @@ const insertUserStmt = db.prepare(
 const updateRoleStmt = db.prepare(
   `UPDATE users SET role = @role, token_version = token_version + 1 WHERE id = @id`,
 )
+const updateUsernameStmt = db.prepare(
+  `UPDATE users SET username = @username WHERE id = @id`,
+)
 const updateActiveStmt = db.prepare(
   `UPDATE users SET active = @active, token_version = token_version + 1 WHERE id = @id`,
 )
@@ -51,6 +53,10 @@ const updatePasswordStmt = db.prepare(
 const activeAdminCountStmt = db.prepare(
   `SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND active = 1`,
 )
+const adminCountExceptStmt = db.prepare(
+  `SELECT COUNT(*) AS total FROM users WHERE role = 'admin' AND id <> ?`,
+)
+const deleteUserStmt = db.prepare(`DELETE FROM users WHERE id = ?`)
 
 /** 库里那一行 → 给前端的形状（带角色中文名，省得前端再映射一遍） */
 const toApi = (row) => ({
@@ -145,18 +151,30 @@ router.post('/', (req, res) => {
   }
 })
 
-/* ---------- 改角色 / 停用启用 ---------- */
+/* ---------- 改用户名 / 角色 / 停用启用 ---------- */
 
 router.put('/:id', (req, res) => {
   const target = loadTarget(req, res)
   if (!target) return
 
   const body = req.body ?? {}
+  const wantsUsername = body.username !== undefined
   const wantsRole = body.role !== undefined
   const wantsActive = body.active !== undefined
 
-  if (!wantsRole && !wantsActive) {
+  if (!wantsUsername && !wantsRole && !wantsActive) {
     return res.status(400).json({ error: '没有要改的内容' })
+  }
+
+  let nextUsername = target.username
+  if (wantsUsername) {
+    const nameCheck = checkUsername(body.username)
+    if (nameCheck.error) return res.status(400).json({ error: nameCheck.error })
+    nextUsername = nameCheck.username
+    const duplicate = findByUsernameStmt.get(nextUsername)
+    if (duplicate && duplicate.id !== target.id) {
+      return res.status(400).json({ error: `用户名 ${nextUsername} 已经被占用了` })
+    }
   }
 
   let nextRole = target.role
@@ -189,6 +207,9 @@ router.put('/:id', (req, res) => {
   }
 
   try {
+    if (wantsUsername && nextUsername !== target.username) {
+      updateUsernameStmt.run({ username: nextUsername, id: target.id })
+    }
     if (wantsRole && nextRole !== target.role) {
       updateRoleStmt.run({ role: nextRole, id: target.id })
     }
@@ -196,6 +217,35 @@ router.put('/:id', (req, res) => {
       updateActiveStmt.run({ active: nextActive ? 1 : 0, id: target.id })
     }
     res.json(toApi(findByIdStmt.get(target.id)))
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+/* ---------- 删除账号 ---------- */
+
+router.delete('/:id', (req, res) => {
+  const target = loadTarget(req, res)
+  if (!target) return
+
+  if (target.id === req.user.id) {
+    return res.status(400).json({ error: '不能删除自己的账号' })
+  }
+
+  if (target.role === 'admin') {
+    if ((adminCountExceptStmt.get(target.id)?.total ?? 0) <= 0) {
+      return res.status(400).json({ error: '这是最后一个管理员，不能删除' })
+    }
+    if (target.active && activeAdminCountStmt.get().total <= 1) {
+      return res
+        .status(400)
+        .json({ error: '这是最后一个还能用的管理员，不能删除' })
+    }
+  }
+
+  try {
+    deleteUserStmt.run(target.id)
+    res.json({ ok: true, id: target.id, username: target.username })
   } catch (err) {
     res.status(500).json({ error: err.message })
   }

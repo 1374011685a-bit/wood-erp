@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   createUser,
+  deleteUser,
   getStoredUsername,
   fetchUsers,
   resetUserPassword,
+  setStoredUsername,
   updateUser,
   type UserRow,
 } from '../api'
@@ -37,6 +39,11 @@ export default function Users() {
   const [resetTarget, setResetTarget] = useState<DeleteTarget>(null)
   const [newPassword, setNewPassword] = useState('')
   const [resetting, setResetting] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<UserRow | null>(null)
+  const [renameName, setRenameName] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const notify = (kind: ToastItem['kind'], message: string) =>
     setToast({ id: `${Date.now()}`, kind, message, onClose: () => setToast(null) })
@@ -58,13 +65,18 @@ export default function Users() {
   }, [load])
 
   /** 改角色 / 停用启用：改一个人就整表刷新，免得本地状态和服务端对不上 */
-  const patch = async (user: UserRow, payload: { role?: Role; active?: boolean }) => {
+  const patch = async (
+    user: UserRow,
+    payload: { username?: string; role?: Role; active?: boolean },
+  ) => {
     setBusyId(user.id)
     try {
       const updated = await updateUser(user.id, payload)
       setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
       const what =
-        payload.role !== undefined
+        payload.username !== undefined
+          ? `用户名已改成「${updated.username}」`
+          : payload.role !== undefined
           ? `角色已改成「${ROLE_LABELS[updated.role]}」`
           : payload.active
             ? '账号已启用'
@@ -113,11 +125,50 @@ export default function Users() {
     }
   }
 
+  const submitRename = async () => {
+    if (!renameTarget || renaming) return
+    const username = renameName.trim()
+    if (!username) {
+      notify('error', '用户名不能为空')
+      return
+    }
+    setRenaming(true)
+    try {
+      const updated = await updateUser(renameTarget.id, { username })
+      setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+      if (renameTarget.username === me) {
+        setStoredUsername(updated.username)
+      }
+      setRenameTarget(null)
+      setRenameName('')
+      notify('success', `用户名已改成 ${updated.username}`)
+    } catch (err) {
+      notify('error', err instanceof Error ? err.message : '改名失败')
+    } finally {
+      setRenaming(false)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return
+    setDeleting(true)
+    try {
+      await deleteUser(deleteTarget.id)
+      setDeleteTarget(null)
+      notify('success', `已删除用户 ${deleteTarget.username}`)
+      await load()
+    } catch (err) {
+      notify('error', err instanceof Error ? err.message : '删除失败')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <>
       <PageHead
         title="用户管理"
-        subtitle="开号、改角色、停用账号、重置密码。金额对「业务员 / 仓管 / 只读」一律不显示"
+        subtitle="开号、改名、改角色、停用、重置密码、删除账号。金额对「业务员 / 仓管 / 只读」一律不显示"
         extra={
           <button className="btn btn-primary" onClick={() => setCreateOpen(true)}>
             新增用户
@@ -176,6 +227,15 @@ export default function Users() {
                       <button
                         className="btn btn-sm"
                         onClick={() => {
+                          setRenameTarget(user)
+                          setRenameName(user.username)
+                        }}
+                      >
+                        改名
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => {
                           setNewPassword('')
                           setResetTarget({ kind: 'reset', user })
                         }}
@@ -189,6 +249,14 @@ export default function Users() {
                         onClick={() => void patch(user, { active: !user.active })}
                       >
                         {user.active ? '停用' : '启用'}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        disabled={busyId === user.id || user.username === me}
+                        title={user.username === me ? '不能删除自己的账号' : undefined}
+                        onClick={() => setDeleteTarget(user)}
+                      >
+                        删除
                       </button>
                     </div>
                   </td>
@@ -300,6 +368,67 @@ export default function Users() {
                 onClick={() => void submitReset()}
               >
                 {resetting ? '重置中…' : '确认重置'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {renameTarget && (
+        <div className="overlay" onClick={() => setRenameTarget(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="modal-title">修改用户名</h2>
+            <p className="confirm-text">
+              把 <strong>{renameTarget.username}</strong> 的用户名改成：
+            </p>
+            <label className="field" style={{ textAlign: 'left' }}>
+              <span>新用户名</span>
+              <input
+                className="input"
+                value={renameName}
+                autoComplete="off"
+                onChange={(e) => setRenameName(e.target.value)}
+              />
+            </label>
+            <div className="confirm-actions" style={{ marginTop: 20 }}>
+              <button className="btn" onClick={() => setRenameTarget(null)}>
+                取消
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={renaming}
+                onClick={() => void submitRename()}
+              >
+                {renaming ? '保存中…' : '保存'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="overlay" onClick={() => setDeleteTarget(null)}>
+          <div
+            className="modal modal-narrow modal-alert"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="modal-title">删除用户</h2>
+            <p className="confirm-text">
+              确定删除用户 <strong>{deleteTarget.username}</strong>？此操作不可恢复。
+            </p>
+            <div className="confirm-actions" style={{ marginTop: 20 }}>
+              <button className="btn" onClick={() => setDeleteTarget(null)}>
+                取消
+              </button>
+              <button
+                className="btn btn-danger-solid"
+                disabled={deleting}
+                onClick={() => void confirmDelete()}
+              >
+                {deleting ? '删除中…' : '确认删除'}
               </button>
             </div>
           </div>

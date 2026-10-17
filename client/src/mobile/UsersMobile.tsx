@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   createUser,
+  deleteUser,
   fetchUsers,
   getStoredUsername,
   resetUserPassword,
+  setStoredUsername,
   updateUser,
   type UserRow,
 } from '../api'
@@ -36,6 +38,9 @@ export default function UsersMobile() {
   const [detail, setDetail] = useState<UserRow | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [resetTarget, setResetTarget] = useState<UserRow | null>(null)
+  const [renameTarget, setRenameTarget] = useState<UserRow | null>(null)
+  const [renameName, setRenameName] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null)
   const [toggleTarget, setToggleTarget] = useState<UserRow | null>(null)
   const [form, setForm] = useState({ username: '', password: '', role: 'viewer' as Role })
   const [newPassword, setNewPassword] = useState('')
@@ -145,6 +150,51 @@ export default function UsersMobile() {
     }
   }
 
+  const submitRename = async () => {
+    if (!renameTarget) return
+    const username = renameName.trim()
+    if (!username) {
+      setToast({ id: `v-${Date.now()}`, message: '用户名不能为空' })
+      return
+    }
+    setSaving(true)
+    try {
+      const updated = await updateUser(renameTarget.id, { username })
+      setRows((prev) => prev.map((row) => (row.id === updated.id ? updated : row)))
+      setDetail((prev) => (prev?.id === updated.id ? updated : prev))
+      if (renameTarget.username === me) setStoredUsername(updated.username)
+      setRenameTarget(null)
+      setRenameName('')
+      setToast({ id: `n-${Date.now()}`, message: `用户名已改成 ${updated.username}` })
+    } catch (err) {
+      setToast({
+        id: `n-${Date.now()}`,
+        message: err instanceof Error ? err.message : '改名失败',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return
+    setSaving(true)
+    try {
+      await deleteUser(deleteTarget.id)
+      setRows((prev) => prev.filter((row) => row.id !== deleteTarget.id))
+      setDetail(null)
+      setDeleteTarget(null)
+      setToast({ id: `d-${Date.now()}`, message: `已删除用户 ${deleteTarget.username}` })
+    } catch (err) {
+      setToast({
+        id: `d-${Date.now()}`,
+        message: err instanceof Error ? err.message : '删除失败',
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const roleOptions = ROLES.map((role) => ({ value: role, label: ROLE_LABELS[role] }))
 
   return (
@@ -227,12 +277,24 @@ export default function UsersMobile() {
                 type="button"
                 className="m-btn m-btn-ghost"
                 onClick={() => {
+                  setRenameTarget(detail)
+                  setRenameName(detail.username)
+                }}
+              >
+                修改用户名
+              </button>
+              <button
+                type="button"
+                className="m-btn m-btn-ghost"
+                onClick={() => {
                   setNewPassword('')
                   setResetTarget(detail)
                 }}
               >
                 重置密码
               </button>
+            </div>
+            <div className="m-sheet-actions">
               <button
                 type="button"
                 className={detail.active ? 'm-btn m-btn-danger' : 'm-btn m-btn-ghost'}
@@ -243,6 +305,17 @@ export default function UsersMobile() {
                 }}
               >
                 {detail.active ? '停用账号' : '启用账号'}
+              </button>
+              <button
+                type="button"
+                className="m-btn m-btn-danger"
+                disabled={detail.username === me || busyId === detail.id}
+                onClick={() => {
+                  tapHeavy()
+                  setDeleteTarget(detail)
+                }}
+              >
+                删除账号
               </button>
             </div>
           </>
@@ -327,6 +400,58 @@ export default function UsersMobile() {
           </>
         ) : null}
       </MobileSheet>
+
+      <MobileSheet
+        open={Boolean(renameTarget)}
+        title="修改用户名"
+        onClose={() => setRenameTarget(null)}
+      >
+        {renameTarget ? (
+          <>
+            <p className="m-sheet-help">
+              把 {renameTarget.username} 的用户名改成新的用户名。
+            </p>
+            <label className="m-field">
+              <span className="m-field-label">新用户名</span>
+              <input
+                className="m-input"
+                value={renameName}
+                autoComplete="off"
+                onChange={(event) => setRenameName(event.target.value)}
+              />
+            </label>
+            <div className="m-sheet-actions">
+              <button
+                type="button"
+                className="m-btn m-btn-primary"
+                disabled={saving}
+                onClick={() => void submitRename()}
+              >
+                {saving ? '保存中…' : '保存'}
+              </button>
+              <button type="button" className="m-btn m-btn-ghost" onClick={() => setRenameTarget(null)}>
+                取消
+              </button>
+            </div>
+          </>
+        ) : null}
+      </MobileSheet>
+
+      <MobileModal
+        open={Boolean(deleteTarget)}
+        title="删除用户"
+        message={
+          deleteTarget
+            ? `确定删除用户 ${deleteTarget.username}？此操作不可恢复。`
+            : undefined
+        }
+        confirmLabel={saving ? '删除中…' : '确认删除'}
+        danger
+        onConfirm={() => void confirmDelete()}
+        onClose={() => {
+          if (!saving) setDeleteTarget(null)
+        }}
+      />
 
       <MobileModal
         open={Boolean(toggleTarget)}

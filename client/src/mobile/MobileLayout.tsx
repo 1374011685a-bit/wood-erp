@@ -69,6 +69,7 @@ const META: Record<string, { title: string; back?: string }> = {
   '/settings': { title: '设置', back: '/me' },
   '/users': { title: '用户管理', back: '/me' },
   '/ai': { title: 'AI 助手', back: '/me' },
+  '/dict': { title: '常用项', back: '/settings' },
   '/me': { title: '我的' },
 }
 
@@ -87,6 +88,7 @@ const TAB_ALIASES: Record<string, string> = {
   '/recycle': '/documents',
   '/settings': '/me',
   '/users': '/me',
+  '/dict': '/me',
 }
 
 /**
