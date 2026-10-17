@@ -100,7 +100,7 @@ export default function MeMobile() {
               title="设置"
               sub="常用项：品名 / 等级 / 品牌"
               icon={<MobileIcon name="doc" size={20} />}
-              onClick={() => navigate('/dict')}
+              onClick={() => navigate('/settings')}
             />
           ) : null}
           {canVisit(role, '/users') ? (

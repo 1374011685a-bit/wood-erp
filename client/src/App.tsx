@@ -17,6 +17,9 @@ import BalesMobile from './mobile/BalesMobile'
 import ContractsMobile from './mobile/ContractsMobile'
 import CountMobile from './mobile/CountMobile'
 import RecycleMobile from './mobile/RecycleMobile'
+import SettingsMobile from './mobile/SettingsMobile'
+import UsersMobile from './mobile/UsersMobile'
+import AiMobile from './mobile/AiMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { useIsMobileViewport } from './mobile/ShellSwitch'
@@ -106,6 +109,21 @@ function RecycleSwitch() {
   return mobile ? <RecycleMobile /> : <Recycle />
 }
 
+function SettingsSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <SettingsMobile /> : <Navigate to="/dict" replace />
+}
+
+function UsersSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <UsersMobile /> : <Users />
+}
+
+function AiSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <AiMobile /> : <Ai />
+}
+
 /**
  * 页面按需加载：首屏只下载登录页和外壳，
  * 点到哪个功能才拉那个页面的代码（表单页最大，省下来的就是首屏时间）。
@@ -182,19 +200,20 @@ export default function App() {
           <Route path="bales" element={<BalesSwitch />} />
           <Route path="records" element={<RecordsSwitch />} />
           <Route path="recycle" element={<RecycleSwitch />} />
+          <Route path="settings" element={<SettingsSwitch />} />
           <Route path="settlement" element={<Settlement />} />
           <Route path="dict" element={<Dict />} />
           {/* 手机端底部 Tab 的路由（PC 端也能直接打开） */}
           <Route path="documents" element={<DocumentsSwitch />} />
           <Route path="me" element={<MeSwitch />} />
           {/* AI 助手（DeepSeek） */}
-          <Route path="ai" element={<Ai />} />
+          <Route path="ai" element={<AiSwitch />} />
           {/* 用户管理：只有管理员进得去（菜单和路由都挡，后端还有 requireCap 兜底） */}
           <Route
             path="users"
             element={
               <RequireRole allow={['admin']}>
-                <Users />
+                <UsersSwitch />
               </RequireRole>
             }
           />

@@ -33,6 +33,9 @@ const WHITELIST = [
   '/contracts',
   '/count',
   '/recycle',
+  '/settings',
+  '/users',
+  '/ai',
 ]
 
 /** 视口是不是手机尺寸（和现有 CSS 的 767px 断点一个口径） */

@@ -66,6 +66,9 @@ const META: Record<string, { title: string; back?: string }> = {
   '/repack': { title: '改包', back: '/' },
   '/count': { title: '盘点', back: '/' },
   '/recycle': { title: '回收站', back: '/' },
+  '/settings': { title: '设置', back: '/me' },
+  '/users': { title: '用户管理', back: '/me' },
+  '/ai': { title: 'AI 助手', back: '/me' },
   '/me': { title: '我的' },
 }
 
@@ -82,13 +85,15 @@ const TAB_ALIASES: Record<string, string> = {
   '/count': '/documents',
   '/records': '/documents',
   '/recycle': '/documents',
+  '/settings': '/me',
+  '/users': '/me',
 }
 
 /**
  * 全屏子页面：表单页。
  * 这类页面要 ① 隐藏底部 Tab（否则误点就丢未保存数据）② 任何 Tab 都不高亮。
  */
-const FULLSCREEN_PATHS = ['/inbound/new', '/outbound/new']
+const FULLSCREEN_PATHS = ['/inbound/new', '/outbound/new', '/ai']
 
 export default function MobileLayout() {
   const navigate = useNavigate()
