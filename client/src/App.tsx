@@ -10,6 +10,7 @@ import RecordsMobile from './mobile/RecordsMobile'
 import OutboundListMobile from './mobile/OutboundListMobile'
 import OutboundFormMobile from './mobile/OutboundFormMobile'
 import InboundFormMobile from './mobile/InboundFormMobile'
+import RepackMobile from './mobile/RepackMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { useIsMobileViewport } from './mobile/ShellSwitch'
@@ -61,6 +62,12 @@ function OutboundNewSwitch() {
 function InboundNewSwitch() {
   const mobile = useIsMobileViewport()
   return mobile ? <InboundFormMobile /> : <Inbound defaultMode="method" />
+}
+
+/** 改包列表 + 表单分流：手机端走 RepackMobile，桌面端原样 */
+function RepackSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <RepackMobile /> : <Repack />
 }
 
 /**
@@ -134,7 +141,7 @@ export default function App() {
           <Route path="outbound/new" element={<OutboundNewSwitch />} />
           <Route path="stock" element={<StockSwitch />} />
           <Route path="count" element={<Count />} />
-          <Route path="repack" element={<Repack />} />
+          <Route path="repack" element={<RepackSwitch />} />
           <Route path="contracts" element={<Contracts />} />
           <Route path="bales" element={<Bales />} />
           <Route path="records" element={<RecordsSwitch />} />

@@ -315,6 +315,11 @@
   font-size: var(--t-13);
 }
 
+/* 改包表单是 query 打开的全屏子页，没有底部 Tab，操作栏落回安全区 */
+.m-actionbar-full {
+  bottom: env(safe-area-inset-bottom);
+}
+
 /* 明细行：单价 / 件数 各占一格，字段名在上（和入库表单两行制一个口径） */
 .m-line-grid {
   display: grid;
@@ -473,6 +478,208 @@
   margin: var(--s-3) 0 0;
   font-size: var(--t-13);
   color: var(--ink-3);
+}
+
+/* ---------- 改包 Mobile ---------- */
+.m-picker-scroll {
+  max-height: 44vh;
+  margin-top: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.m-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  margin-top: var(--s-3);
+}
+
+.m-source-card {
+  padding: var(--s-3);
+  border-radius: var(--r-12);
+  background-color: var(--bg-2);
+  box-shadow: inset 0 0 0 0.5px #e3e3e8;
+}
+
+.m-source-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+
+.m-source-head > div {
+  min-width: 0;
+}
+
+.m-source-head b {
+  display: block;
+  overflow: hidden;
+  font-size: var(--t-15);
+  font-weight: 600;
+  color: var(--ink-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-source-head span {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-source-head .m-icon-btn {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  background-color: var(--bg-1);
+}
+
+.m-source-line,
+.m-detail-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-3);
+  padding: 6px 0;
+  font-size: var(--t-13);
+  color: var(--ink-2);
+}
+
+.m-source-line + .m-source-line,
+.m-detail-line + .m-detail-line {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+
+.m-source-line span,
+.m-detail-line span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-source-line b,
+.m-detail-line b {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-1);
+}
+
+.m-loss-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: 12px var(--s-4);
+  border-radius: var(--r-12);
+  background-color: var(--bg-1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-loss-card strong {
+  font-size: var(--t-15);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-1);
+}
+
+.m-loss-card.is-bad {
+  background-color: #fff1f0;
+  box-shadow: inset 0 0 0 0.5px rgba(255, 59, 48, 0.18);
+}
+
+.m-loss-card.is-bad strong {
+  color: var(--danger);
+}
+
+.m-toolbar-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s-2);
+  margin-bottom: var(--s-2);
+}
+
+.m-toolbar-row .m-btn-compact {
+  height: 36px;
+  min-width: 0;
+  padding: 0 var(--s-2);
+  font-size: var(--t-13);
+  white-space: nowrap;
+}
+
+.m-repack-line {
+  padding: var(--s-4) 0;
+}
+
+.m-line-editor-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+
+.m-line-editor-head > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--t-15);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-line-editor-head > b {
+  font-size: var(--t-13);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
+.m-line-editor-head .m-icon-btn {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+}
+
+.m-repack-line .m-line-grid + .m-line-grid {
+  margin-top: var(--s-2);
+}
+
+.m-loss-text {
+  font-variant-numeric: tabular-nums;
+}
+
+.m-loss-text.is-bad {
+  color: var(--danger);
+}
+
+.m-list-end {
+  margin: var(--s-4) 0 var(--s-2);
+  text-align: center;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-detail-title {
+  margin: var(--s-5) 0 var(--s-2);
+  font-size: var(--t-15);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.m-detail-group {
+  padding: var(--s-2) 0;
+}
+
+.m-detail-group > b {
+  display: block;
+  margin-bottom: 4px;
+  font-size: var(--t-13);
+  color: var(--ink-2);
 }
 
 /* ---------- 按钮 ---------- */

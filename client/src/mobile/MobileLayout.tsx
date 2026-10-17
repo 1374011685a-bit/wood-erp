@@ -80,11 +80,15 @@ const FULLSCREEN_PATHS = ['/inbound/new', '/outbound/new']
 export default function MobileLayout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const meta = META[location.pathname] ?? { title: '立川云' }
+  const search = new URLSearchParams(location.search)
+  const repackForm = location.pathname === '/repack' && search.get('mode') === 'new'
+  const meta = repackForm
+    ? { title: '新增改包', back: '/repack' }
+    : (META[location.pathname] ?? { title: '立川云' })
   const activeTab =
     TAB_PATHS.find((path) => path === location.pathname) ??
     (location.pathname.startsWith('/me') ? '/me' : '/')
-  const fullscreen = FULLSCREEN_PATHS.includes(location.pathname)
+  const fullscreen = FULLSCREEN_PATHS.includes(location.pathname) || repackForm
 
   return (
     <div className="m-shell">
