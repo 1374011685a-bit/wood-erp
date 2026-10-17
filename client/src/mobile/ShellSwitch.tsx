@@ -20,7 +20,7 @@ import MobileLayout from './MobileLayout'
  * （'/inbound'、'/inbound/new'、'/outbound'、'/outbound/new'）。
  * 没实现的页面先留在老树里，手机端也不会出现"外壳套外壳"的重复栏。
  */
-const WHITELIST = ['/', '/documents', '/inbound', '/outbound', '/stock', '/records']
+const WHITELIST = ['/', '/documents', '/inbound', '/outbound', '/outbound/new', '/stock', '/records']
 
 /** 视口是不是手机尺寸（和现有 CSS 的 767px 断点一个口径） */
 export function useIsMobileViewport() {

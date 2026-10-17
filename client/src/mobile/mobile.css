@@ -242,6 +242,144 @@
   flex: 1;
 }
 
+/* 三个按钮的底栏：等分 + 不换行（之前主按钮 60% 把另两个挤到换行） */
+.m-actionbar-3 {
+  gap: var(--s-2);
+}
+
+.m-actionbar-3 .m-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  padding: 0 var(--s-2);
+  white-space: nowrap;
+  /* 15px 在 375 上放不下「保存并继续」，降到 13px 一起排 */
+  font-size: var(--t-13);
+}
+
+/* 明细行：单价 / 件数 各占一格，字段名在上（和入库表单两行制一个口径） */
+.m-line-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 44px;
+  gap: var(--s-2);
+  align-items: end;
+}
+
+.m-line-field {
+  display: block;
+  min-width: 0;
+}
+
+.m-line-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 10px;
+  color: var(--ink-3);
+}
+
+.m-line-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 var(--s-2);
+  border: 0;
+  border-radius: var(--r-10);
+  background-color: var(--bg-2);
+  font-family: inherit;
+  font-size: var(--t-17);
+  color: var(--ink-1);
+  outline: none;
+}
+
+.m-line-input:focus {
+  box-shadow: 0 0 0 1px var(--action);
+}
+
+.m-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: var(--r-12);
+  background-color: var(--bg-2);
+  color: var(--danger);
+  font-size: var(--t-17);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 明细行：一行包号 + 一行两个格子 */
+.m-line {
+  padding: var(--s-3) 0;
+}
+
+.m-line + .m-line {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+
+.m-line-title {
+  display: block;
+  margin-bottom: var(--s-2);
+  font-size: var(--t-15);
+  font-weight: 500;
+}
+
+.m-line-sub {
+  margin-left: 6px;
+  font-size: var(--t-13);
+  font-weight: 400;
+  color: var(--ink-3);
+}
+
+/* 选码单：每行一个看得见的勾选框 */
+.m-row-check {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  width: 100%;
+  min-height: 56px;
+  padding: var(--s-3) 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.m-row-check + .m-row-check {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+
+.m-row-check.is-on {
+  background-color: rgba(0, 113, 227, 0.08);
+}
+
+.m-check-box {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1.5px var(--ink-4);
+  display: grid;
+  place-items: center;
+  color: transparent;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.m-row-check.is-on .m-check-box {
+  background-color: var(--action);
+  box-shadow: none;
+  color: #fff;
+}
+
+.m-picker-count {
+  margin: var(--s-3) 0 0;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
 /* ---------- 按钮 ---------- */
 .m-btn {
   display: inline-flex;
@@ -329,6 +467,8 @@
 .m-field {
   display: block;
   padding: var(--s-3) 0;
+  /* 校验失败 scrollIntoView 定位到字段时，别被 44px 吸顶栏压住 */
+  scroll-margin-top: 56px;
 }
 
 .m-field-label {
