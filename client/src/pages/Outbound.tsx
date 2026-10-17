@@ -44,7 +44,7 @@ import {
 // 扫码库挺大，点「扫一扫」才去下载
 const Scanner = lazy(() => import('../components/Scanner'))
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
-import { tapFeedback } from '../utils/haptics'
+import { tapFeedback, tapHeavy, tapMedium } from '../utils/haptics'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
@@ -1783,7 +1783,7 @@ export default function Outbound({
           <button
             className="btn btn-primary"
             onClick={() => {
-              tapFeedback()
+              tapMedium()
               void handleSave()
             }}
             disabled={saving || !online}
@@ -1794,7 +1794,7 @@ export default function Outbound({
           <button
             className="btn btn-continue"
             onClick={() => {
-              tapFeedback()
+              tapMedium()
               void handleSave(true)
             }}
             disabled={saving}
@@ -2122,7 +2122,10 @@ export default function Outbound({
               </button>
               <button
                 className="btn btn-danger-solid"
-                onClick={() => void confirmDelete()}
+                onClick={() => {
+                  tapHeavy()
+                  void confirmDelete()
+                }}
                 disabled={deleting}
               >
                 {deleting ? '撤销中…' : '确认撤销'}

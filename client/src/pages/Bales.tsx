@@ -23,6 +23,7 @@ import {
   ToastHost,
 } from '../components/Ui'
 import Breadcrumb from '../components/Breadcrumb'
+import { tapLight, tapHeavy } from '../utils/haptics'
 import { roundTo, formatCubic } from '../utils/num'
 import { readListCache, writeListCache } from '../utils/listCache'
 import { useRole } from '../hooks/useRole'
@@ -835,7 +836,10 @@ export default function Bales() {
           title={
             allPicked ? `清空本页 ${pageIds.length} 包的勾选` : `勾选本页全部 ${pageIds.length} 包`
           }
-          onClick={() => setLabelPicked(allPicked ? [] : pageIds)}
+          onClick={() => {
+            tapLight()
+            setLabelPicked(allPicked ? [] : pageIds)
+          }}
         >
           {allPicked ? '取消全选' : '全选本页'}
         </button>
@@ -1224,7 +1228,13 @@ export default function Bales() {
               <button className="btn" onClick={() => setBaleDeleteTarget(null)}>
                 取消
               </button>
-              <button className="btn btn-danger-solid" onClick={() => void confirmBaleDelete()}>
+              <button
+                className="btn btn-danger-solid"
+                onClick={() => {
+                  tapHeavy()
+                  void confirmBaleDelete()
+                }}
+              >
                 确认删除
               </button>
             </div>

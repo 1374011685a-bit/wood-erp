@@ -47,7 +47,7 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
-import { tapFeedback } from '../utils/haptics'
+import { tapFeedback, tapHeavy, tapMedium } from '../utils/haptics'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
@@ -55,6 +55,7 @@ import { enterToNext } from '../utils/formNav'
 import { readListCache, writeListCache } from '../utils/listCache'
 import { useOnline } from '../hooks/useOnline'
 import { isNetworkError } from '../utils/network'
+import { describeError, type ErrorInfo } from '../utils/errors'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
@@ -513,6 +514,8 @@ export default function Inbound({
   const [list, setList] = useState<InboundListItem[]>([])
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState('')
+  /** 列表加载失败的三段式（原因 / 怎么办 / 错误码） */
+  const [listErrorInfo, setListErrorInfo] = useState<ErrorInfo | null>(null)
   const [notice, setNotice] = useState('')
   /** 提示条里那个「撤销」按钮要干的事（保存/删除刚做完 3 秒内有效） */
   const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null)
@@ -651,6 +654,8 @@ export default function Inbound({
         setTotal(result.total)
         writeListCache(cacheKey, { rows: result.rows, total: result.total })
       } catch (err) {
+        // 错误三段式：原因 + 怎么办 + 错误码
+        setListErrorInfo(describeError(err))
         setListError(err instanceof Error ? err.message : '加载失败')
       } finally {
         setListLoading(false)
@@ -1582,7 +1587,19 @@ export default function Inbound({
                 id: 'inbound-list-error',
                 kind: 'error' as const,
                 message: listError,
-                onClose: () => setListError(''),
+                hint: listErrorInfo?.hint,
+                code: listErrorInfo?.code,
+                actionLabel: listErrorInfo?.canRetry ? '重试' : undefined,
+                onAction: listErrorInfo?.canRetry
+                  ? () => {
+                      setListError('')
+                      void loadList(filters, offset)
+                    }
+                  : undefined,
+                onClose: () => {
+                  setListError('')
+                  setListErrorInfo(null)
+                },
               }
             : null,
           formError
@@ -2002,7 +2019,7 @@ export default function Inbound({
               <button
                 className="btn btn-primary"
                 onClick={() => {
-                  tapFeedback()
+                  tapMedium()
                   void handleSave()
                 }}
                 disabled={saving || !online}
@@ -2014,7 +2031,7 @@ export default function Inbound({
               <button
                 className="btn btn-continue"
                 onClick={() => {
-                  tapFeedback()
+                  tapMedium()
                   void handleSave(false, true)
                 }}
                 disabled={saving}
@@ -2475,7 +2492,7 @@ export default function Inbound({
           <button
             className="btn btn-primary"
             onClick={() => {
-              tapFeedback()
+              tapMedium()
               void handleSave()
             }}
             disabled={saving || !online}
@@ -2486,7 +2503,7 @@ export default function Inbound({
           <button
             className="btn btn-continue"
             onClick={() => {
-              tapFeedback()
+              tapMedium()
               void handleSave(false, true)
             }}
             disabled={saving}
@@ -2804,7 +2821,10 @@ export default function Inbound({
               </button>
               <button
                 className="btn btn-danger-solid"
-                onClick={() => void confirmDelete()}
+                onClick={() => {
+                  tapHeavy()
+                  void confirmDelete()
+                }}
                 disabled={deleting}
               >
                 {deleting ? '处理中…' : '移入回收站'}

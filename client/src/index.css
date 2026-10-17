@@ -81,6 +81,13 @@
   --track-caps: 0.012em;
 
   /* 阴影：多层、极淡 */
+  /*
+   * 手机端只认这三档阴影（批次 1 起）：卡片 / 悬浮层 / 弹层。
+   * 原来全站有 10 种写死的 box-shadow，同屏能看到三四层深浅不一的黑。
+   */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-float: 0 6px 18px rgba(0, 0, 0, 0.08);
+  --shadow-overlay: 0 12px 44px rgba(0, 0, 0, 0.16);
   --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.03), 0 4px 14px rgba(0, 0, 0, 0.04);
   --shadow-2: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
   --shadow-3: 0 2px 6px rgba(0, 0, 0, 0.06), 0 24px 60px rgba(0, 0, 0, 0.14);
@@ -2866,6 +2873,33 @@ section > .toolbar .btn-primary {
 .toast-action:hover {
   background-color: var(--panel-soft);
 }
+
+/* 错误三段式：原因（主体）+ 怎么办 + 错误码 */
+.toast-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.toast-hint {
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.35;
+}
+
+.toast-code {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background-color: rgba(0, 0, 0, 0.06);
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
 
 /* 离线时操作栏里的一行提示（在按钮上方，独占一行） */
 .action-offline-hint {
@@ -6997,5 +7031,280 @@ section > .toolbar .btn-primary {
   color: var(--text-2);
   font-size: var(--fs-ui);
   white-space: nowrap;
+}
+
+/* 空态图标：桌面 / 手机都套一个浅底圆片（手机端还有一档更松的尺寸覆盖在上面的媒体查询里） */
+.empty-icon {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  background-color: var(--panel-soft);
+  color: var(--text-3);
+}
+
+.empty-icon svg {
+  width: 26px;
+  height: 26px;
+}
+
+/* ============================================================
+   手机端「企业级对标」批次 1 · 手感地基
+   39 点击延迟 / 38 滚动回弹 / 18 按压弹性 / 35 标签值不折行
+   32 卡片主次 / 33 数字权重 / 34 长文本截断 / 6 面包屑吸顶 / 11 阴影收敛
+   ============================================================ */
+
+@media (max-width: 767px) {
+  /*
+   * ⚠️ 2026-10-17 紧急回退：批次 1 里这两组"手感"规则整组撤掉 ——
+   *   ① touch-action: manipulation（按钮 / 输入框 / 标签…）
+   *   ② overscroll-behavior: contain（body + 弹窗 / 抽屉 / 卡片流等内部容器）
+   * 原因：真机上"明细区上下滑整页不动"，这两类是最可能影响滚动的，先全撤恢复能滑。
+   * 批次 1 的其余改动（卡片分级 / 数字等宽 / 文本截断 / 面包屑吸顶 / 阴影收敛 /
+   * 按压弹性 / 触觉分级）全部保留。
+   */
+  /*
+   * 18 按压弹性统一：全站按下去都是 0.97、120ms 回弹（原来有 0.94/0.97/0.98/0.99
+   * 四种幅度，还有一大半按钮只有背景变化、完全没有"被按住"的手感）。
+   */
+  .btn,
+  .app-tile,
+  .segmented-item,
+  .pager-btn,
+  .sheet-act,
+  .tab-close,
+  .entry-item,
+  .row-menu button,
+  .account-menu-item {
+    transition:
+      transform 0.12s ease-out,
+      background-color var(--ease),
+      border-color var(--ease),
+      color var(--ease);
+  }
+
+  .btn:active:not(:disabled),
+  .app-tile:active,
+  .segmented-item:active,
+  .pager-btn:active:not(:disabled),
+  .sheet-act:active:not(:disabled),
+  .tab-close:active,
+  .entry-item:active,
+  .account-menu-item:active {
+    transform: scale(0.97);
+  }
+
+  /* 底部 Tab 的图标小，0.97 看不出来，给到 0.9 */
+  .bottom-nav-item:active .bottom-nav-icon {
+    transform: scale(0.9);
+  }
+
+  /*
+   * 35 + 34：卡片里统一成「标签左、值右、**单行**、超长省略号」。
+   *
+   * 原来是 flex + space-between：值长了会**折行断开**（实测 375 下
+   * 「供应商 体检客户」断成「体检客 / 户」，「2026-10-17」断成两截）。
+   * 改成 block + 绝对定位的标签：值的文字流是块级内容，
+   * text-overflow:ellipsis 才生效（flex/grid 的匿名项截不了）。
+   *
+   * ⚠️ 用 :not() 排除勾选列和操作列，它们要保留自己的 flex / 绝对定位。
+   */
+  .table-cards tbody td:not(.cell-check):not(.cell-actions) {
+    display: block;
+    position: relative;
+    /* 7em ≈ 109px：够放下最长的标签「合同号 / 提单号」，再把剩余宽度全给值 */
+    padding-left: 7em;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .table-cards tbody td:not(.cell-check):not(.cell-actions)::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: auto;
+    max-width: 6.8em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 标题格（单号那种）：左对齐、不吃标签缩进、右侧给勾选框留位 */
+  .table-cards tbody td.cell-primary:not(.cell-check):not(.cell-actions) {
+    padding-left: 0;
+    padding-right: 40px;
+    text-align: left;
+  }
+
+  .table-cards tbody td.cell-primary:not(.cell-check):not(.cell-actions)::before {
+    display: none;
+  }
+
+  /*
+   * 三分格（供应商 / 日期 / 仓库 这种一格只占 1/3 宽的）：
+   * 90px 的格子里塞不下「标签 36px + 值 52px」，横排必然折行或截没。
+   * 改成**标签在上、值在下**：标签变成块级元素后，值就是块容器里的行内内容，
+   * 单行 + 省略号才真正生效（横排时它是 flex 的匿名项，截不了）。
+   */
+  .table-cards tbody td.col-third:not(.cell-check):not(.cell-actions) {
+    padding-left: 0;
+    text-align: left;
+  }
+
+  .table-cards tbody td.col-third:not(.cell-check):not(.cell-actions)::before {
+    position: static;
+    display: block;
+    width: auto;
+    margin-bottom: 1px;
+  }
+
+  /*
+   * 33 数字权重：立方 / 金额 / 件数这类数字格统一加粗 + 等宽，
+   * 标签照旧是 12.5px 灰字（不能跟着加粗，否则主次又平了）。
+   */
+  .table-cards tbody td.num {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .table-cards tbody td.num::before {
+    font-weight: 400;
+    letter-spacing: 0;
+  }
+
+  /*
+   * 6 面包屑吸顶：滚到哪都看得见"我在哪一层、怎么退回去"。
+   * 顶栏 56px，所以贴在它下面；底色必须不透明，不然内容是"透"过去的。
+   */
+  .breadcrumb {
+    position: sticky;
+    top: 56px;
+    z-index: 29;
+    background-color: var(--bg);
+  }
+
+  /* 11 阴影收敛：手机端只用三档（卡片 / 悬浮层 / 弹层） */
+  .card,
+  .app-card,
+  .entry-list,
+  .table-cards tbody tr,
+  .sheet-cards tbody tr,
+  .mini-card {
+    box-shadow: var(--shadow-card);
+  }
+
+  .account-menu,
+  .row-menu,
+  .dropdown-menu {
+    box-shadow: var(--shadow-float);
+  }
+
+  .modal,
+  .sheet,
+  .toast {
+    box-shadow: var(--shadow-overlay);
+  }
+
+  /*
+   * 26 骨架形状对齐真实卡片：一行里"短标签 + 长值"交错排 ——
+   * 原来的骨架是 4 条一样长的灰条，和真实的「左侧字段名 + 右侧值」对不上，
+   * 数据到了以后版面还是会跳一下。
+   */
+  .skeleton-row .skeleton-cell:nth-child(odd) {
+    width: 34%;
+    align-self: flex-start;
+  }
+
+  .skeleton-row .skeleton-cell:nth-child(even) {
+    width: 52%;
+    align-self: flex-end;
+    margin-top: -4px;
+  }
+
+  /* 第一格当卡片标题（单号那一行） */
+  .skeleton-row .skeleton-cell.is-wide {
+    width: 56%;
+    height: 16px;
+    align-self: flex-start;
+    margin-bottom: 4px;
+  }
+
+  /*
+   * 8 行高收敛：正文 1.5 / 标题 1.25 / 数字 1.1，就这三档。
+   * 原来全站 14 种行高（1 / 1.05 / … / 1.7）混用。
+   */
+  body {
+    line-height: 1.5;
+  }
+
+  h1,
+  h2,
+  h3,
+  .page-head h1,
+  .section-title,
+  .modal-title,
+  .l3-head h2 {
+    line-height: 1.25;
+  }
+
+  .num,
+  .app-card-value,
+  .toast-code,
+  .stat-value {
+    line-height: 1.1;
+  }
+
+  /*
+   * 14 标签/角标统一：手机上再收紧一档（卡片里 12px 的 tag 偏大），
+   * 尺寸/圆角/字重全站一套，只保留状态色差异。
+   */
+  .tag {
+    padding: 2px 8px;
+    font-size: 11.5px;
+    line-height: 16px;
+    font-weight: 500;
+  }
+
+  /*
+   * 13 间距体系：卡片、工具栏、列表的横向留白统一到 16（原来 12/14/16 混用），
+   * 卡片内边距统一到 14 → 16。只动手机端最常见的那几处，不做全站机械替换。
+   */
+  .card,
+  .sheet-cards tbody tr,
+  .table-cards tbody tr {
+    padding: 16px 14px;
+  }
+
+  /* 27 空态：图标放进一个浅底圆片里，比裸线条更像"插图"，也更显眼 */
+  .empty-icon {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    margin-bottom: 12px;
+    border-radius: 50%;
+    background-color: var(--panel-soft);
+    color: var(--text-3);
+  }
+
+  .empty-icon svg {
+    width: 30px;
+    height: 30px;
+  }
+
+  .toolbar {
+    padding: 10px 16px;
+    gap: 8px;
+  }
+
+  .page-head {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
 }
 

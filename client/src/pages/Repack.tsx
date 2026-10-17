@@ -24,7 +24,7 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
-import { tapFeedback } from '../utils/haptics'
+import { tapFeedback, tapHeavy, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { useOnline } from '../hooks/useOnline'
 import { isNetworkError } from '../utils/network'
@@ -1739,7 +1739,7 @@ export default function Repack() {
           <button
             className="btn btn-primary"
             onClick={() => {
-              tapFeedback()
+              tapMedium()
               void handleSave()
             }}
             disabled={saving || !online}
@@ -1750,7 +1750,7 @@ export default function Repack() {
           <button
             className="btn btn-continue"
             onClick={() => {
-              tapFeedback()
+              tapMedium()
               void handleSave(true)
             }}
             disabled={saving || !online}
@@ -2112,7 +2112,13 @@ export default function Repack() {
               <button className="btn" onClick={closeUndo}>
                 取消
               </button>
-              <button className="btn btn-danger-solid" onClick={() => void confirmUndo()}>
+              <button
+                className="btn btn-danger-solid"
+                onClick={() => {
+                  tapHeavy()
+                  void confirmUndo()
+                }}
+              >
                 {undoClashes.length > 0 ? '改号并撤销' : '确认撤销'}
               </button>
             </div>

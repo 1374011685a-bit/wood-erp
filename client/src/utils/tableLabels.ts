@@ -14,6 +14,15 @@ export function applyTableLabels(root: ParentNode = document) {
   markSheetTables(root)
 }
 
+/**
+ * 手机上窄字段名：桌面表头写的是「合同号 / 提单号」，塞进 7em 的标签位会被截成
+ * 「合同号 / 提单…」。手机端换一个短的，**只影响 data-label（手机卡片里的字段名）**，
+ * 桌面表头一个字不动。
+ */
+const SHORT_LABELS: Record<string, string> = {
+  '合同号 / 提单号': '合同 / 提单',
+}
+
 /** 列表页的普通表格：整行变成一张「字段名 + 值」的卡片 */
 function markListTables(root: ParentNode) {
   const tables = root.querySelectorAll<HTMLTableElement>('table.table')
@@ -33,7 +42,8 @@ function markListTables(root: ParentNode) {
 
       cells.forEach((cell, index) => {
         const label = headers[index]?.textContent?.trim() ?? ''
-        if (label && cell.dataset.label !== label) cell.dataset.label = label
+        const shown = SHORT_LABELS[label] ?? label
+        if (shown && cell.dataset.label !== shown) cell.dataset.label = shown
       })
 
       /**

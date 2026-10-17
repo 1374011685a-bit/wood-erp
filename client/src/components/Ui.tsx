@@ -33,10 +33,13 @@ export function EmptyState({
   text = '暂无数据',
   hint,
   action,
+  icon,
 }: {
   text?: string
   hint?: string
   action?: { label: string; to?: string; onClick?: () => void }
+  /** 换掉默认那个箱子图标（列表空态用箱子，别的场景可以给个更贴题的） */
+  icon?: ReactNode
 }) {
   const navigate = useNavigate()
   const go = () => {
@@ -46,19 +49,22 @@ export function EmptyState({
 
   return (
     <div className="empty">
-      <svg
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" />
-        <path d="M3 7.5 12 12l9-4.5" />
-        <path d="M12 12v9" />
-      </svg>
+      <span className="empty-icon" aria-hidden="true">
+        {icon ?? (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z" />
+            <path d="M3 7.5 12 12l9-4.5" />
+            <path d="M12 12v9" />
+          </svg>
+        )}
+      </span>
       <span>{text}</span>
       {hint ? <span className="empty-hint">{hint}</span> : null}
       {action ? (
@@ -215,6 +221,10 @@ export type ToastItem = {
   kind?: 'success' | 'error' | 'info'
   message: string
   onClose: () => void
+  /** 错误块第二行：怎么办（见 utils/errors.ts 的三段式） */
+  hint?: string
+  /** 错误块第三行：错误码，截图发给管理员时用 */
+  code?: string
   /**
    * 可选的一个「撤销」按钮（保存 / 删除之后 3 秒内可点）。
    * 点了会先关掉这条提示，再执行 action。
@@ -239,7 +249,11 @@ function Toast({ item }: { item: ToastItem }) {
 
   return (
     <div className={`toast toast-${item.kind ?? 'success'}`}>
-      <span className="toast-text">{item.message}</span>
+      <span className="toast-body">
+        <span className="toast-text">{item.message}</span>
+        {item.hint ? <span className="toast-hint">{item.hint}</span> : null}
+        {item.code ? <span className="toast-code">{item.code}</span> : null}
+      </span>
       {item.actionLabel && item.onAction && (
         <button
           type="button"
