@@ -1,8 +1,8 @@
 /** 单据（手机版）：把常用单据入口按大厂 App 的分组排开 */
-import { useNavigate } from 'react-router-dom'
 import { useRole } from '../hooks/useRole'
 import { canVisit } from '../permissions'
 import { MobileCard, MobileIcon, MobileList, MobileListItem } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
 
 const GROUPS: Array<{
   title: string
@@ -36,7 +36,7 @@ const GROUPS: Array<{
 ]
 
 export default function DocumentsMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   const role = useRole()
   return (
     <div className="m-stack">

@@ -1,26 +1,43 @@
 /** 流水（手机版）：一屏一屏往下翻的出入库明细 */
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { fetchRecords, type RecordRow } from '../api'
 import { formatCubic } from '../utils/num'
+import { readListCache, writeListCache } from '../utils/listCache'
 import {
   MobileEmpty,
   MobileList,
   MobileListItem,
+  MobileRefreshBar,
   MobileSegmented,
   MobileSkeleton,
 } from './components'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 const PAGE_SIZE = 20
 
 export default function RecordsMobile() {
+  const location = useLocation()
+  const initialCache = readListCache<{ rows: RecordRow[]; total: number }>('m:records:all')
   const [side, setSide] = useState<'all' | 'in' | 'out'>('all')
-  const [rows, setRows] = useState<RecordRow[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<RecordRow[]>(initialCache?.rows ?? [])
+  const [total, setTotal] = useState(initialCache?.total ?? 0)
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
+  useMobileScrollMemory(`${location.pathname}:${side}`, !loading)
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
+    const cacheKey = `m:records:${side}`
+    const cached = readListCache<{ rows: RecordRow[]; total: number }>(cacheKey)
+    if (cached) {
+      setRows(cached.rows)
+      setTotal(cached.total)
+      setLoading(false)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     void fetchRecords({
       limit: PAGE_SIZE,
       offset: 0,
@@ -31,9 +48,14 @@ export default function RecordsMobile() {
         if (!alive) return
         setRows(result.records)
         setTotal(result.total)
+        writeListCache(cacheKey, { rows: result.records, total: result.total })
       })
       .catch(() => undefined)
-      .finally(() => alive && setLoading(false))
+      .finally(() => {
+        if (!alive) return
+        setLoading(false)
+        setRefreshing(false)
+      })
     return () => {
       alive = false
     }
@@ -50,6 +72,7 @@ export default function RecordsMobile() {
           { value: 'out', label: '出库' },
         ]}
       />
+      <MobileRefreshBar active={refreshing} />
       {loading ? (
         <MobileSkeleton cards={3} />
       ) : rows.length === 0 ? (

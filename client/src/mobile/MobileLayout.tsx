@@ -5,9 +5,10 @@
  *    其它页面（库存 / 合同 / 改包 / 流水 / 我的…）继续走老的 Desktop Layout，
  *    桌面端（≥768px）永远走老树 —— 所以桌面端一个像素都不会变。
  */
-import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { goBack } from './nav'
+import { useMobileNavigate } from './useMobileNavigate'
 
 type Tab = { to: string; label: string; icon: ReactNode }
 
@@ -98,7 +99,7 @@ const TAB_ALIASES: Record<string, string> = {
 const FULLSCREEN_PATHS = ['/inbound/new', '/outbound/new', '/ai']
 
 export default function MobileLayout() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   const location = useLocation()
   const search = new URLSearchParams(location.search)
   const repackForm = location.pathname === '/repack' && search.get('mode') === 'new'
@@ -152,7 +153,7 @@ export default function MobileLayout() {
         */}
         <div
           key={location.pathname}
-          className={TAB_PATHS.includes(location.pathname) ? undefined : 'm-page-in'}
+          className="m-page-shell"
         >
           <Outlet />
         </div>

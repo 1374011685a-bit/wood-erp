@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   fetchRecycleList,
   purgeRecycleOrder,
@@ -8,6 +9,7 @@ import {
 import { seesMoney } from '../permissions'
 import { useRole } from '../hooks/useRole'
 import { formatAmount, formatCubic } from '../utils/num'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { tapHeavy, tapLight } from '../utils/haptics'
 import {
   MobileChip,
@@ -18,12 +20,14 @@ import {
   MobileModal,
   MobileSheet,
   MobileSkeleton,
+  MobileRefreshBar,
   MobileToastHost,
   MobileTopbarActions,
   MobileTopbarButton,
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 const typeLabel = (type: RecycleRow['type']) =>
   type === 'in' ? '入库' : type === 'out' ? '出库' : '合同'
@@ -32,20 +36,33 @@ const orderWord = (type: RecycleRow['type']) =>
   type === 'in' ? '入库单' : type === 'out' ? '出库单' : '合同'
 
 export default function RecycleMobile() {
+  const location = useLocation()
   const money = seesMoney(useRole())
-  const [rows, setRows] = useState<RecycleRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const initialCache = readListCache<RecycleRow[]>('m:recycle:list')
+  const [rows, setRows] = useState<RecycleRow[]>(initialCache ?? [])
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [type, setType] = useState<'' | RecycleRow['type']>('')
   const [detail, setDetail] = useState<RecycleRow | null>(null)
   const [purgeTarget, setPurgeTarget] = useState<RecycleRow | null>(null)
   const [busy, setBusy] = useState('')
   const [toast, setToast] = useState<MobileToastItem | null>(null)
   useAutoDismiss(toast, () => setToast(null))
+  useMobileScrollMemory(`${location.pathname}${location.search}`, !loading)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const cached = readListCache<RecycleRow[]>('m:recycle:list')
+    if (cached) {
+      setRows(cached)
+      setLoading(false)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
-      setRows(await fetchRecycleList())
+      const next = await fetchRecycleList()
+      setRows(next)
+      writeListCache('m:recycle:list', next)
     } catch (err) {
       setToast({
         id: `l-${Date.now()}`,
@@ -53,6 +70,7 @@ export default function RecycleMobile() {
       })
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -112,6 +130,7 @@ export default function RecycleMobile() {
           }}
         />
       </MobileTopbarActions>
+      <MobileRefreshBar active={refreshing} />
 
       <div className="m-chip-row">
         {[

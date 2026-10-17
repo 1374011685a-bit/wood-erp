@@ -4,12 +4,19 @@
  * 数据全来自 fetchHomeSummary（走势/构成），宫格按角色权限过滤。
  */
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { fetchHomeSummary, type HomeSummary } from '../api'
 import { useRole } from '../hooks/useRole'
 import { can, canVisit, seesMoney } from '../permissions'
 import { formatCubic, formatAmount } from '../utils/num'
-import { MobileIcon, MobileSkeleton, useCountUp } from './components'
+import { readListCache, writeListCache } from '../utils/listCache'
+import {
+  MobileIcon,
+  MobileRefreshBar,
+  MobileSkeleton,
+  useCountUp,
+} from './components'
+import { useMobileNavigate } from './useMobileNavigate'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 type Tile = {
   to: string
@@ -55,19 +62,39 @@ const GROUPS: Array<{ title: string; tiles: Tile[] }> = [
 ]
 
 export default function HomeMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   const role = useRole()
   const showMoney = seesMoney(role)
-  const [summary, setSummary] = useState<HomeSummary | null>(null)
-  const [loading, setLoading] = useState(true)
+  const initialCache = readListCache<HomeSummary>('m:home:7:spec')
+  const [summary, setSummary] = useState<HomeSummary | null>(initialCache ?? null)
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [days, setDays] = useState<'7' | '14' | '30'>('7')
+  useMobileScrollMemory('/', !loading)
 
   useEffect(() => {
     let alive = true
+    const cacheKey = `m:home:${days}:spec`
+    const cached = readListCache<HomeSummary>(cacheKey)
+    if (cached) {
+      setSummary(cached)
+      setLoading(false)
+      setRefreshing(true)
+    } else {
+      setRefreshing(true)
+    }
     void fetchHomeSummary({ days: Number(days) as 7 | 14 | 30, dimension: 'spec' })
-      .then((data) => alive && setSummary(data))
+      .then((data) => {
+        if (!alive) return
+        setSummary(data)
+        writeListCache(cacheKey, data)
+      })
       .catch(() => undefined)
-      .finally(() => alive && setLoading(false))
+      .finally(() => {
+        if (!alive) return
+        setLoading(false)
+        setRefreshing(false)
+      })
     return () => {
       alive = false
     }
@@ -97,6 +124,7 @@ export default function HomeMobile() {
 
   return (
     <div className="m-home m-home-enter" style={{ paddingBottom: 8 }}>
+      <MobileRefreshBar active={refreshing} />
       {/* 1 渐变头 */}
       <div className="m-hero">
         <div className="m-hero-title">立川云 · 木材管理</div>

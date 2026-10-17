@@ -6,7 +6,6 @@
  * 包号不重复（含后端全局唯一预检）、柜号不跨提单（后端兜底）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   createInbound,
   fetchBales,
@@ -21,6 +20,7 @@ import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { goBack } from './nav'
 import SuccessToast from '../components/SuccessToast'
+import { useMobileFormKeyboard } from './useMobileFormKeyboard'
 import {
   MobileCard,
   MobileEmpty,
@@ -34,6 +34,7 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
 
 type Row = {
   key: number
@@ -74,8 +75,9 @@ const parseLabels = (raw: string) =>
 type RowError = { key: number; messages: string[]; firstField: keyof Row | null }
 
 export default function InboundFormMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   useKeyboardScroll(true)
+  useMobileFormKeyboard(true)
   const [methodOpen, setMethodOpen] = useState(true)
   /** 已经选好的录入方式（direct=按提单 / contract=按合同），选完收起选择区 */
   const [method, setMethod] = useState<'direct' | 'contract' | null>(null)
@@ -106,6 +108,14 @@ export default function InboundFormMobile() {
   const [dict, setDict] = useState<DictAll>({ species: [], grade: [] })
   const [brandOptions, setBrandOptions] = useState<string[]>([])
   const supplierRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    if (!method || methodOpen) return
+    const timer = window.setTimeout(() => {
+      supplierRef.current?.focus()
+    }, 260)
+    return () => window.clearTimeout(timer)
+  }, [method, methodOpen])
 
   useEffect(() => {
     void fetchDict().then(setDict).catch(() => undefined)
@@ -229,6 +239,12 @@ export default function InboundFormMobile() {
   const scrollToRow = (row: RowError) => {
     const wrap = document.querySelector<HTMLElement>(`[data-m-row="${row.key}"]`)
     wrap?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    if (wrap) {
+      wrap.classList.remove('is-error-flash')
+      void wrap.offsetWidth
+      wrap.classList.add('is-error-flash')
+      window.setTimeout(() => wrap.classList.remove('is-error-flash'), 1050)
+    }
     if (row.firstField) {
       window.setTimeout(() => {
         wrap?.querySelector<HTMLInputElement>(`input[data-field="${row.firstField}"]`)?.focus()
@@ -469,7 +485,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="thickness"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       style={rowErrors[row.key]?.some((m) => m.startsWith('厚')) ? { boxShadow: '0 0 0 1px var(--danger)' } : undefined}
                       value={row.thickness}
                       onChange={(event) => updateRow(row.key, 'thickness', event.target.value)}
@@ -480,7 +496,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="width"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={row.width}
                       onChange={(event) => updateRow(row.key, 'width', event.target.value)}
                     />
@@ -490,7 +506,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="length"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={row.length}
                       onChange={(event) => updateRow(row.key, 'length', event.target.value)}
                     />
@@ -565,7 +581,7 @@ export default function InboundFormMobile() {
                     <input
                       className="m-line-input"
                       data-field="unitPrice"
-                      inputMode="decimal"
+                      inputMode="numeric"
                       value={row.unitPrice}
                       onChange={(event) => updateRow(row.key, 'unitPrice', event.target.value)}
                     />

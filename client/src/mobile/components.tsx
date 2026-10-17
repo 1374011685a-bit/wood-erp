@@ -242,6 +242,16 @@ export function MobileSkeleton({ cards = 3 }: { cards?: number }) {
   )
 }
 
+/** 顶部 2px 细进度条：有缓存时后台静默刷新，不遮页面。 */
+export function MobileRefreshBar({ active }: { active: boolean }) {
+  if (!active) return null
+  return (
+    <div className="m-refresh-bar" aria-label="正在刷新">
+      <span />
+    </div>
+  )
+}
+
 /* ============ Toast ============ */
 
 export type MobileToastItem = {

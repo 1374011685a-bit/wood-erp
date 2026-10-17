@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import {
   createCount,
   deleteCount,
@@ -14,6 +14,7 @@ import {
 import { seesMoney } from '../permissions'
 import { useRole } from '../hooks/useRole'
 import { formatCubic, roundTo, todayLocal } from '../utils/num'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { tapHeavy, tapLight } from '../utils/haptics'
 import { goBack } from './nav'
 import {
@@ -26,12 +27,16 @@ import {
   MobileModal,
   MobileSheet,
   MobileSkeleton,
+  MobileRefreshBar,
   MobileToastHost,
   MobileTopbarActions,
   MobileTopbarButton,
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
+import { useMobileFormKeyboard } from './useMobileFormKeyboard'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 type FormRow = {
   key: number
@@ -64,18 +69,23 @@ const createManualRow = (): FormRow => ({
 })
 
 export default function CountMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
+  const location = useLocation()
   const [params] = useSearchParams()
   const formMode = params.get('mode') === 'new'
+  useMobileFormKeyboard(formMode)
   const money = seesMoney(useRole())
-  const [rows, setRows] = useState<CountListRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const initialCache = readListCache<CountListRow[]>('m:count:list')
+  const [rows, setRows] = useState<CountListRow[]>(initialCache ?? [])
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [reloadToken, setReloadToken] = useState(0)
   const [detail, setDetail] = useState<CountDetail | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<CountListRow | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [toast, setToast] = useState<MobileToastItem | null>(null)
   useAutoDismiss(toast, () => setToast(null))
+  useMobileScrollMemory(`${location.pathname}${location.search}`, !loading)
 
   const [formRows, setFormRows] = useState<FormRow[]>([])
   const [countDate, setCountDate] = useState(todayLocal())
@@ -84,9 +94,18 @@ export default function CountMobile() {
   const [saving, setSaving] = useState(false)
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const cached = readListCache<CountListRow[]>('m:count:list')
+    if (cached) {
+      setRows(cached)
+      setLoading(false)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
-      setRows(await fetchCountList())
+      const next = await fetchCountList()
+      setRows(next)
+      writeListCache('m:count:list', next)
     } catch (err) {
       setToast({
         id: `l-${Date.now()}`,
@@ -94,6 +113,7 @@ export default function CountMobile() {
       })
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -318,7 +338,7 @@ export default function CountMobile() {
                           <span className="m-line-label">厚</span>
                           <input
                             className="m-line-input"
-                            inputMode="decimal"
+                            inputMode="numeric"
                             value={row.thickness}
                             onChange={(event) => updateRow(row.key, { thickness: event.target.value })}
                           />
@@ -327,7 +347,7 @@ export default function CountMobile() {
                           <span className="m-line-label">宽</span>
                           <input
                             className="m-line-input"
-                            inputMode="decimal"
+                            inputMode="numeric"
                             value={row.width}
                             onChange={(event) => updateRow(row.key, { width: event.target.value })}
                           />
@@ -336,7 +356,7 @@ export default function CountMobile() {
                           <span className="m-line-label">长</span>
                           <input
                             className="m-line-input"
-                            inputMode="decimal"
+                            inputMode="numeric"
                             value={row.length}
                             onChange={(event) => updateRow(row.key, { length: event.target.value })}
                           />
@@ -363,7 +383,7 @@ export default function CountMobile() {
                         <span className="m-line-label">单价</span>
                         <input
                           className="m-line-input"
-                          inputMode="decimal"
+                          inputMode="numeric"
                           value={row.unitPrice}
                           onChange={(event) => updateRow(row.key, { unitPrice: event.target.value })}
                         />
@@ -411,6 +431,7 @@ export default function CountMobile() {
           }}
         />
       </MobileTopbarActions>
+      <MobileRefreshBar active={refreshing} />
 
       {loading ? (
         <MobileSkeleton cards={3} />

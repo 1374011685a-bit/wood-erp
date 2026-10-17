@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import {
   fetchBales,
   fetchContractPicker,
@@ -10,6 +10,7 @@ import {
 } from '../api'
 import { formatCubic } from '../utils/num'
 import { contractStage } from '../utils/contractStatus'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { tapLight, tapMedium } from '../utils/haptics'
 import {
   MobileBadge,
@@ -21,6 +22,7 @@ import {
   MobileSegmented,
   MobileSheet,
   MobileSkeleton,
+  MobileRefreshBar,
   MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
@@ -28,6 +30,8 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 const PAGE_SIZE = 50
 
@@ -36,18 +40,32 @@ type View = 'bales' | 'contracts' | 'shipments'
 const statusText = (status: BaleRow['status']) => (status === 'in_stock' ? '在库' : '已出库')
 
 export default function BalesMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
+  const location = useLocation()
   const [view, setView] = useState<View>('bales')
   const [contract, setContract] = useState<{ no: string; title: string } | null>(null)
   const [shipment, setShipment] = useState<ShipmentRow | null>(null)
   const [keyword, setKeyword] = useState('')
   const [debounced, setDebounced] = useState('')
   const [status, setStatus] = useState<'' | 'in_stock' | 'shipped'>('')
-  const [rows, setRows] = useState<BaleRow[]>([])
-  const [total, setTotal] = useState(0)
-  const [totalInStock, setTotalInStock] = useState(0)
-  const [cubicInStock, setCubicInStock] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const defaultBalesKey = `m:bales:${JSON.stringify({
+    keyword: '',
+    status: '',
+    contract: '',
+    shipment: 0,
+  })}`
+  const initialCache = readListCache<{
+    rows: BaleRow[]
+    total: number
+    totalInStock: number
+    cubicInStock: number
+  }>(defaultBalesKey)
+  const [rows, setRows] = useState<BaleRow[]>(initialCache?.rows ?? [])
+  const [total, setTotal] = useState(initialCache?.total ?? 0)
+  const [totalInStock, setTotalInStock] = useState(initialCache?.totalInStock ?? 0)
+  const [cubicInStock, setCubicInStock] = useState(initialCache?.cubicInStock ?? 0)
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [loadingMore, setLoadingMore] = useState(false)
   const [reloadToken, setReloadToken] = useState(0)
   const [contracts, setContracts] = useState<ContractPickerRow[]>([])
@@ -58,6 +76,10 @@ export default function BalesMobile() {
   const [detail, setDetail] = useState<BaleRow | null>(null)
   const [toast, setToast] = useState<MobileToastItem | null>(null)
   useAutoDismiss(toast, () => setToast(null))
+  useMobileScrollMemory(
+    `${location.pathname}:${view}:${contract?.no ?? ''}:${shipment?.id ?? ''}`,
+    !loading,
+  )
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(keyword.trim()), 300)
@@ -66,8 +88,32 @@ export default function BalesMobile() {
 
   const loadBales = useCallback(
     async (offset: number, append: boolean) => {
-      if (append) setLoadingMore(true)
-      else setLoading(true)
+      const cacheKey = `m:bales:${JSON.stringify({
+        keyword: debounced,
+        status,
+        contract: contract?.no ?? '',
+        shipment: shipment?.id ?? 0,
+      })}`
+      if (append) {
+        setLoadingMore(true)
+      } else {
+        const cached = readListCache<{
+          rows: BaleRow[]
+          total: number
+          totalInStock: number
+          cubicInStock: number
+        }>(cacheKey)
+        if (cached) {
+          setRows(cached.rows)
+          setTotal(cached.total)
+          setTotalInStock(cached.totalInStock)
+          setCubicInStock(cached.cubicInStock)
+          setLoading(false)
+          setRefreshing(true)
+        } else {
+          setLoading(true)
+        }
+      }
       try {
         const result = await fetchBales({
           keyword: debounced || undefined,
@@ -84,6 +130,14 @@ export default function BalesMobile() {
         setTotal(result.total)
         setTotalInStock(result.total_in_stock ?? 0)
         setCubicInStock(result.cubic_in_stock ?? 0)
+        if (!append) {
+          writeListCache(cacheKey, {
+            rows: result.rows,
+            total: result.total,
+            totalInStock: result.total_in_stock ?? 0,
+            cubicInStock: result.cubic_in_stock ?? 0,
+          })
+        }
       } catch (err) {
         setToast({
           id: `b-${Date.now()}`,
@@ -92,6 +146,7 @@ export default function BalesMobile() {
       } finally {
         setLoading(false)
         setLoadingMore(false)
+        setRefreshing(false)
       }
     },
     [debounced, status, shipment, contract],
@@ -193,6 +248,7 @@ export default function BalesMobile() {
           }
         }}
       />
+      <MobileRefreshBar active={refreshing} />
 
       {view !== 'contracts' ? (
         <MobileSearchBar

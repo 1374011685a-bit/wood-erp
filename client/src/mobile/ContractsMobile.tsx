@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   deleteContract,
   fetchContractDetail,
@@ -12,6 +13,7 @@ import { can, seesMoney } from '../permissions'
 import { useRole } from '../hooks/useRole'
 import { formatAmount, formatCubic, todayLocal, toNumber } from '../utils/num'
 import { contractStage } from '../utils/contractStatus'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import SuccessToast from '../components/SuccessToast'
 import {
@@ -24,6 +26,7 @@ import {
   MobileSearchBar,
   MobileSheet,
   MobileSkeleton,
+  MobileRefreshBar,
   MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
@@ -31,6 +34,8 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
+import { useMobileFormKeyboard } from './useMobileFormKeyboard'
 
 type ItemRow = {
   key: number
@@ -61,17 +66,21 @@ const emptyForm = () => ({
 })
 
 export default function ContractsMobile() {
+  const location = useLocation()
   const role = useRole()
   const money = seesMoney(role)
   const canWrite = can(role, 'contract.write')
   const [keyword, setKeyword] = useState('')
   const [debounced, setDebounced] = useState('')
-  const [rows, setRows] = useState<ContractPickerRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const initialCache = readListCache<ContractPickerRow[]>('m:contracts:')
+  const [rows, setRows] = useState<ContractPickerRow[]>(initialCache ?? [])
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [reloadToken, setReloadToken] = useState(0)
   const [detail, setDetail] = useState<ContractDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [formOpen, setFormOpen] = useState(false)
+  useMobileFormKeyboard(formOpen)
   const [editing, setEditing] = useState<ContractPickerRow | null>(null)
   const [form, setForm] = useState(emptyForm)
   const [items, setItems] = useState<ItemRow[]>(() => [createItem()])
@@ -83,6 +92,7 @@ export default function ContractsMobile() {
   const [toast, setToast] = useState<MobileToastItem | null>(null)
   const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
   useAutoDismiss(toast, () => setToast(null))
+  useMobileScrollMemory(`${location.pathname}${location.search}`, !loading)
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(keyword.trim()), 300)
@@ -90,10 +100,19 @@ export default function ContractsMobile() {
   }, [keyword])
 
   const load = useCallback(async () => {
-    setLoading(true)
+    const cacheKey = `m:contracts:${debounced}`
+    const cached = readListCache<ContractPickerRow[]>(cacheKey)
+    if (cached) {
+      setRows(cached)
+      setLoading(false)
+      setRefreshing(true)
+    } else {
+      setLoading(true)
+    }
     try {
       const result = await fetchContractPicker({ keyword: debounced || undefined, limit: 100 })
       setRows(result.rows)
+      writeListCache(cacheKey, result.rows)
     } catch (err) {
       setToast({
         id: `c-${Date.now()}`,
@@ -101,6 +120,7 @@ export default function ContractsMobile() {
       })
     } finally {
       setLoading(false)
+      setRefreshing(false)
     }
   }, [debounced])
 
@@ -274,6 +294,7 @@ export default function ContractsMobile() {
         placeholder="合同号 / 名称 / 往来单位"
         onChange={setKeyword}
       />
+      <MobileRefreshBar active={refreshing} />
 
       {loading ? (
         <MobileSkeleton cards={3} />
@@ -430,7 +451,7 @@ export default function ContractsMobile() {
             <MobileInput
               label="合同金额（元）"
               value={form.amount}
-              inputMode="decimal"
+              inputMode="numeric"
               onChange={(value) => setForm((prev) => ({ ...prev, amount: value }))}
             />
           ) : null}
@@ -513,7 +534,7 @@ export default function ContractsMobile() {
                   <span className="m-line-label">数量</span>
                   <input
                     className="m-line-input"
-                    inputMode="decimal"
+                    inputMode="numeric"
                     value={item.quantity}
                     onChange={(event) =>
                       setItems((prev) =>
@@ -528,7 +549,7 @@ export default function ContractsMobile() {
                   <span className="m-line-label">单价</span>
                   <input
                     className="m-line-input"
-                    inputMode="decimal"
+                    inputMode="numeric"
                     value={item.unitPrice}
                     onChange={(event) =>
                       setItems((prev) =>

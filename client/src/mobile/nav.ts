@@ -8,9 +8,13 @@ import type { NavigateFunction } from 'react-router-dom'
  */
 export function goBack(navigate: NavigateFunction, fallback: string) {
   const idx = Number((window.history.state as { idx?: number } | null)?.idx ?? 0)
+  document.documentElement.dataset.mNav = 'back'
   if (idx > 0) {
-    navigate(-1)
+    ;(navigate as unknown as (delta: number, options?: { viewTransition?: boolean }) => void)(
+      -1,
+      { viewTransition: true },
+    )
     return
   }
-  navigate(fallback, { replace: true })
+  navigate(fallback, { replace: true, viewTransition: true })
 }

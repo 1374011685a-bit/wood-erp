@@ -1,12 +1,15 @@
 /** 库存（手机版）：按品名搜索 + 规格卡片 */
 import { useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { fetchStockList, type StockRow } from '../api'
 import { formatCubic, formatAmount } from '../utils/num'
 import { seesMoney } from '../permissions'
 import { useRole } from '../hooks/useRole'
+import { readListCache, writeListCache } from '../utils/listCache'
 import {
   MobileCard,
   MobileEmpty,
+  MobileRefreshBar,
   MobileSearchBar,
   MobileSkeleton,
   MobileToastHost,
@@ -14,6 +17,7 @@ import {
   useCountUp,
   type MobileToastItem,
 } from './components'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 function StockCard({ row, showMoney }: { row: StockRow; showMoney: boolean }) {
   const cubic = useCountUp(row.total_cubic)
@@ -57,22 +61,40 @@ function StockCard({ row, showMoney }: { row: StockRow; showMoney: boolean }) {
 }
 
 export default function StockMobile() {
+  const location = useLocation()
   const showMoney = seesMoney(useRole())
+  const initialCache = readListCache<StockRow[]>('m:stock:')
   const [keyword, setKeyword] = useState('')
-  const [rows, setRows] = useState<StockRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<StockRow[]>(initialCache ?? [])
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [toast, setToast] = useState<MobileToastItem | null>(null)
   useAutoDismiss(toast, () => setToast(null))
+  useMobileScrollMemory(`${location.pathname}${location.search}`, !loading)
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setLoading(true)
+      const cacheKey = `m:stock:${keyword.trim()}`
+      const cached = readListCache<StockRow[]>(cacheKey)
+      if (cached) {
+        setRows(cached)
+        setLoading(false)
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
       void fetchStockList(keyword.trim())
-        .then(setRows)
+        .then((next) => {
+          setRows(next)
+          writeListCache(cacheKey, next)
+        })
         .catch((err: unknown) =>
           setToast({ id: `e-${Date.now()}`, message: err instanceof Error ? err.message : '加载失败' }),
         )
-        .finally(() => setLoading(false))
+        .finally(() => {
+          setLoading(false)
+          setRefreshing(false)
+        })
     }, 300)
     return () => window.clearTimeout(timer)
   }, [keyword])
@@ -80,6 +102,7 @@ export default function StockMobile() {
   return (
     <div className="m-stack">
       <MobileSearchBar value={keyword} placeholder="搜品名" onChange={setKeyword} />
+      <MobileRefreshBar active={refreshing} />
       {loading ? (
         <MobileSkeleton cards={3} />
       ) : rows.length === 0 ? (

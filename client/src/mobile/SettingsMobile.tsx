@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { getStoredUsername } from '../api'
 import { useRole } from '../hooks/useRole'
 import { ROLE_LABELS } from '../permissions'
@@ -10,6 +9,7 @@ import {
   MobileList,
   MobileListItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
 
 type NotifyState = {
   arrival: boolean
@@ -60,7 +60,7 @@ function ToggleRow({
 }
 
 export default function SettingsMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   const role = useRole()
   const username = getStoredUsername()
   const [notify, setNotify] = useState(readNotify)

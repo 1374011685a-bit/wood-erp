@@ -6,7 +6,7 @@
  * 桌面端永远不会渲染这个文件（由 App.tsx 的 InboundSwitch 按视口分流）。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import {
   deleteInbound,
   fetchInboundDetail,
@@ -18,6 +18,7 @@ import {
 import { formatCubic, formatAmount } from '../utils/num'
 import { seesMoney } from '../permissions'
 import { useRole } from '../hooks/useRole'
+import { readListCache, writeListCache } from '../utils/listCache'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import {
   MobileEmpty,
@@ -26,6 +27,7 @@ import {
   MobileSearchBar,
   MobileSheet,
   MobileSkeleton,
+  MobileRefreshBar,
   MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
@@ -33,21 +35,29 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 const PAGE_SIZE = 20
 const EMPTY_FILTERS = { date_from: '', date_to: '', supplier: '' }
 
 export default function InboundListMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
+  const location = useLocation()
   const money = seesMoney(useRole())
   const [keyword, setKeyword] = useState('')
   const [debounced, setDebounced] = useState('')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
   const [draft, setDraft] = useState(EMPTY_FILTERS)
   const [filterOpen, setFilterOpen] = useState(false)
-  const [rows, setRows] = useState<InboundListItem[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const initialCacheKey = `m:inbound:${JSON.stringify({ ...EMPTY_FILTERS, order_no: '' })}`
+  const initialCache = readListCache<{ rows: InboundListItem[]; total: number }>(
+    initialCacheKey,
+  )
+  const [rows, setRows] = useState<InboundListItem[]>(initialCache?.rows ?? [])
+  const [total, setTotal] = useState(initialCache?.total ?? 0)
+  const [loading, setLoading] = useState(!initialCache)
+  const [refreshing, setRefreshing] = useState(Boolean(initialCache))
   const [loadingMore, setLoadingMore] = useState(false)
   const [detail, setDetail] = useState<InboundDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -68,10 +78,23 @@ export default function InboundListMobile() {
   )
   const queryRef = useRef(query)
   queryRef.current = query
+  useMobileScrollMemory(`${location.pathname}${location.search}`, !loading)
 
   const load = useCallback(async (offset: number, append: boolean) => {
-    if (append) setLoadingMore(true)
-    else setLoading(true)
+    const cacheKey = `m:inbound:${JSON.stringify(queryRef.current)}`
+    if (append) {
+      setLoadingMore(true)
+    } else {
+      const cached = readListCache<{ rows: InboundListItem[]; total: number }>(cacheKey)
+      if (cached) {
+        setRows(cached.rows)
+        setTotal(cached.total)
+        setLoading(false)
+        setRefreshing(true)
+      } else {
+        setLoading(true)
+      }
+    }
     try {
       const result = await fetchInboundList({
         ...queryRef.current,
@@ -80,11 +103,15 @@ export default function InboundListMobile() {
       })
       setRows((prev) => (append ? [...prev, ...result.rows] : result.rows))
       setTotal(result.total)
+      if (!append) {
+        writeListCache(cacheKey, { rows: result.rows, total: result.total })
+      }
     } catch (err) {
       setToast({ id: `err-${Date.now()}`, message: err instanceof Error ? err.message : '加载失败' })
     } finally {
       setLoading(false)
       setLoadingMore(false)
+      setRefreshing(false)
     }
   }, [])
 
@@ -145,6 +172,7 @@ export default function InboundListMobile() {
       </MobileTopbarActions>
 
       <MobileSearchBar value={keyword} placeholder="搜单号" onChange={setKeyword} />
+      <MobileRefreshBar active={refreshing} />
 
       {loading ? (
         <MobileSkeleton cards={3} />

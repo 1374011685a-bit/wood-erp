@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   changePassword,
   clearSession,
@@ -21,9 +20,10 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
 
 export default function MeMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   const role = useRole()
   const username = getStoredUsername()
   const [passwordOpen, setPasswordOpen] = useState(false)

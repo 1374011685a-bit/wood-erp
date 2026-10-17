@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import {
   createRepack,
   deleteRepack,
@@ -21,6 +21,7 @@ import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { goBack } from './nav'
 import SuccessToast from '../components/SuccessToast'
+import { useMobileFormKeyboard } from './useMobileFormKeyboard'
 import {
   MobileCard,
   MobileDatePicker,
@@ -38,6 +39,7 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
 
 const PAGE_SIZE = 20
 const AFTER_BLANK_ROWS = 3
@@ -163,13 +165,13 @@ function LineField({
   value,
   list,
   onChange,
-  inputMode = 'decimal',
+  inputMode = 'numeric',
 }: {
   label: string
   value: string
   list?: string
   onChange: (next: string) => void
-  inputMode?: 'text' | 'decimal'
+  inputMode?: 'text' | 'numeric'
 }) {
   return (
     <label className="m-line-field">
@@ -187,11 +189,12 @@ function LineField({
 }
 
 export default function RepackMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   const [searchParams] = useSearchParams()
   const formOpen = searchParams.get('mode') === 'new'
   const money = seesMoney(useRole())
   useKeyboardScroll(formOpen)
+  useMobileFormKeyboard(formOpen)
 
   const [keyword, setKeyword] = useState('')
   const [debounced, setDebounced] = useState('')
@@ -547,6 +550,18 @@ export default function RepackMobile() {
     const problems = validateRows(filled)
     if (problems.length > 0) {
       setToast({ id: `v-${Date.now()}`, message: problems[0] })
+      const match = /^第 (\d+) 行/.exec(problems[0])
+      const bad = match ? filled[Number(match[1]) - 1] : null
+      if (bad) {
+        const target = document.querySelector<HTMLElement>(`[data-m-row="${bad.key}"]`)
+        target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        if (target) {
+          target.classList.remove('is-error-flash')
+          void target.offsetWidth
+          target.classList.add('is-error-flash')
+          window.setTimeout(() => target.classList.remove('is-error-flash'), 1050)
+        }
+      }
       return
     }
 
@@ -712,7 +727,7 @@ export default function RepackMobile() {
           </div>
 
           {rows.map((row, index) => (
-            <div className="m-line m-repack-line" key={row.key}>
+            <div className="m-line m-repack-line" key={row.key} data-m-row={row.key}>
               <div className="m-line-editor-head">
                 <span>
                   第 {index + 1} 行

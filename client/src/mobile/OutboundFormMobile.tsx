@@ -5,7 +5,6 @@
  * 数据与交互沿用现有接口（fetchBales / scanOutboundBale / createOutbound）。
  */
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   createOutbound,
   fetchBaleDetail,
@@ -19,6 +18,7 @@ import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { goBack } from './nav'
 import SuccessToast from '../components/SuccessToast'
+import { useMobileFormKeyboard } from './useMobileFormKeyboard'
 import {
   MobileCard,
   MobileEmpty,
@@ -32,6 +32,7 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { useMobileNavigate } from './useMobileNavigate'
 
 const Scanner = lazy(() => import('../components/Scanner'))
 
@@ -72,8 +73,9 @@ const toRow = (bale: {
 })
 
 export default function OutboundFormMobile() {
-  const navigate = useNavigate()
+  const navigate = useMobileNavigate()
   useKeyboardScroll(true)
+  useMobileFormKeyboard(true)
   const [customer, setCustomer] = useState('')
   const [orderDate, setOrderDate] = useState(todayISO())
   const [warehouse, setWarehouse] = useState('')
@@ -94,6 +96,11 @@ export default function OutboundFormMobile() {
   const [pickerLoading, setPickerLoading] = useState(false)
   const [scannerOpen, setScannerOpen] = useState(false)
   const customerRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => customerRef.current?.focus(), 260)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   const loadPicker = useCallback(async (keyword: string) => {
     setPickerLoading(true)
@@ -194,6 +201,27 @@ export default function OutboundFormMobile() {
       setToast({ id: `v-${Date.now()}`, message: '至少选一包货' })
       return
     }
+    const missingPrice = rows.find((row) => !(toNumber(row.unitPrice) > 0))
+    if (missingPrice) {
+      const index = rows.findIndex((row) => row.key === missingPrice.key)
+      setToast({ id: `v-${Date.now()}`, message: `第 ${index + 1} 行单价要大于 0` })
+      const target = document.querySelector<HTMLElement>(
+        `[data-m-row="${missingPrice.key}"]`,
+      )
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      if (target) {
+        target.classList.remove('is-error-flash')
+        void target.offsetWidth
+        target.classList.add('is-error-flash')
+        window.setTimeout(() => target.classList.remove('is-error-flash'), 1050)
+        window.setTimeout(() => {
+          target
+            .querySelector<HTMLInputElement>('input[data-field="unitPrice"]')
+            ?.focus()
+        }, 320)
+      }
+      return
+    }
     setSaving(true)
     try {
       const result = await createOutbound(buildPayload())
@@ -276,7 +304,7 @@ export default function OutboundFormMobile() {
         ) : (
           <div>
             {rows.map((row) => (
-              <div className="m-line" key={row.key}>
+              <div className="m-line" key={row.key} data-m-row={row.key}>
                 <span className="m-line-title">
                   {row.baleNo}
                   <span className="m-line-sub">{row.spec}</span>
@@ -312,7 +340,8 @@ export default function OutboundFormMobile() {
                     <span className="m-line-label">单价（元）</span>
                     <input
                       className="m-line-input"
-                      inputMode="decimal"
+                      data-field="unitPrice"
+                      inputMode="numeric"
                       value={row.unitPrice}
                       onChange={(event) =>
                         setRows((prev) =>
