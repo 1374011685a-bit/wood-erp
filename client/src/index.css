@@ -102,6 +102,64 @@
 
   --ease: 0.22s cubic-bezier(0.22, 1, 0.36, 1);
 
+  /* ============================================================
+     第 1 刀 · 手机端专用 token（iOS / 微信 口径）
+     ------------------------------------------------------------
+     全部是**新增变量**，不改任何已有规则：桌面端那些老变量（--bg / --panel /
+     --text / --brand…）一个字没动，所以桌面端零影响。
+     手机端新写的组件一律用下面这套，别再写死数值。
+     ============================================================ */
+
+  /* 背景两级：页面底 / 卡片与输入框底 */
+  --bg-1: #ffffff;
+  --bg-2: #f2f2f7;
+
+  /* 文字四级：主 / 次 / 辅助 / 占位 */
+  --ink-1: #1c1c1e;
+  --ink-2: #3a3a3c;
+  --ink-3: #8e8e93;
+  --ink-4: #c7c7cc;
+
+  /* 发丝线（0.5px 用 box-shadow 或 border + transform 实现） */
+  --line: #e5e5ea;
+
+  /* 动作色 / 危险色（手机端主按钮、链接、危险按钮） */
+  --action: #0071e3;
+  --danger: #ff3b30;
+
+  /* 圆角四档：输入框 / 按钮 / 卡片 / 弹层 */
+  --r-10: 10px;
+  --r-12: 12px;
+  --r-16: 16px;
+  --r-20: 20px;
+
+  /* 间距六档 */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-5: 20px;
+  --s-6: 24px;
+
+  /* 字号五档（手机端：正文 17 是 iOS 基准） */
+  --t-13: 13px;
+  --t-15: 15px;
+  --t-17: 17px;
+  --t-22: 22px;
+  --t-28: 28px;
+
+  /* 动效（严格到毫秒，第 5 刀用） */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 100ms;
+  --dur-release: 150ms;
+  --dur-page-in: 280ms;
+  --dur-page-out: 250ms;
+  --dur-sheet-in: 300ms;
+  --dur-sheet-out: 250ms;
+  --dur-tab: 200ms;
+  --dur-count: 400ms;
+
   font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text',
     'PingFang SC', 'Helvetica Neue', 'Segoe UI', 'Microsoft YaHei', Arial,
     sans-serif;

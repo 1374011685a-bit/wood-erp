@@ -1,9 +1,46 @@
 import { Suspense, lazy } from 'react'
 import type { ComponentType } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import Layout from './components/Layout'
+import ShellSwitch from './mobile/ShellSwitch'
+import HomeMobile from './mobile/HomeMobile'
+import InboundListMobile from './mobile/InboundListMobile'
+import DocumentsMobile from './mobile/DocumentsMobile'
+import StockMobile from './mobile/StockMobile'
+import RecordsMobile from './mobile/RecordsMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
+import { useIsMobileViewport } from './mobile/ShellSwitch'
+
+/**
+ * 首页分流：手机端用新的 HomeMobile（白名单里唯一的页面），桌面端原样。
+ * 放在 App 里而不是 Home 里，是为了让"哪棵树"这件事只有一个出口，好排查。
+ */
+function HomeSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <HomeMobile /> : <Home />
+}
+
+/** 入库列表分流：手机端走新的 InboundListMobile，桌面端原样（第 2 步） */
+function InboundSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <InboundListMobile /> : <Inbound defaultMode="list" />
+}
+
+/** 单据 / 库存 / 流水 分流：手机端走 Mobile 版，桌面端原样 */
+function DocumentsSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <DocumentsMobile /> : <Documents />
+}
+
+function StockSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <StockMobile /> : <Stock />
+}
+
+function RecordsSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <RecordsMobile /> : <Records />
+}
 
 /**
  * 页面按需加载：首屏只下载登录页和外壳，
@@ -61,29 +98,30 @@ export default function App() {
         <Route
           element={
             <RequireAuth>
-              <Layout />
+              {/* 手机端白名单页面走 MobileLayout，其余（含桌面端全部）走老 Layout */}
+              <ShellSwitch />
             </RequireAuth>
           }
         >
-          <Route index element={<Home />} />
-          <Route path="inbound" element={<Inbound defaultMode="list" />} />
+          <Route index element={<HomeSwitch />} />
+          <Route path="inbound" element={<InboundSwitch />} />
           {/* 首页「新增入库 / 新增出库」直接落到录入界面 */}
           <Route path="inbound/new" element={<Inbound defaultMode="method" />} />
           {/* 编辑某张入库单：可直接分享/跳转的地址（列表的「编辑」按钮也走这里） */}
           <Route path="inbound/edit/:id" element={<Inbound defaultMode="edit" />} />
           <Route path="outbound" element={<Outbound />} />
           <Route path="outbound/new" element={<Outbound defaultMode="create" />} />
-          <Route path="stock" element={<Stock />} />
+          <Route path="stock" element={<StockSwitch />} />
           <Route path="count" element={<Count />} />
           <Route path="repack" element={<Repack />} />
           <Route path="contracts" element={<Contracts />} />
           <Route path="bales" element={<Bales />} />
-          <Route path="records" element={<Records />} />
+          <Route path="records" element={<RecordsSwitch />} />
           <Route path="recycle" element={<Recycle />} />
           <Route path="settlement" element={<Settlement />} />
           <Route path="dict" element={<Dict />} />
           {/* 手机端底部 Tab 的路由（PC 端也能直接打开） */}
-          <Route path="documents" element={<Documents />} />
+          <Route path="documents" element={<DocumentsSwitch />} />
           <Route path="me" element={<Me />} />
           {/* AI 助手（DeepSeek） */}
           <Route path="ai" element={<Ai />} />
