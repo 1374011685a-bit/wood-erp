@@ -5,6 +5,7 @@ import { getRememberedUsername, login, setSession } from '../api'
 import { resetPassword } from '../api'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { APP_BUILD_TEXT, APP_VERSION_TEXT } from '../version'
+import { runLoginTransition } from '../components/LoginTransition'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -101,7 +102,7 @@ export default function Login() {
     try {
       const result = await login(username.trim(), password)
       setSession(result.token, result.username, result.role, remember)
-      navigate('/', { replace: true })
+      runLoginTransition(navigate)
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
       // 出错了把注意力拉回账号输入框，并抖一下卡片

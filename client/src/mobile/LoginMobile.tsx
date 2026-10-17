@@ -13,6 +13,7 @@ import {
   useAutoDismiss,
   type MobileToastItem,
 } from './components'
+import { runLoginTransition } from '../components/LoginTransition'
 
 export default function LoginMobile() {
   const navigate = useNavigate()
@@ -49,7 +50,7 @@ export default function LoginMobile() {
     try {
       const result = await login(username.trim(), password)
       setSession(result.token, result.username, result.role, remember)
-      navigate('/', { replace: true })
+      runLoginTransition(navigate)
     } catch (err) {
       setError(err instanceof Error ? err.message : '登录失败')
       setShakeKey((value) => value + 1)
@@ -161,6 +162,7 @@ export default function LoginMobile() {
           </div>
 
           <button type="submit" className="m-btn m-btn-primary m-login-submit" disabled={submitting}>
+            {submitting ? <span className="m-login-btn-spinner" aria-hidden="true" /> : null}
             {submitting ? '登录中…' : '登录'}
           </button>
         </form>

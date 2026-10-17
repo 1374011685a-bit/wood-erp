@@ -89,14 +89,14 @@ export default function HomeMobile() {
 
   if (loading && !summary) {
     return (
-      <div style={{ padding: 16 }}>
+      <div className="m-home m-home-enter" style={{ padding: 16 }}>
         <MobileSkeleton cards={2} />
       </div>
     )
   }
 
   return (
-    <div style={{ paddingBottom: 8 }}>
+    <div className="m-home m-home-enter" style={{ paddingBottom: 8 }}>
       {/* 1 渐变头 */}
       <div className="m-hero">
         <div className="m-hero-title">立川云 · 木材管理</div>

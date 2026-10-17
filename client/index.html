@@ -16,6 +16,9 @@
     <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />
     <title>立川云木材管理系统</title>
+    <script>
+      window.__woodBootStartedAt = performance.now()
+    </script>
     <!--
       启动闪屏：JS 还没下载完之前先看到 LOGO，不至于白屏一下。
       ⚠️ 样式必须内联在这儿 —— 放在 index.css 里等于是"跟主包一起到"，那就不叫闪屏了。
@@ -64,6 +67,46 @@
         <p>木材进销存管理系统</p>
       </div>
     </div>
+    <script>
+      ;(() => {
+        const splash = document.getElementById('boot-splash')
+        if (!splash) return
+        const startedAt = window.__woodBootStartedAt || performance.now()
+        const minAt = 1000
+        const maxAt = 1800
+        let removed = false
+
+        const hide = () => {
+          if (removed) return
+          removed = true
+          splash.classList.add('is-hidden')
+          const remove = () => splash.remove()
+          splash.addEventListener('transitionend', remove, { once: true })
+          window.setTimeout(remove, 240)
+        }
+
+        const waitForAppOrDeadline = () => {
+          const elapsed = performance.now() - startedAt
+          if (elapsed < minAt) {
+            window.setTimeout(waitForAppOrDeadline, minAt - elapsed)
+            return
+          }
+          const root = document.getElementById('root')
+          if ((!root || root.childElementCount === 0) && elapsed < maxAt) {
+            window.setTimeout(waitForAppOrDeadline, 50)
+            return
+          }
+          hide()
+        }
+
+        window.setTimeout(
+          waitForAppOrDeadline,
+          Math.max(0, minAt - (performance.now() - startedAt)),
+        )
+        // 硬上限：即使主包一直没到，也在 2 秒内开始淡出。
+        window.setTimeout(hide, Math.max(0, maxAt - (performance.now() - startedAt)))
+      })()
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

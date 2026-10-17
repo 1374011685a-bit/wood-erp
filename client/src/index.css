@@ -7127,6 +7127,81 @@ section > .toolbar .btn-primary {
   color: #86868b;
 }
 
+.auth-checking-fallback {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 14px;
+  background: #fff;
+  color: #86868b;
+  font: 400 14px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+}
+
+.auth-checking-fallback p {
+  margin: 0;
+}
+
+.auth-checking-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid #e5e5ea;
+  border-top-color: var(--brand);
+  animation: auth-checking-spin 0.8s linear infinite;
+}
+
+/* 登录成功 -> 首页的跨路由过渡 */
+.login-transition-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: auto;
+  background:
+    radial-gradient(80% 55% at 50% 20%, rgba(107, 74, 47, 0.07), transparent 70%),
+    linear-gradient(160deg, #f8f8fa 0%, #f1eeea 100%);
+  transition: opacity 300ms ease-out;
+}
+
+.login-transition-overlay.is-visible {
+  opacity: 1;
+}
+
+.login-transition-overlay.is-leaving {
+  opacity: 0;
+}
+
+.login-transition-content {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  color: #86868b;
+  font: 400 15px/1.4 -apple-system, BlinkMacSystemFont, 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+}
+
+.login-transition-content img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
+.login-transition-content p {
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+@keyframes auth-checking-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* 菜单项 / 可点行的按压反馈：和 .btn:active 一套逻辑，桌面也受用 */
 .entry-item:active {
   background-color: var(--panel-soft);

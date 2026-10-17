@@ -819,6 +819,22 @@
   margin-top: 20px;
 }
 
+.m-login-btn-spinner {
+  width: 16px;
+  height: 16px;
+  margin-right: 7px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: m-login-spin 0.75s linear infinite;
+}
+
+@keyframes m-login-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .m-login-notice,
 .m-login-error {
   margin: 0 0 14px;
@@ -2506,6 +2522,21 @@
   display: flex;
   flex-direction: column;
   gap: var(--s-2);
+}
+
+.m-home-enter {
+  animation: m-home-fade-in 320ms ease-out both;
+}
+
+@keyframes m-home-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .m-home .m-grid2,

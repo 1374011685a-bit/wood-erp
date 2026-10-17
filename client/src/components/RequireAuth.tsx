@@ -17,6 +17,19 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>(() =>
     getToken() ? 'checking' : 'anonymous',
   )
+  const [splashExpired, setSplashExpired] = useState(false)
+
+  useEffect(() => {
+    const startedAt = Number(
+      (window as Window & { __woodBootStartedAt?: number }).__woodBootStartedAt ??
+        performance.now(),
+    )
+    const timer = window.setTimeout(
+      () => setSplashExpired(true),
+      Math.max(0, 2000 - (performance.now() - startedAt)),
+    )
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (status !== 'checking') return
@@ -45,12 +58,21 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
     return <Navigate to="/login" replace />
   }
 
-  if (status === 'checking') {
+  if (status === 'checking' && !splashExpired) {
     /*
      * 校验登录态期间显示品牌闪屏（和 index.html 里那块同款）：
      * 用户看到的是"应用正在启动"，而不是一屏灰底 + 一行小字。
      */
     return <BootSplash />
+  }
+
+  if (status === 'checking') {
+    return (
+      <div className="auth-checking-fallback">
+        <span className="auth-checking-spinner" aria-hidden="true" />
+        <p>正在连接服务器…</p>
+      </div>
+    )
   }
 
   return <>{children}</>
