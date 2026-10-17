@@ -5,7 +5,7 @@
  * CSS 覆盖做不出大厂手感，所以这里是新写的组件，不复用桌面那几个。
  * 数值全部走第 1 刀的 token（见 mobile.css）。
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import './mobile.css'
 
@@ -48,15 +48,20 @@ export function MobileListItem({
 export function MobileCard({
   title,
   hint,
+  className,
+  style,
   children,
 }: {
   title?: string
   /** 标题后面的浅色小字（比如「明细 3 行」），比主标题轻一档 */
   hint?: ReactNode
+  /** 追加类名（首页要加 m-rise / m-todo-card 这类） */
+  className?: string
+  style?: CSSProperties
   children: ReactNode
 }) {
   return (
-    <section className="m-card">
+    <section className={className ? `m-card ${className}` : 'm-card'} style={style}>
       {title ? (
         <h2 className="m-card-title">
           {title}
@@ -525,7 +530,7 @@ export function MobileIcon({
   size = 24,
 }: {
   name: 'arrow-left' | 'search' | 'plus' | 'filter' | 'box' | 'user' | 'doc' | 'chart' | 'trash'
-  size?: 20 | 24 | 28
+  size?: 16 | 20 | 24 | 28
 }) {
   const paths: Record<string, ReactNode> = {
     'arrow-left': <path d="M14.5 5.5 8 12l6.5 6.5" />,

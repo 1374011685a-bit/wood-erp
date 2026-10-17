@@ -7,6 +7,7 @@
  */
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import type { ReactNode } from 'react'
+import { goBack } from './nav'
 
 type Tab = { to: string; label: string; icon: ReactNode }
 
@@ -70,6 +71,12 @@ const META: Record<string, { title: string; back?: string }> = {
 /** 底部 Tab 落到哪个路径 */
 const TAB_PATHS = ['/', '/documents', '/stock', '/me']
 
+/**
+ * 全屏子页面：表单页。
+ * 这类页面要 ① 隐藏底部 Tab（否则误点就丢未保存数据）② 任何 Tab 都不高亮。
+ */
+const FULLSCREEN_PATHS = ['/inbound/new', '/outbound/new']
+
 export default function MobileLayout() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -77,6 +84,7 @@ export default function MobileLayout() {
   const activeTab =
     TAB_PATHS.find((path) => path === location.pathname) ??
     (location.pathname.startsWith('/me') ? '/me' : '/')
+  const fullscreen = FULLSCREEN_PATHS.includes(location.pathname)
 
   return (
     <div className="m-shell">
@@ -87,7 +95,7 @@ export default function MobileLayout() {
               type="button"
               className="m-topbar-btn"
               aria-label="返回"
-              onClick={() => navigate(meta.back as string)}
+              onClick={() => goBack(navigate, meta.back as string)}
             >
               <svg
                 viewBox="0 0 24 24"
@@ -109,10 +117,20 @@ export default function MobileLayout() {
         <div className="m-topbar-side" data-m-topbar-actions />
       </header>
 
-      <main className="m-body">
-        <Outlet />
+      <main className={fullscreen ? 'm-body m-body-full' : 'm-body'}>
+        {/*
+          二级页从右滑入（Tab 根页面不滑：那会和底部 Tab 的瞬时切换打架）。
+          key 用 pathname，换页就重新挂载跑一遍动画。
+        */}
+        <div
+          key={location.pathname}
+          className={TAB_PATHS.includes(location.pathname) ? undefined : 'm-page-in'}
+        >
+          <Outlet />
+        </div>
       </main>
 
+      {!fullscreen && (
       <nav className="m-tabbar" aria-label="主导航">
         {TABS.map((tab) => (
           <button
@@ -136,6 +154,7 @@ export default function MobileLayout() {
           </button>
         ))}
       </nav>
+      )}
     </div>
   )
 }

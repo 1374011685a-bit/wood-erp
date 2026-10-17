@@ -46,7 +46,13 @@ export default function DocumentsMobile() {
                 title={item.label}
                 sub={item.sub}
                 icon={<MobileIcon name={item.icon} size={20} />}
-                onClick={() => navigate(item.to)}
+                onClick={() => {
+                  if (item.to === '/inbound/new') return navigate('/inbound/new')
+                  if (item.to === '/outbound/new') {
+                    return navigate('/outbound/new')
+                  }
+                  navigate(item.to)
+                }}
               />
             ))}
           </MobileList>

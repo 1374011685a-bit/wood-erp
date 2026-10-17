@@ -68,6 +68,70 @@
   padding: var(--s-3) var(--s-4) calc(72px + env(safe-area-inset-bottom));
 }
 
+/* 全屏子页面（表单）：底部没有 Tab 栏，不用留那 72px */
+.m-body-full {
+  padding-bottom: calc(var(--s-6) + env(safe-area-inset-bottom));
+}
+
+/* 表单页顶部"选方式"：页面内两个大按钮（不再是全屏弹层，返回键随时能点） */
+.m-method-card {
+  margin-bottom: var(--s-3);
+}
+
+.m-method-option {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--s-3) 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease-out;
+}
+
+.m-method-option + .m-method-option {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+
+.m-method-option:active {
+  transform: scale(0.97);
+}
+
+.m-method-picked {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+  padding: 10px var(--s-4);
+  border-radius: var(--r-12);
+  background-color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+  font-size: var(--t-13);
+  color: var(--ink-2);
+}
+
+.m-method-picked b {
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.m-method-picked button {
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: var(--t-13);
+  font-weight: 500;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
 /* ---------- 底部 Tab ---------- */
 .m-tabbar {
   position: fixed;
@@ -315,6 +379,14 @@
 
 .m-line-input:focus {
   box-shadow: 0 0 0 1px var(--action);
+}
+
+/* 锁定字段（从码单带出来、不许改的）：灰底 + 灰字 + 点不进去 */
+.m-line-input.is-locked {
+  background-color: #f2f2f7;
+  color: #86868b;
+  box-shadow: inset 0 0 0 0.5px #e3e3e8;
+  pointer-events: none;
 }
 
 .m-icon-btn {
@@ -1181,6 +1253,563 @@
   font-size: var(--t-22);
   font-weight: 600;
   margin-top: 2px;
+}
+
+/* 首页问候头：一行 15px 灰字（左对齐），头像靠右 */
+.m-hello-line {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--t-15);
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 首页数字卡：值 24px/600、标签 12px（比通用统计卡小一档） */
+.m-stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.m-stat-label {
+  font-size: 12px;
+}
+
+/* 首页卡片/宫格：间距一律 8 的倍数，卡片带轻阴影 */
+.m-home .m-card {
+  padding: var(--s-4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.m-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.m-home .m-grid2,
+.m-home .m-grid4 {
+  gap: var(--s-2);
+}
+
+.m-tile span {
+  font-size: 10px;
+}
+
+/* 经营看板：走势 / 构成 一张卡切换 */
+.m-board-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  margin-bottom: var(--s-3);
+}
+
+/* 时间线 */
+.m-timeline {
+  position: relative;
+  padding-left: 4px;
+}
+
+.m-tl-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s-3);
+  width: 100%;
+  padding: var(--s-2) 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.m-tl-dot {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background-color: var(--bg-2);
+  color: var(--brand);
+}
+
+.m-tl-dot svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* 竖线：除最后一个，都从圆点往下连一段 */
+.m-tl-item:not(:last-child) .m-tl-dot::after {
+  content: '';
+  position: absolute;
+  top: 34px;
+  left: 13px;
+  width: 2px;
+  height: calc(100% - 26px);
+  background-color: var(--line);
+}
+
+.m-tl-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.m-tl-title {
+  display: block;
+  font-size: var(--t-15);
+  font-weight: 500;
+  color: var(--ink-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-tl-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-tl-time {
+  flex: 0 0 auto;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 二级页从左滑入（Tab 根页面不滑，避免和底部 Tab 打架） */
+.m-page-in {
+  animation: m-slide-in 280ms var(--ease-out);
+}
+
+@keyframes m-slide-in {
+  from {
+    transform: translateX(24%);
+    opacity: 0.4;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 可点元素统一按压反馈（100ms / 0.97） */
+.m-todo:active,
+.m-money:active,
+.m-tl-item:active,
+.m-row-check:active {
+  transform: scale(0.97);
+  transition: transform 0.1s ease-out;
+}
+
+/* 页面底（浅灰）—— 新增 token，不动 --bg-2（那是输入框/按钮的填充灰） */
+:root {
+  --bg-page: #f7f7f9;
+}
+
+.m-shell {
+  background-color: #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #1d1d1f;
+}
+
+/* ============ 首页精修：渐变头 / 大图表卡 / 分组宫格 ============ */
+
+/* 1 顶部渐变头：通透的深棕，不是闷棕 */
+.m-hero {
+  /* 安全区 + 24 顶部留白，底部多留 56 给上浮的图表卡 */
+  padding: calc(24px + env(safe-area-inset-top)) 20px 56px;
+  /* 通透的品牌棕 + 右上角一层白色径向反光（玻璃质感） */
+  background-image:
+    radial-gradient(120% 80% at 100% 0%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0) 55%),
+    linear-gradient(135deg, #6b4a2f 0%, #a67b5b 100%);
+  border-radius: 0 0 24px 24px;
+  color: #fff;
+}
+
+.m-hero-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 16px;
+}
+
+.m-hero-stats {
+  display: flex;
+  align-items: center;
+}
+
+.m-hero-stat {
+  flex: 1;
+  position: relative;
+}
+
+/* 中间那条分隔线：固定 32px 高、垂直居中 */
+.m-hero-stat + .m-hero-stat {
+  padding-left: 20px;
+}
+
+.m-hero-stat + .m-hero-stat::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 32px;
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.m-hero-label {
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.m-hero-value {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.m-hero-value small {
+  margin-left: 3px;
+  font-size: 12px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* 2 大图表卡：上浮压住渐变 + 软阴影 */
+.m-chart-card {
+  margin: -40px 20px 0;
+  padding: 20px;
+  background-color: #ffffff;
+  border-radius: 16px;
+  /* 多层弥散阴影：近处一层很淡、远处一层更淡 —— 卡片"浮"起来而不是"贴"上去 */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+}
+
+.m-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.m-chart-title {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+/* 柱子用渐变，不要一坨纯色 */
+.m-bar {
+  background-image: linear-gradient(180deg, #8a6244 0%, #6b4a2f 100%);
+  opacity: 1;
+  border-radius: 4px 4px 0 0;
+  max-width: 26px;
+}
+
+/* 极淡的横向网格线（三档），让柱子有"落点" */
+.m-bars {
+  gap: 10px;
+  background-image: linear-gradient(
+    to top,
+    #f2f2f7 0,
+    #f2f2f7 1px,
+    transparent 1px,
+    transparent 33.33%,
+    #f2f2f7 33.33%,
+    #f2f2f7 calc(33.33% + 1px),
+    transparent calc(33.33% + 1px),
+    transparent 66.66%,
+    #f2f2f7 66.66%,
+    #f2f2f7 calc(66.66% + 1px),
+    transparent calc(66.66% + 1px),
+    transparent 100%
+  );
+}
+
+/* 图表空态：一句灰字 + 极简线条图 */
+.m-chart-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 160px;
+  color: #86868b;
+  font-size: 13px;
+}
+
+.m-chart-empty svg {
+  width: 56px;
+  height: 56px;
+  color: #d1d1d6;
+}
+
+/* 段控选中态：主色 10% 底 + 主色字（不用白底） */
+.m-seg-item.is-on {
+  background-color: rgba(107, 74, 47, 0.1);
+  color: var(--brand);
+  font-weight: 600;
+}
+
+/* 3 分组标题：拉开间距、用柔和黑 */
+.m-group {
+  margin-top: 32px;
+}
+
+.m-group:first-of-type {
+  margin-top: 24px;
+}
+
+.m-group-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  padding: 0 20px;
+}
+
+/* 苹果那种"点"：6px 宽的主色圆角竖条 */
+.m-group-title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background-image: linear-gradient(180deg, #8a6244, #6b4a2f);
+}
+
+.m-group-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 0 20px;
+}
+
+.m-group-grid.is-two {
+  grid-template-columns: repeat(2, 1fr);
+  padding-right: 40%;
+}
+
+/* 4 彩色宫格：极淡同色底 + 同色深图标 + 同色微阴影 */
+.m-app-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  /* 方案二：彩色渐变方块 + 纯白图标 + 同色微光 */
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 16px;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform 0.1s ease-out;
+}
+
+.m-app-icon:active {
+  transform: scale(0.97);
+}
+
+.m-app-icon i {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  box-shadow: 0 6px 16px var(--tile-glow, rgba(0, 0, 0, 0.14));
+}
+
+.m-app-icon svg {
+  width: 28px;
+  height: 28px;
+  color: #ffffff;
+}
+
+.m-app-icon span {
+  font-size: 11px;
+  color: #1d1d1f;
+}
+
+/* 每个模块的渐变色 + 同色光晕 */
+.m-app-icon.is-orange i {
+  background-image: linear-gradient(135deg, #ff9f0a, #ffb340);
+  --tile-glow: rgba(255, 159, 10, 0.35);
+}
+
+.m-app-icon.is-red i {
+  background-image: linear-gradient(135deg, #ff453a, #ff6b5a);
+  --tile-glow: rgba(255, 69, 58, 0.32);
+}
+
+.m-app-icon.is-green i {
+  background-image: linear-gradient(135deg, #30d158, #5ae17b);
+  --tile-glow: rgba(48, 209, 88, 0.32);
+}
+
+.m-app-icon.is-blue i {
+  background-image: linear-gradient(135deg, #0a84ff, #5ac8fa);
+  --tile-glow: rgba(10, 132, 255, 0.32);
+}
+
+.m-app-icon.is-indigo i {
+  background-image: linear-gradient(135deg, #5e5ce6, #7d7aff);
+  --tile-glow: rgba(94, 92, 230, 0.32);
+}
+
+/* C 功能卡片化：每组一张白卡 */
+.m-mod-card {
+  margin: 24px 20px 0;
+  padding: 20px;
+  border-radius: 16px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+}
+
+.m-mod-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+  margin-bottom: 16px;
+}
+
+.m-mod-title::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 2px;
+  background-image: linear-gradient(180deg, #8a6244, #6b4a2f);
+}
+
+.m-mod-row {
+  display: flex;
+  gap: 16px;
+}
+
+.m-mod-row .m-app-icon {
+  flex: 0 0 64px;
+}
+
+/* D 图表空态：一组灰色骨架柱，而不是一根平线 */
+.m-chart-skeleton {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 160px;
+  padding-bottom: 8px;
+}
+
+.m-chart-skeleton span {
+  flex: 1;
+  max-width: 26px;
+  border-radius: 4px 4px 0 0;
+  background-color: #f2f2f7;
+}
+
+/* 5 底部灰字（应收 / 应付） */
+.m-foot-note {
+  display: block;
+  margin: 24px auto;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  font-size: 11px;
+  color: #86868b;
+  text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+/* 通用卡片也走同一套弥散阴影（列表/表单页共用） */
+.m-card {
+  border-radius: 16px;
+  padding: 20px;
+  background-color: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+}
+
+/* 卡片标题：15 / 600 / 苹果黑 */
+.m-card-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+/* 字段名 / 辅助文字：12 / 400 / --ink-4 那档灰 */
+.m-line-label,
+.m-field-label,
+.m-stat-label,
+.m-item-sub {
+  font-size: 12px;
+  font-weight: 400;
+  color: #86868b;
+}
+
+/* 待办卡：带边框（不靠阴影分层） */
+.m-todo-card {
+  border: 0.5px solid var(--line);
+  box-shadow: none;
+}
+
+/* 时间线图标的状态色：入库绿 / 出库橙 / 其它蓝 */
+.m-tl-dot.is-in {
+  background-color: rgba(52, 199, 89, 0.14);
+  color: #1c7c3a;
+}
+
+.m-tl-dot.is-out {
+  background-color: rgba(255, 149, 0, 0.16);
+  color: #a15c00;
+}
+
+.m-tl-dot.is-other {
+  background-color: rgba(0, 113, 227, 0.12);
+  color: var(--action);
+}
+
+/* 卡片错峰上浮淡入（最多 8 项，30~40ms/项） */
+.m-rise {
+  animation: m-rise 320ms var(--ease-out) both;
+}
+
+@keyframes m-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-rise,
+  .m-page-in {
+    animation: none;
+  }
 }
 
 /* ---------- 待办 ---------- */

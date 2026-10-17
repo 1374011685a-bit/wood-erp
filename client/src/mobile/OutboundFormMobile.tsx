@@ -17,6 +17,7 @@ import {
 import { todayISO, toNumber, formatCubic } from '../utils/num'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
+import { goBack } from './nav'
 import {
   MobileCard,
   MobileEmpty,
@@ -266,20 +267,31 @@ export default function OutboundFormMobile() {
                   {row.baleNo}
                   <span className="m-line-sub">{row.spec}</span>
                 </span>
-                <div className="m-line-grid">
+                {/* 片数 / 立方 锁定 + 单价可填 + 移除：四格 */}
+                <div className="m-line-grid m-line-grid-4">
+                  {/*
+                    P0：从码单带出来的片数**锁死**。整包出库，件数=包内件数、片数=包内片数，
+                    能不能对得上账全靠这两个数不能被改；要改只能去「改包」或撤销出库。
+                    pointer-events:none 让点击连聚焦都进不去。
+                  */}
                   <label className="m-line-field">
-                    <span className="m-line-label">片数 / 件数</span>
+                    <span className="m-line-label">片数（锁定）</span>
                     <input
-                      className="m-line-input"
-                      inputMode="numeric"
+                      className="m-line-input is-locked"
                       value={row.pieces}
-                      onChange={(event) =>
-                        setRows((prev) =>
-                          prev.map((item) =>
-                            item.key === row.key ? { ...item, pieces: event.target.value } : item,
-                          ),
-                        )
-                      }
+                      readOnly
+                      tabIndex={-1}
+                      aria-readonly="true"
+                    />
+                  </label>
+                  <label className="m-line-field">
+                    <span className="m-line-label">立方（锁定）</span>
+                    <input
+                      className="m-line-input is-locked"
+                      value={row.cubic.toFixed(4)}
+                      readOnly
+                      tabIndex={-1}
+                      aria-readonly="true"
                     />
                   </label>
                   <label className="m-line-field">
@@ -341,7 +353,7 @@ export default function OutboundFormMobile() {
         <button
           type="button"
           className="m-btn m-btn-ghost"
-          onClick={() => navigate('/outbound')}
+          onClick={() => goBack(navigate, '/outbound')}
         >
           取消
         </button>

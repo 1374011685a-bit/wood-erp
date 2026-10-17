@@ -17,6 +17,7 @@ import {
 import { todayISO, toNumber } from '../utils/num'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
+import { goBack } from './nav'
 import {
   MobileCard,
   MobileEmpty,
@@ -73,6 +74,8 @@ export default function InboundFormMobile() {
   const navigate = useNavigate()
   useKeyboardScroll(true)
   const [methodOpen, setMethodOpen] = useState(true)
+  /** 已经选好的录入方式（direct=按提单 / contract=按合同），选完收起选择区 */
+  const [method, setMethod] = useState<'direct' | 'contract' | null>(null)
   const [supplier, setSupplier] = useState('')
   const [orderDate, setOrderDate] = useState(todayISO())
   const [blNo, setBlNo] = useState('')
@@ -300,6 +303,51 @@ export default function InboundFormMobile() {
           }}
         />
       </MobileTopbarActions>
+
+      {/* 选方式：页面内两个大按钮（不是全屏弹层 —— 顶栏返回键要随时能点） */}
+      {methodOpen || !method ? (
+        <MobileCard title="这批货怎么录？" className="m-method-card">
+          <button
+            type="button"
+            className="m-method-option"
+            onClick={() => {
+              setMethod('contract')
+              setMethodOpen(false)
+              setContractKeyword('')
+              setContractOpen(true)
+            }}
+          >
+            <span className="m-item-main">
+              <span className="m-item-title">按采购合同入库</span>
+              <span className="m-item-sub">从合同带出供应商和合同号</span>
+            </span>
+            <span className="m-item-trail">›</span>
+          </button>
+          <button
+            type="button"
+            className="m-method-option"
+            onClick={() => {
+              setMethod('direct')
+              setMethodOpen(false)
+            }}
+          >
+            <span className="m-item-main">
+              <span className="m-item-title">按提单直接入库</span>
+              <span className="m-item-sub">散货 / 没挂合同的，直接填提单号</span>
+            </span>
+            <span className="m-item-trail">›</span>
+          </button>
+        </MobileCard>
+      ) : (
+        <div className="m-method-picked">
+          <span>
+            本次录入：<b>{method === 'contract' ? '按采购合同入库' : '按提单直接入库'}</b>
+          </span>
+          <button type="button" onClick={() => setMethodOpen(true)}>
+            换方式
+          </button>
+        </div>
+      )}
 
       <MobileCard title="基本信息">
         {formError && !Object.keys(rowErrors).length ? (
@@ -549,36 +597,14 @@ export default function InboundFormMobile() {
         >
           保存并继续
         </button>
-        <button type="button" className="m-btn m-btn-ghost" onClick={() => navigate('/inbound')}>
+        <button
+          type="button"
+          className="m-btn m-btn-ghost"
+          onClick={() => goBack(navigate, '/inbound')}
+        >
           取消
         </button>
       </div>
-
-      {/* 选方式（甲：底部 sheet，进来就弹） */}
-      <MobileSheet open={methodOpen} title="这批货怎么录？" onClose={() => setMethodOpen(false)}>
-        <button
-          type="button"
-          className="m-row-check"
-          onClick={() => {
-            setMethodOpen(false)
-            setContractKeyword('')
-            setContractOpen(true)
-          }}
-        >
-          <span className="m-item-main">
-            <span className="m-item-title">按采购合同入库</span>
-            <span className="m-item-sub">从合同带出供应商和合同号</span>
-          </span>
-          <span className="m-item-trail">›</span>
-        </button>
-        <button type="button" className="m-row-check" onClick={() => setMethodOpen(false)}>
-          <span className="m-item-main">
-            <span className="m-item-title">按提单直接入库</span>
-            <span className="m-item-sub">散货 / 没挂合同的，直接填提单号</span>
-          </span>
-          <span className="m-item-trail">›</span>
-        </button>
-      </MobileSheet>
 
       {/* 选合同 */}
       <MobileSheet open={contractOpen} title="选采购合同" onClose={() => setContractOpen(false)}>
