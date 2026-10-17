@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
 const PREFIX = 'wood-mobile-scroll:'
 
@@ -23,12 +23,12 @@ export function useMobileScrollMemory(key: string, ready = true) {
   const restoredRef = useRef(false)
   const rafRef = useRef(0)
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     restoredRef.current = false
     if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
   }, [key])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!ready || restoredRef.current) return
     restoredRef.current = true
     const top = readScroll(key)
@@ -46,6 +46,8 @@ export function useMobileScrollMemory(key: string, ready = true) {
 
   useEffect(() => {
     const onScroll = () => {
+      // 路由切换时会瞬时把新页面滚到顶部；这不是用户操作，不能覆盖旧位置。
+      if (document.documentElement.dataset.mNav) return
       if (rafRef.current) return
       rafRef.current = requestAnimationFrame(() => {
         rafRef.current = 0
@@ -53,10 +55,18 @@ export function useMobileScrollMemory(key: string, ready = true) {
       })
     }
     window.addEventListener('scroll', onScroll, { passive: true })
+    const saveBeforeLeave = () => saveScroll(key, window.scrollY)
+    window.addEventListener('pagehide', saveBeforeLeave)
+    window.addEventListener('beforeunload', saveBeforeLeave)
     return () => {
       window.removeEventListener('scroll', onScroll)
+      window.removeEventListener('pagehide', saveBeforeLeave)
+      window.removeEventListener('beforeunload', saveBeforeLeave)
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      saveScroll(key, window.scrollY)
+      /*
+       * 这里绝对不能再 saveScroll(key, window.scrollY)：
+       * 路由切走时 DOM 已经滚到新页顶部，会把刚记下的旧位置覆盖成 0。
+       */
     }
   }, [key])
 }

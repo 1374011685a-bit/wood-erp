@@ -3,6 +3,7 @@ import { useRole } from '../hooks/useRole'
 import { canVisit } from '../permissions'
 import { MobileCard, MobileIcon, MobileList, MobileListItem } from './components'
 import { useMobileNavigate } from './useMobileNavigate'
+import { useMobileScrollMemory } from './useMobileScrollMemory'
 
 const GROUPS: Array<{
   title: string
@@ -38,6 +39,7 @@ const GROUPS: Array<{
 export default function DocumentsMobile() {
   const navigate = useMobileNavigate()
   const role = useRole()
+  useMobileScrollMemory('/documents')
   return (
     <div className="m-stack">
       {GROUPS.map((group) => (

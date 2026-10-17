@@ -8,6 +8,7 @@ import {
 } from 'react-router-dom'
 
 const TAB_PATHS = new Set(['/', '/documents', '/stock', '/me'])
+let navSequence = 0
 
 const targetPath = (to: To | number) => {
   if (typeof to === 'number') return ''
@@ -30,7 +31,9 @@ export function useMobileNavigate(): NavigateFunction {
             ? 'tab'
             : 'forward'
 
+      const sequence = String((navSequence += 1))
       document.documentElement.dataset.mNav = direction
+      document.documentElement.dataset.mNavSeq = sequence
       const result = (navigate as unknown as (
         target: To | number,
         opts?: NavigateOptions,
@@ -39,8 +42,9 @@ export function useMobileNavigate(): NavigateFunction {
         viewTransition: true,
       })
       window.setTimeout(() => {
-        if (document.documentElement.dataset.mNav === direction) {
+        if (document.documentElement.dataset.mNavSeq === sequence) {
           delete document.documentElement.dataset.mNav
+          delete document.documentElement.dataset.mNavSeq
         }
       }, 380)
       return result
