@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   deleteContract,
   fetchContractDetail,
+  fetchContractPicker,
   fetchContracts,
   formatFileSize,
   openContractFile,
   saveContract,
   type ContractDetail,
+  type ContractPickerRow,
   type ContractRow,
 } from '../api'
 import {
@@ -18,10 +20,12 @@ import {
   ToastHost,
 } from '../components/Ui'
 import { toNumber, formatAmount, todayLocal } from '../utils/num'
+import { contractStage } from '../utils/contractStatus'
 import { readListCache, writeListCache } from '../utils/listCache'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
+import SuccessToast from '../components/SuccessToast'
 
 const PAGE_SIZE = 20
 
@@ -69,12 +73,14 @@ export default function Contracts() {
   const canWrite = can(useRole(), 'contract.write')
 
   const [rows, setRows] = useState<ContractRow[]>([])
+  const [stageRows, setStageRows] = useState<Record<string, ContractPickerRow>>({})
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
   const [loading, setLoading] = useState(false)
   /** 有缓存时后台静默刷新中 */
   const [refreshing, setRefreshing] = useState(false)
   const [notice, setNotice] = useState('')
+  const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
   const [error, setError] = useState('')
   // 查看（只读）弹层：明细要另拉一次详情接口
   const [viewing, setViewing] = useState<ContractDetail | null>(null)
@@ -138,6 +144,20 @@ export default function Contracts() {
   useEffect(() => {
     void load(filters, offset)
   }, [load, filters, offset, reloadToken])
+
+  useEffect(() => {
+    let cancelled = false
+    void fetchContractPicker({ limit: 1000 })
+      .then((result) => {
+        if (!cancelled) {
+          setStageRows(Object.fromEntries(result.rows.map((row) => [row.contract_no, row])))
+        }
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [reloadToken])
 
   const handleSearch = () => {
     setOffset(0)
@@ -251,6 +271,10 @@ export default function Contracts() {
       await saveContract(payload, editing?.id)
       setSheetOpen(false)
       setNotice(editing ? `已保存合同 ${contractNo}` : `已上传合同 ${contractNo}`)
+      setSuccess({
+        title: '已录入',
+        subtitle: `合同号 ${contractNo} 保存成功`,
+      })
       setOffset(0)
       setReloadToken((n) => n + 1)
     } catch (err) {
@@ -322,6 +346,12 @@ export default function Contracts() {
             : null,
         ]}
       />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => setSuccess(null)}
+      />
 
       <div className="toolbar">
         <input
@@ -372,6 +402,7 @@ export default function Contracts() {
               <th>名称</th>
               <th>往来单位</th>
               <th>签订日期</th>
+              <th>状态</th>
               {money && <th className="num">金额</th>}
               <th>文件</th>
               <th>操作</th>
@@ -384,6 +415,19 @@ export default function Contracts() {
                 <td>{row.title || '—'}</td>
                 <td>{row.partner || '—'}</td>
                 <td>{row.sign_date}</td>
+                <td>
+                  {(() => {
+                    const progress = stageRows[row.contract_no]
+                    const stage = progress
+                      ? contractStage(progress)
+                      : { label: '已录入' as const, tone: 'neutral' as const }
+                    return (
+                      <span className={`tag tag-status tag-status-${stage.tone === 'success' ? 'done' : stage.tone}`}>
+                        {stage.label}
+                      </span>
+                    )
+                  })()}
+                </td>
                 {money && <td className="num amount">{formatAmount(row.amount)}</td>}
                 <td>
                   {row.has_file ? (
@@ -670,7 +714,24 @@ export default function Contracts() {
         <div className="overlay" onClick={() => setViewing(null)}>
           <div className="modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-head">
-              <h2 className="modal-title">合同详情：{viewing.contract_no}</h2>
+              <h2 className="modal-title">
+                合同详情：{viewing.contract_no}
+                {(() => {
+                  const progress = stageRows[viewing.contract_no]
+                  const stage = progress
+                    ? contractStage(progress)
+                    : { label: '已录入' as const, tone: 'neutral' as const }
+                  return (
+                    <span
+                      className={`tag tag-status tag-detail-status tag-status-${
+                        stage.tone === 'success' ? 'done' : stage.tone
+                      }`}
+                    >
+                      {stage.label}
+                    </span>
+                  )
+                })()}
+              </h2>
               <div className="modal-actions">
                 {viewing.has_file && (
                   <button

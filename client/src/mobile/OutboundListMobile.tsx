@@ -13,6 +13,8 @@ import {
   type OutboundListItem,
 } from '../api'
 import { formatCubic, formatAmount } from '../utils/num'
+import { seesMoney } from '../permissions'
+import { useRole } from '../hooks/useRole'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import {
   MobileEmpty,
@@ -21,6 +23,7 @@ import {
   MobileSearchBar,
   MobileSheet,
   MobileSkeleton,
+  MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
   MobileTopbarButton,
@@ -33,6 +36,7 @@ const EMPTY_FILTERS = { date_from: '', date_to: '', customer: '' }
 
 export default function OutboundListMobile() {
   const navigate = useNavigate()
+  const money = seesMoney(useRole())
   const [keyword, setKeyword] = useState('')
   const [debounced, setDebounced] = useState('')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
@@ -158,8 +162,13 @@ export default function OutboundListMobile() {
                 key={row.id}
                 dense
                 title={row.order_no}
-                sub={`${row.customer || '—'} · ${formatCubic(row.total_cubic)} m³ · ${row.item_count} 行`}
-                trail={row.order_date?.slice(5) ?? ''}
+                sub={`${row.customer || '—'} · ${row.warehouse || '—'}${row.operator ? ` · ${row.operator}` : ''} · ${formatCubic(row.total_cubic)} m³ · ${row.item_count} 行`}
+                trail={
+                  <span className="m-list-trail-stack">
+                    <span>{row.order_date?.slice(5) ?? ''}</span>
+                    <MobileStatusTag tone="info">已出库</MobileStatusTag>
+                  </span>
+                }
                 onClick={() => void openDetail(row.id)}
               />
             ))}
@@ -184,25 +193,88 @@ export default function OutboundListMobile() {
       <MobileSheet
         open={Boolean(detail) || detailLoading}
         title={detail ? detail.order_no : '加载中…'}
+        titleExtra={
+          detail ? (
+            <MobileStatusTag tone="info" large>
+              已出库
+            </MobileStatusTag>
+          ) : undefined
+        }
         onClose={() => setDetail(null)}
       >
         {detail ? (
           <>
             <div className="m-rows">
               {[
+                ['单号', detail.order_no],
                 ['客户', detail.customer || '—'],
                 ['出库日期', detail.order_date || '—'],
                 ['仓库', detail.warehouse || '—'],
+                ['操作员', detail.operator || '—'],
+                ['车号', detail.vehicle_no || '—'],
+                ['创建时间', detail.created_at || '—'],
+                ['备注', detail.remark || '—'],
                 ['码单数', `${detail.bales.length} 包`],
-                ['总立方', `${formatCubic(detail.total_cubic)} m³`, true],
-                ['总金额', `${formatAmount(detail.total_amount)} 元`, true],
                 ['明细行数', String(detail.items.length)],
+                ['总立方', `${formatCubic(detail.total_cubic)} m³`, true],
+                ...(money ? [['总金额', `${formatAmount(detail.total_amount)} 元`, true]] : []),
               ].map(([label, value, isNum]) => (
                 <div className="m-row" key={label as string}>
                   <span className="m-row-label">{label as string}</span>
                   <span className={isNum ? 'm-row-value is-num' : 'm-row-value'}>
                     {value as string}
                   </span>
+                </div>
+              ))}
+            </div>
+
+            <h3 className="m-detail-title">商品明细</h3>
+            <div className="m-outbound-detail-list">
+              {detail.items.map((item) => {
+                const baleNo =
+                  item.bale_no || (Array.isArray(item.bale_labels) ? item.bale_labels.join('、') : '')
+                const spec = `${item.thickness}×${item.width}×${item.length}`
+                return (
+                  <div className="m-outbound-detail-card" key={item.id}>
+                    <div className="m-outbound-detail-head">
+                      <b>包号 {baleNo || '—'}</b>
+                      <span>条码 —</span>
+                    </div>
+                    <p>品牌 {item.brand || '—'}</p>
+                    <p>品名 {item.species || '—'} · 等级 {item.grade || '—'}</p>
+                    <p>
+                      规格 {spec} · 片数 {item.pieces} · 件数 {item.bundles} · 立方{' '}
+                      {formatCubic(item.cubic)} m³
+                    </p>
+                    {money ? (
+                      <p>
+                        单价 {formatAmount(item.unit_price)} 元 · 金额{' '}
+                        {formatAmount(item.amount)} 元
+                      </p>
+                    ) : null}
+                    <p>
+                      当前库存 {formatCubic(item.stock_cubic ?? 0)} m³ /{' '}
+                      {item.stock_bundles ?? 0} 件
+                    </p>
+                  </div>
+                )
+              })}
+            </div>
+
+            <h3 className="m-detail-title">本次发出的码单</h3>
+            <div className="m-outbound-detail-list">
+              {detail.bales.map((bale) => (
+                <div className="m-outbound-detail-card" key={bale.barcode || bale.bale_no}>
+                  <div className="m-outbound-detail-head">
+                    <b>包号 {bale.bale_no || '—'}</b>
+                    <span>{bale.status === 'shipped' ? '已出库' : bale.status || '—'}</span>
+                  </div>
+                  <p>条码 {bale.barcode || '—'}</p>
+                  <p>提单 {bale.bl_no || '—'} · 合同 {bale.contract_no || '—'}</p>
+                  <p>
+                    规格 {bale.thickness}×{bale.width}×{bale.length_text ?? bale.length} ·{' '}
+                    {bale.pieces_text ?? bale.pieces} 片 · {formatCubic(bale.cubic)} m³
+                  </p>
                 </div>
               ))}
             </div>

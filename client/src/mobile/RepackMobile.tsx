@@ -20,6 +20,7 @@ import { formatAmount, formatCubic, roundTo, todayISO, toNumber } from '../utils
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { goBack } from './nav'
+import SuccessToast from '../components/SuccessToast'
 import {
   MobileCard,
   MobileDatePicker,
@@ -203,6 +204,11 @@ export default function RepackMobile() {
   const [undoTarget, setUndoTarget] = useState<RepackRow | null>(null)
   const [undoing, setUndoing] = useState(false)
   const [toast, setToast] = useState<MobileToastItem | null>(null)
+  const [success, setSuccess] = useState<{
+    title: string
+    subtitle: string
+    toList: boolean
+  } | null>(null)
   useAutoDismiss(toast, () => setToast(null))
 
   const [pickerOpen, setPickerOpen] = useState(false)
@@ -505,18 +511,18 @@ export default function RepackMobile() {
       })
       setConfirm(null)
       setReloadToken((value) => value + 1)
+      const sourceNames = pickedBales.map((bale) => bale.bale_no || bale.barcode).join('、')
+      const operation =
+        pickedBales.length > 1 ? '合并' : result.bale_count > 1 ? '拆分' : '调整'
       setPickedBales([])
       setRows(blankRows())
       setSummary('')
       setRemark('')
-      if (continueAfter) {
-        setToast({
-          id: `saved-${Date.now()}`,
-          message: `已保存 ${result.repack_no}，可以接着改下一包`,
-        })
-      } else {
-        navigate('/repack', { replace: true })
-      }
+      setSuccess({
+        title: '已改包',
+        subtitle: `原包 ${sourceNames || '—'} 已完成${operation}`,
+        toList: !continueAfter,
+      })
     } catch (err) {
       setToast({
         id: `save-${Date.now()}`,
@@ -909,6 +915,16 @@ export default function RepackMobile() {
         />
 
         <MobileToastHost items={[toast]} />
+        <SuccessToast
+          open={Boolean(success)}
+          title={success?.title ?? ''}
+          subtitle={success?.subtitle ?? ''}
+          onDone={() => {
+            const goList = Boolean(success?.toList)
+            setSuccess(null)
+            if (goList) navigate('/repack', { replace: true })
+          }}
+        />
       </div>
     )
   }

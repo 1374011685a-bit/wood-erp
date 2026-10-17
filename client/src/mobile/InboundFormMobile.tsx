@@ -20,6 +20,7 @@ import { todayISO, toNumber } from '../utils/num'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { goBack } from './nav'
+import SuccessToast from '../components/SuccessToast'
 import {
   MobileCard,
   MobileEmpty,
@@ -91,6 +92,11 @@ export default function InboundFormMobile() {
   const [formError, setFormError] = useState('')
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<MobileToastItem | null>(null)
+  const [success, setSuccess] = useState<{
+    title: string
+    subtitle: string
+    toList: boolean
+  } | null>(null)
   useAutoDismiss(toast, () => setToast(null))
 
   const [contractOpen, setContractOpen] = useState(false)
@@ -298,12 +304,17 @@ export default function InboundFormMobile() {
         setRows([emptyRow()])
         setRowErrors({})
         setRemark('')
-        setToast({
-          id: `ok-${Date.now()}`,
-          message: `已保存入库单 ${result.order_no}，可以接着录下一张`,
+        setSuccess({
+          title: '已入库',
+          subtitle: `入库单 ${result.order_no} 保存成功`,
+          toList: false,
         })
       } else {
-        navigate('/inbound', { replace: true })
+        setSuccess({
+          title: '已入库',
+          subtitle: `入库单 ${result.order_no} 保存成功`,
+          toList: true,
+        })
       }
     } catch (err) {
       setToast({ id: `e-${Date.now()}`, message: err instanceof Error ? err.message : '保存失败' })
@@ -677,6 +688,16 @@ export default function InboundFormMobile() {
       </MobileSheet>
 
       <MobileToastHost items={[toast]} />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => {
+          const goList = Boolean(success?.toList)
+          setSuccess(null)
+          if (goList) navigate('/inbound', { replace: true })
+        }}
+      />
     </div>
   )
 }

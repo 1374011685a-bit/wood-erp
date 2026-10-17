@@ -2400,6 +2400,161 @@ section > .toolbar .btn-primary {
   border-color: rgba(0, 113, 227, 0.22);
 }
 
+.tag-status {
+  padding: 1px 7px;
+  border-radius: 6px;
+  border-color: transparent;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.tag-status-in,
+.tag-status-done {
+  color: #1c7c3a;
+  background: rgba(52, 199, 89, 0.12);
+}
+
+.tag-status-out,
+.tag-status-progress {
+  color: #1d4ed8;
+  background: rgba(0, 113, 227, 0.1);
+}
+
+.tag-status-neutral {
+  color: #636366;
+  background: rgba(142, 142, 147, 0.13);
+}
+
+.tag-detail-status {
+  margin-left: 10px;
+  padding: 4px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  vertical-align: 3px;
+}
+
+/* 保存成功的大号全局提示 */
+.success-toast-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  animation: success-overlay-in 180ms ease-out;
+}
+
+.success-toast-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(286px, 82vw);
+  padding: 20px;
+  border-radius: 18px;
+  background: rgba(30, 30, 32, 0.84);
+  border: 0.5px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.26);
+  backdrop-filter: blur(24px) saturate(150%);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  animation: success-box-in 280ms cubic-bezier(0.2, 0.8, 0.2, 1.15);
+}
+
+.success-toast-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+
+.success-toast-icon svg {
+  width: 27px;
+  height: 27px;
+}
+
+.success-toast-copy {
+  min-width: 0;
+}
+
+.success-toast-copy b {
+  display: block;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.success-toast-copy small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.success-toast-overlay.is-closing {
+  animation: success-overlay-out 220ms ease-in forwards;
+}
+
+.success-toast-overlay.is-closing .success-toast-box {
+  animation: success-box-out 220ms ease-in forwards;
+}
+
+@keyframes success-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes success-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes success-box-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes success-box-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+.bales-table tbody tr {
+  cursor: pointer;
+}
+
+.bales-table input[type='checkbox'] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.bales-table tbody tr.is-picked td,
+.bales-table tbody tr.is-picked:hover td {
+  background-color: rgba(107, 74, 47, 0.07);
+}
+
 /*
  * 混提单：这一票「现在」的立方和「原」不一样 —— 用橙字点出来（状态色，不是品牌色）。
  * 橙得比 tag 深一点，14px 数字在白底上才看得清。

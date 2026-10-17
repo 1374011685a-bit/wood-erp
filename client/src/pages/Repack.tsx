@@ -31,6 +31,7 @@ import { isNetworkError } from '../utils/network'
 import { readRecentSpecs, rememberSpecs, type RecentSpec } from '../utils/recentSpecs'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
+import SuccessToast from '../components/SuccessToast'
 
 const PAGE_SIZE = 20
 
@@ -235,6 +236,7 @@ export default function Repack() {
   const [recentSpecs, setRecentSpecs] = useState<RecentSpec[]>(() => readRecentSpecs())
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
 
   const [list, setList] = useState<RepackRow[]>([])
   const [sums, setSums] = useState<RepackSums | null>(null)
@@ -880,6 +882,11 @@ export default function Repack() {
             : `已拆包 ${result.repack_no}：原包消失，拆成 ${result.bale_count} 个新包`
           : `已改包 ${result.repack_no}，库存已按新规格同步`,
       )
+      const sourceNames = pickedBales.map((one) => one.bale_no || one.barcode).join('、')
+      setSuccess({
+        title: '已改包',
+        subtitle: `原包 ${sourceNames || '—'} 已完成${merged ? '合并' : split ? '拆分' : '调整'}`,
+      })
       setBaleIds([])
       setRows(blankRows())
       setBeforePrices({})
@@ -1170,6 +1177,12 @@ export default function Repack() {
               }
             : null,
         ]}
+      />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => setSuccess(null)}
       />
 
       <datalist id="repack-species">

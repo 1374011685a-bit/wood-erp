@@ -1001,16 +1001,86 @@
 .m-bale-row .m-check-box {
   flex: 0 0 22px;
   margin-top: 2px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.m-bale-row.is-on .m-check-box {
+  color: #fff;
+  background: var(--brand);
+  box-shadow: none;
+}
+
+.m-bale-row:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: -2px;
 }
 
 .m-bale-main {
   flex: 1;
   min-width: 0;
+  display: block;
   border: 0;
   background: none;
   padding: 0;
   font-family: inherit;
   text-align: left;
+}
+
+.m-bale-detail {
+  align-self: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 36px;
+  border: 0;
+  border-radius: var(--r-10);
+  background: transparent;
+  color: var(--ink-3);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.m-outbound-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.m-outbound-detail-card {
+  padding: 12px;
+  border-radius: var(--r-12);
+  background: var(--bg-2);
+}
+
+.m-outbound-detail-card p {
+  margin: 5px 0 0;
+  font-size: var(--t-13);
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+
+.m-outbound-detail-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.m-outbound-detail-head b {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--t-15);
+  font-weight: 600;
+  color: var(--ink-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-outbound-detail-head span {
+  flex: 0 0 auto;
+  font-size: var(--t-13);
+  color: var(--ink-3);
 }
 
 .m-bale-title {
@@ -1756,6 +1826,18 @@
   margin-bottom: var(--s-4);
 }
 
+.m-sheet-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: var(--s-4);
+}
+
+.m-sheet-title-row .m-sheet-title {
+  margin-bottom: 0;
+}
+
 @keyframes m-fade-in {
   from {
     opacity: 0;
@@ -2196,6 +2278,54 @@
 .m-badge.is-danger {
   color: var(--danger);
   background-color: rgba(255, 59, 48, 0.12);
+}
+
+.m-status-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 18px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.m-status-tag.is-success {
+  color: #1c7c3a;
+  background: rgba(52, 199, 89, 0.12);
+}
+
+.m-status-tag.is-info {
+  color: #1d4ed8;
+  background: rgba(0, 113, 227, 0.1);
+}
+
+.m-status-tag.is-progress {
+  color: #1d4ed8;
+  background: rgba(0, 113, 227, 0.1);
+}
+
+.m-status-tag.is-neutral {
+  color: #636366;
+  background: rgba(142, 142, 147, 0.13);
+}
+
+.m-status-tag.is-large {
+  min-height: 24px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.m-list-trail-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .m-chip {

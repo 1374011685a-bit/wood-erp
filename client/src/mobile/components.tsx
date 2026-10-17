@@ -172,11 +172,13 @@ export function MobileActionBar({
 export function MobileSheet({
   open,
   title,
+  titleExtra,
   onClose,
   children,
 }: {
   open: boolean
   title?: string
+  titleExtra?: ReactNode
   onClose: () => void
   children: ReactNode
 }) {
@@ -185,7 +187,12 @@ export function MobileSheet({
     <div className="m-overlay" onClick={onClose}>
       <div className="m-sheet" onClick={(event) => event.stopPropagation()}>
         <div className="m-sheet-handle" />
-        {title ? <h2 className="m-sheet-title">{title}</h2> : null}
+        {title || titleExtra ? (
+          <div className="m-sheet-title-row">
+            {title ? <h2 className="m-sheet-title">{title}</h2> : null}
+            {titleExtra}
+          </div>
+        ) : null}
         {children}
       </div>
     </div>
@@ -441,6 +448,23 @@ export function MobileBadge({
   tone?: 'brand' | 'ok' | 'warn' | 'danger'
 }) {
   return <span className={`m-badge is-${tone}`}>{children}</span>
+}
+
+/** 业务状态标签：11px、小圆角、浅底深字 */
+export function MobileStatusTag({
+  children,
+  tone,
+  large,
+}: {
+  children: ReactNode
+  tone: 'success' | 'info' | 'neutral' | 'progress'
+  large?: boolean
+}) {
+  return (
+    <span className={`m-status-tag is-${tone}${large ? ' is-large' : ''}`}>
+      {children}
+    </span>
+  )
 }
 
 export function MobileChip({

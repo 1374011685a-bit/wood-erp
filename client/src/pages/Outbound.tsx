@@ -55,6 +55,7 @@ import { isNetworkError } from '../utils/network'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
+import SuccessToast from '../components/SuccessToast'
 
 /* ---------- 立方预览：与 server/utils/cubic.js 同一公式 ---------- */
 
@@ -257,6 +258,7 @@ export default function Outbound({
   const [listLoading, setListLoading] = useState(false)
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
+  const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
   /** 提示条里的「撤销」（保存/删除刚做完 3 秒内有效） */
   const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null)
   /** 后台静默刷新中 */
@@ -969,6 +971,10 @@ export default function Outbound({
         requestedSpecs.current.clear()
         setStockMap({})
         setNotice(`已保存出库单 ${result.order_no}，可以接着录下一张`)
+        setSuccess({
+          title: '已出库',
+          subtitle: `出库单 ${result.order_no} 保存成功`,
+        })
         window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
         return
       }
@@ -996,6 +1002,10 @@ export default function Outbound({
           ? `已保存出库单 ${result.order_no} 的修改`
           : `已保存出库单 ${result.order_no}`,
       )
+      setSuccess({
+        title: '已出库',
+        subtitle: `出库单 ${result.order_no} 保存成功`,
+      })
       // 新建才给「撤销」：删掉刚建的那张（连回收站里也不留）
       setUndo(
         editing
@@ -1123,6 +1133,12 @@ export default function Outbound({
             : null,
         ]}
       />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => setSuccess(null)}
+      />
 
       {mode === 'list' ? (
         <>
@@ -1245,7 +1261,9 @@ export default function Outbound({
                 <th>单号</th>
                 <th>客户</th>
                 <th>日期</th>
+                <th>状态</th>
                 <th>仓库</th>
+                <th>操作员</th>
                 <th className="num">总立方</th>
                 {money && <th className="num">总金额</th>}
                 <th className="num">明细数</th>
@@ -1276,7 +1294,9 @@ export default function Outbound({
                   <td className="col-wide">{order.order_no}</td>
                   <td className="col-third">{order.customer}</td>
                   <td className="col-third">{order.order_date}</td>
+                  <td><span className="tag tag-status tag-status-out">已出库</span></td>
                   <td className="col-third">{order.warehouse || '—'}</td>
+                  <td className="col-third">{order.operator || '—'}</td>
                   <td className="num col-third">{formatCubic(order.total_cubic)}</td>
                   {money && (
                     <td className="num amount col-third">
@@ -1812,10 +1832,13 @@ export default function Outbound({
 
       {(detail || detailLoading || detailError) && (
         <div className="overlay" onClick={closeDetail}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
+          <div className="modal modal-xwide" onClick={(event) => event.stopPropagation()}>
             <div className="modal-head">
               <h2 className="modal-title">
                 出库单详情{detail ? `：${detail.order_no}` : ''}
+                {detail ? (
+                  <span className="tag tag-status tag-detail-status tag-status-out">已出库</span>
+                ) : null}
               </h2>
               <div className="modal-actions">
                 {detail && (
@@ -1857,17 +1880,25 @@ export default function Outbound({
             {detail && (
               <>
                 <div className="meta">
-                  <span>客户：{detail.customer}</span>
-                  <span>日期：{detail.order_date}</span>
+                  <span>单号：{detail.order_no}</span>
+                  <span>客户：{detail.customer || '—'}</span>
+                  <span>日期：{detail.order_date || '—'}</span>
                   <span>仓库：{detail.warehouse || '—'}</span>
                   <span>操作员：{detail.operator || '—'}</span>
+                  <span>车号：{detail.vehicle_no || '—'}</span>
                   <span>备注：{detail.remark || '—'}</span>
                   <span>创建时间：{detail.created_at}</span>
+                  <span>明细行数：{detail.items.length}</span>
+                  <span>码单数：{detail.bales.length} 包</span>
+                  <span>总立方：{formatCubic(detail.total_cubic)} m³</span>
+                  {money && <span>总金额：{formatAmount(detail.total_amount)} 元</span>}
                 </div>
 
                 <table className="table">
                   <thead>
                     <tr>
+                      <th>包号</th>
+                      <th>品牌</th>
                       <th>品名</th>
                       <th>等级</th>
                       <th className="num">厚度mm</th>
@@ -1884,6 +1915,12 @@ export default function Outbound({
                   <tbody>
                     {detail.items.map((item) => (
                       <tr key={item.id}>
+                        <td>
+                          {item.bale_no ||
+                            (Array.isArray(item.bale_labels) ? item.bale_labels.join('、') : '') ||
+                            '—'}
+                        </td>
+                        <td>{item.brand || '—'}</td>
                         <td>{item.species}</td>
                         <td>{item.grade}</td>
                         <td className="num">{item.thickness}</td>
@@ -1926,6 +1963,7 @@ export default function Outbound({
                           <th>条码号</th>
                           <th>提单号</th>
                           <th>合同号</th>
+                          <th>状态</th>
                           {/* 和别处一个口径：厚 / 宽 单值，长度 / 片数混装时写斜杠串 */}
                           <th className="num">厚度 (mm)</th>
                           <th className="num">宽度 (mm)</th>
@@ -1941,6 +1979,17 @@ export default function Outbound({
                             <td>{bale.barcode || '—'}</td>
                             <td>{bale.bl_no || '—'}</td>
                             <td>{bale.contract_no || '—'}</td>
+                            <td>
+                              <span
+                                className={
+                                  bale.status === 'shipped'
+                                    ? 'tag tag-status tag-status-out'
+                                    : 'tag tag-status tag-status-in'
+                                }
+                              >
+                                {bale.status === 'shipped' ? '已出库' : '在库'}
+                              </span>
+                            </td>
                             <td className="num">{bale.thickness}</td>
                             <td className="num">{bale.width}</td>
                             <td className="num">{bale.length_text ?? bale.length}</td>

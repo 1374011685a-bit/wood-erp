@@ -18,6 +18,7 @@ import { todayISO, toNumber, formatCubic } from '../utils/num'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import { useKeyboardScroll } from '../hooks/useKeyboardScroll'
 import { goBack } from './nav'
+import SuccessToast from '../components/SuccessToast'
 import {
   MobileCard,
   MobileEmpty,
@@ -80,6 +81,11 @@ export default function OutboundFormMobile() {
   const [rows, setRows] = useState<Row[]>([])
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState<MobileToastItem | null>(null)
+  const [success, setSuccess] = useState<{
+    title: string
+    subtitle: string
+    toList: boolean
+  } | null>(null)
   useAutoDismiss(toast, () => setToast(null))
   const [pickerOpen, setPickerOpen] = useState(false)
   const [pickerKeyword, setPickerKeyword] = useState('')
@@ -194,9 +200,17 @@ export default function OutboundFormMobile() {
       if (continueAfter) {
         setRows([])
         setRemark('')
-        setToast({ id: `ok-${Date.now()}`, message: `已保存出库单 ${result.order_no}，可以接着录下一张` })
+        setSuccess({
+          title: '已出库',
+          subtitle: `出库单 ${result.order_no} 保存成功`,
+          toList: false,
+        })
       } else {
-        navigate('/outbound', { replace: true })
+        setSuccess({
+          title: '已出库',
+          subtitle: `出库单 ${result.order_no} 保存成功`,
+          toList: true,
+        })
       }
     } catch (err) {
       setToast({ id: `e-${Date.now()}`, message: err instanceof Error ? err.message : '保存失败' })
@@ -434,6 +448,16 @@ export default function OutboundFormMobile() {
       ) : null}
 
       <MobileToastHost items={[toast]} />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => {
+          const goList = Boolean(success?.toList)
+          setSuccess(null)
+          if (goList) navigate('/outbound', { replace: true })
+        }}
+      />
     </div>
   )
 }

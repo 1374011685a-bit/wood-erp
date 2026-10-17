@@ -59,6 +59,7 @@ import { describeError, type ErrorInfo } from '../utils/errors'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
 import { can } from '../permissions'
+import SuccessToast from '../components/SuccessToast'
 
 /* ---------- 立方预览：与 server/utils/cubic.js 同一公式 ---------- */
 
@@ -517,6 +518,7 @@ export default function Inbound({
   /** 列表加载失败的三段式（原因 / 怎么办 / 错误码） */
   const [listErrorInfo, setListErrorInfo] = useState<ErrorInfo | null>(null)
   const [notice, setNotice] = useState('')
+  const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
   /** 提示条里那个「撤销」按钮要干的事（保存/删除刚做完 3 秒内有效） */
   const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null)
   /** 有缓存时后台静默刷新中（列表头上挂个小角标） */
@@ -1440,6 +1442,10 @@ export default function Inbound({
         lookedUpSpecies.current.clear()
         setStockLookup({})
         setNotice(`已保存入库单 ${result.order_no}，可以接着录下一张`)
+        setSuccess({
+          title: '已入库',
+          subtitle: `入库单 ${result.order_no} 保存成功`,
+        })
         window.setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 60)
         return
       }
@@ -1478,6 +1484,10 @@ export default function Inbound({
           ? `已保存入库单 ${result.order_no} 的修改`
           : `已保存入库单 ${result.order_no}`,
       )
+      setSuccess({
+        title: '已入库',
+        subtitle: `入库单 ${result.order_no} 保存成功`,
+      })
       /*
        * 新建的才给「撤销」（= 删掉刚建的那张单，连回收站里也不留）；
        * 改老单不给 —— 撤销一次"修改"要把历史版本还原，那是另一个功能。
@@ -1624,6 +1634,12 @@ export default function Inbound({
               }
             : null,
         ]}
+      />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => setSuccess(null)}
       />
 
       {mode === 'method' ? (
@@ -1802,6 +1818,7 @@ export default function Inbound({
                 <th>单号</th>
                 <th>供应商</th>
                 <th>日期</th>
+                <th>状态</th>
                 <th>仓库</th>
                 <th>合同号 / 提单号</th>
                 <th className="num">总立方</th>
@@ -1837,6 +1854,7 @@ export default function Inbound({
                   <td className="col-wide">{order.order_no}</td>
                   <td className="col-third">{order.supplier}</td>
                   <td className="col-third">{order.order_date}</td>
+                  <td><span className="tag tag-status tag-status-in">已入库</span></td>
                   <td className="col-third">{order.warehouse || '—'}</td>
                   <td className="col-wide">
                     {order.contract_no ? (
@@ -2526,10 +2544,13 @@ export default function Inbound({
 
       {(detail || detailLoading || detailError) && (
         <div className="overlay" onClick={closeDetail}>
-          <div className="modal" onClick={(event) => event.stopPropagation()}>
+          <div className="modal modal-xwide" onClick={(event) => event.stopPropagation()}>
             <div className="modal-head">
               <h2 className="modal-title">
                 入库单详情{detail ? `：${detail.order_no}` : ''}
+                {detail ? (
+                  <span className="tag tag-status tag-detail-status tag-status-in">已入库</span>
+                ) : null}
               </h2>
               <div className="modal-actions">
                 {detail && (
@@ -2572,11 +2593,17 @@ export default function Inbound({
             {detail && (
               <>
                 <div className="meta">
+                  <span>单号：{detail.order_no}</span>
                   <span>供应商：{detail.supplier}</span>
                   <span>日期：{detail.order_date}</span>
                   <span>仓库：{detail.warehouse || '—'}</span>
                   <span>操作员：{detail.operator || '—'}</span>
                   <span>提单号：{detail.bl_no || '—'}</span>
+                  <span>
+                    柜号：
+                    {[...new Set(detail.bales.map((bale) => bale.box_no).filter(Boolean))]
+                      .join('、') || '—'}
+                  </span>
                   <span>
                     合同号：
                     {detail.contract_no ? (
@@ -2598,7 +2625,9 @@ export default function Inbound({
                     )}
                   </span>
                   <span>备注：{detail.remark || '—'}</span>
+                  <span>车号：{detail.vehicle_no || '—'}</span>
                   <span>创建时间：{detail.created_at}</span>
+                  <span>总包数：{detail.bales.length} 包</span>
                 </div>
 
                 <h3 className="section-title" style={{ marginTop: 4 }}>
@@ -2621,6 +2650,7 @@ export default function Inbound({
                       {money && <th className="num">单价 (元)</th>}
                       {money && <th className="num">金额 (元)</th>}
                       <th>包号</th>
+                      <th>条码号</th>
                       <th>柜号</th>
                     </tr>
                   </thead>
@@ -2629,6 +2659,14 @@ export default function Inbound({
                       const first = group[0]
                       const cubic = group.reduce((sum, row) => sum + (row.cubic ?? 0), 0)
                       const amount = group.reduce((sum, row) => sum + (row.amount ?? 0), 0)
+                      const baleNames = first.bale_no
+                        ? first.bale_no.split(/[、,，/\s]+/).filter(Boolean)
+                        : (first.bale_labels ?? [])
+                      const barcodes = detail.bales
+                        .filter((bale) => baleNames.includes(bale.bale_no))
+                        .map((bale) => bale.barcode)
+                        .filter(Boolean)
+                        .join('、')
                       return (
                         <tr key={group.map((row) => row.id).join('-')}>
                           <td>{first.brand || '—'}</td>
@@ -2646,6 +2684,7 @@ export default function Inbound({
                           )}
                           {money && <td className="num strong">{formatAmount(amount)}</td>}
                           <td>{first.bale_no || (first.bale_labels ?? []).join('、') || '—'}</td>
+                          <td>{barcodes || '—'}</td>
                           <td>{first.box_no || '—'}</td>
                         </tr>
                       )
@@ -2660,8 +2699,8 @@ export default function Inbound({
                       {money && (
                         <td className="num strong">{formatAmount(detail.total_amount)}</td>
                       )}
-                      {/* 包号 / 柜号 */}
-                      <td colSpan={2} />
+                      {/* 包号 / 条码号 / 柜号 */}
+                      <td colSpan={3} />
                     </tr>
                   </tfoot>
                 </table>

@@ -9,6 +9,7 @@ import {
   type ShipmentRow,
 } from '../api'
 import { formatCubic } from '../utils/num'
+import { contractStage } from '../utils/contractStatus'
 import { tapLight, tapMedium } from '../utils/haptics'
 import {
   MobileBadge,
@@ -20,6 +21,7 @@ import {
   MobileSegmented,
   MobileSheet,
   MobileSkeleton,
+  MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
   MobileTopbarButton,
@@ -243,7 +245,14 @@ export default function BalesMobile() {
                 dense
                 title={row.contract_no}
                 sub={`${row.partner || '—'} · 已入 ${formatCubic(row.in_cubic)} m³ · ${row.status || '—'}`}
-                trail={`还差 ${formatCubic(row.left_cubic)}`}
+                trail={
+                  <span className="m-list-trail-stack">
+                    <span>还差 {formatCubic(row.left_cubic)}</span>
+                    <MobileStatusTag tone={contractStage(row).tone}>
+                      {contractStage(row).label}
+                    </MobileStatusTag>
+                  </span>
+                }
                 onClick={() => {
                   tapLight()
                   setContract({ no: row.contract_no, title: row.title })
@@ -309,24 +318,24 @@ export default function BalesMobile() {
                 {rows.map((bale) => {
                   const on = picked.includes(bale.id)
                   return (
-                    <div className={on ? 'm-bale-row is-on' : 'm-bale-row'} key={bale.id}>
-                      <button
-                        type="button"
-                        className="m-check-box"
-                        aria-label={on ? '取消选择' : '选择打印'}
-                        aria-pressed={on}
-                        onClick={() => togglePick(bale.id)}
-                      >
+                    <div
+                      className={on ? 'm-bale-row is-on' : 'm-bale-row'}
+                      key={bale.id}
+                      role="checkbox"
+                      aria-checked={on}
+                      tabIndex={0}
+                      onClick={() => togglePick(bale.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          togglePick(bale.id)
+                        }
+                      }}
+                    >
+                      <span className="m-check-box" aria-hidden="true">
                         ✓
-                      </button>
-                      <button
-                        type="button"
-                        className="m-bale-main"
-                        onClick={() => {
-                          tapLight()
-                          setDetail(bale)
-                        }}
-                      >
+                      </span>
+                      <span className="m-bale-main">
                         <span className="m-bale-title">
                           <span>{bale.bale_no || bale.barcode}</span>
                           <MobileBadge tone={bale.status === 'in_stock' ? 'ok' : 'warn'}>
@@ -340,6 +349,18 @@ export default function BalesMobile() {
                         <span className="m-bale-cubic">
                           {formatCubic(bale.cubic)} m³ · {bale.pieces_text || bale.pieces} 片
                         </span>
+                      </span>
+                      <button
+                        type="button"
+                        className="m-bale-detail"
+                        aria-label="查看这一包详情"
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          tapLight()
+                          setDetail(bale)
+                        }}
+                      >
+                        ›
                       </button>
                     </div>
                   )

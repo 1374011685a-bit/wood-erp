@@ -16,6 +16,8 @@ import {
   type InboundListItem,
 } from '../api'
 import { formatCubic, formatAmount } from '../utils/num'
+import { seesMoney } from '../permissions'
+import { useRole } from '../hooks/useRole'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
 import {
   MobileEmpty,
@@ -24,6 +26,7 @@ import {
   MobileSearchBar,
   MobileSheet,
   MobileSkeleton,
+  MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
   MobileTopbarButton,
@@ -36,6 +39,7 @@ const EMPTY_FILTERS = { date_from: '', date_to: '', supplier: '' }
 
 export default function InboundListMobile() {
   const navigate = useNavigate()
+  const money = seesMoney(useRole())
   const [keyword, setKeyword] = useState('')
   const [debounced, setDebounced] = useState('')
   const [filters, setFilters] = useState(EMPTY_FILTERS)
@@ -159,7 +163,12 @@ export default function InboundListMobile() {
                 dense
                 title={row.order_no}
                 sub={`${row.supplier || '—'} · ${formatCubic(row.total_cubic)} m³ · ${row.bale_total} 包`}
-                trail={row.order_date?.slice(5) ?? ''}
+                trail={
+                  <span className="m-list-trail-stack">
+                    <span>{row.order_date?.slice(5) ?? ''}</span>
+                    <MobileStatusTag tone="success">已入库</MobileStatusTag>
+                  </span>
+                }
                 onClick={() => void openDetail(row.id)}
               />
             ))}
@@ -185,24 +194,94 @@ export default function InboundListMobile() {
       <MobileSheet
         open={Boolean(detail) || detailLoading}
         title={detail ? detail.order_no : '加载中…'}
+        titleExtra={
+          detail ? (
+            <MobileStatusTag tone="success" large>
+              已入库
+            </MobileStatusTag>
+          ) : undefined
+        }
         onClose={() => setDetail(null)}
       >
         {detail ? (
           <>
             <div className="m-rows">
               {[
+                ['单号', detail.order_no],
                 ['供应商', detail.supplier || '—'],
                 ['入库日期', detail.order_date || '—'],
-                ['仓库', detail.warehouse || '—'],
                 ['提单号', detail.bl_no || '—'],
+                [
+                  '柜号',
+                  [...new Set(detail.bales.map((bale) => bale.box_no).filter(Boolean))]
+                    .join('、') || '—',
+                ],
                 ['合同号', detail.contract_no || '—'],
+                ['仓库', detail.warehouse || '—'],
+                ['操作员', detail.operator || '—'],
+                ['车号', detail.vehicle_no || '—'],
+                ['创建时间', detail.created_at || '—'],
+                ['备注', detail.remark || '—'],
+                ['总包数', `${detail.bales.length} 包`, true],
                 ['总立方', `${formatCubic(detail.total_cubic)} m³`, true],
-                ['总金额', `${formatAmount(detail.total_amount)} 元`, true],
-                ['明细数', String(detail.items.length)],
+                ...(money ? [['总金额', `${formatAmount(detail.total_amount)} 元`, true]] : []),
               ].map(([label, value, isNum]) => (
                 <div className="m-row" key={label as string}>
                   <span className="m-row-label">{label as string}</span>
                   <span className={isNum ? 'm-row-value is-num' : 'm-row-value'}>{value as string}</span>
+                </div>
+              ))}
+            </div>
+
+            <h3 className="m-detail-title">入库明细</h3>
+            <div className="m-outbound-detail-list">
+              {detail.items.map((item) => {
+                const itemBaleNos = item.bale_no
+                  ? item.bale_no.split(/[、,，/\s]+/).filter(Boolean)
+                  : (item.bale_labels ?? [])
+                const relatedBales = detail.bales.filter((bale) =>
+                  itemBaleNos.includes(bale.bale_no),
+                )
+                const baleNo =
+                  itemBaleNos.join('、') || relatedBales.map((bale) => bale.bale_no).join('、')
+                const barcode =
+                  relatedBales.map((bale) => bale.barcode).filter(Boolean).join('、') || '—'
+                return (
+                  <div className="m-outbound-detail-card" key={item.id}>
+                    <div className="m-outbound-detail-head">
+                      <b>包号 {baleNo || '—'}</b>
+                      <span>条码 {barcode}</span>
+                    </div>
+                    <p>品牌 {item.brand || '—'}</p>
+                    <p>品名 {item.species || '—'} · 等级 {item.grade || '—'}</p>
+                    <p>
+                      规格 {item.thickness}×{item.width}×{item.length} · 片数 {item.pieces} ·{' '}
+                      件数 {item.bundles} · 立方 {formatCubic(item.cubic)} m³
+                    </p>
+                    {money ? (
+                      <p>
+                        单价 {formatAmount(item.unit_price)} 元 · 金额{' '}
+                        {formatAmount(item.amount)} 元
+                      </p>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+
+            <h3 className="m-detail-title">本单码单</h3>
+            <div className="m-outbound-detail-list">
+              {detail.bales.map((bale) => (
+                <div className="m-outbound-detail-card" key={bale.id ?? bale.barcode}>
+                  <div className="m-outbound-detail-head">
+                    <b>包号 {bale.bale_no || '—'}</b>
+                    <span>{bale.status === 'in_stock' ? '在库' : '已出库'}</span>
+                  </div>
+                  <p>条码 {bale.barcode || '—'} · 柜号 {bale.box_no || '—'}</p>
+                  <p>
+                    规格 {bale.thickness}×{bale.width}×{bale.length_text ?? bale.length} · 片数{' '}
+                    {bale.pieces_text ?? bale.pieces} · 立方 {formatCubic(bale.cubic)} m³
+                  </p>
                 </div>
               ))}
             </div>

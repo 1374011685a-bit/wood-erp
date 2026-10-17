@@ -908,7 +908,19 @@ export default function Bales() {
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id}>
+              <tr
+                key={row.id}
+                className={labelPicked.includes(row.id) ? 'is-picked' : undefined}
+                onClick={(event) => {
+                  const target = event.target as HTMLElement
+                  if (target.closest('button,a,input,select,label')) return
+                  setLabelPicked((prev) =>
+                    prev.includes(row.id)
+                      ? prev.filter((id) => id !== row.id)
+                      : [...prev, row.id],
+                  )
+                }}
+              >
                 <td className="col-check">
                   <input
                     type="checkbox"

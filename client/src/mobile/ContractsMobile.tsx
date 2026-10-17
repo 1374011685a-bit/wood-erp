@@ -11,7 +11,9 @@ import {
 import { can, seesMoney } from '../permissions'
 import { useRole } from '../hooks/useRole'
 import { formatAmount, formatCubic, todayLocal, toNumber } from '../utils/num'
+import { contractStage } from '../utils/contractStatus'
 import { tapHeavy, tapLight, tapMedium } from '../utils/haptics'
+import SuccessToast from '../components/SuccessToast'
 import {
   MobileCard,
   MobileEmpty,
@@ -22,6 +24,7 @@ import {
   MobileSearchBar,
   MobileSheet,
   MobileSkeleton,
+  MobileStatusTag,
   MobileToastHost,
   MobileTopbarActions,
   MobileTopbarButton,
@@ -78,6 +81,7 @@ export default function ContractsMobile() {
   const [deleteTarget, setDeleteTarget] = useState<ContractPickerRow | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [toast, setToast] = useState<MobileToastItem | null>(null)
+  const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
   useAutoDismiss(toast, () => setToast(null))
 
   useEffect(() => {
@@ -173,7 +177,8 @@ export default function ContractsMobile() {
   }
 
   const submit = async () => {
-    if (!form.contract_no.trim()) {
+    const contractNo = form.contract_no.trim()
+    if (!contractNo) {
       setToast({ id: `v-${Date.now()}`, message: '合同号不能为空' })
       return
     }
@@ -182,7 +187,7 @@ export default function ContractsMobile() {
       return
     }
     const payload = new FormData()
-    payload.append('contract_no', form.contract_no.trim())
+    payload.append('contract_no', contractNo)
     payload.append('title', form.title.trim())
     payload.append('partner', form.partner.trim())
     payload.append('sign_date', form.sign_date)
@@ -215,9 +220,9 @@ export default function ContractsMobile() {
       setFormOpen(false)
       setDetail(null)
       setReloadToken((value) => value + 1)
-      setToast({
-        id: `ok-${Date.now()}`,
-        message: editing ? `已保存合同 ${form.contract_no}` : `已上传合同 ${form.contract_no}`,
+      setSuccess({
+        title: '已录入',
+        subtitle: `合同号 ${contractNo} 保存成功`,
       })
     } catch (err) {
       setToast({
@@ -251,6 +256,11 @@ export default function ContractsMobile() {
     }
   }
 
+  const detailPickerRow = detail ? rows.find((row) => row.id === detail.id) : undefined
+  const detailStage = detailPickerRow
+    ? contractStage(detailPickerRow)
+    : { label: '已录入' as const, tone: 'neutral' as const }
+
   return (
     <div className="m-stack">
       {canWrite ? (
@@ -281,7 +291,11 @@ export default function ContractsMobile() {
               dense
               title={row.contract_no}
               sub={`${row.partner || '—'} · 已入 ${formatCubic(row.in_cubic)} m³ · 进度 ${row.in_bundles}/${row.total_qty} 件`}
-              trail={row.status || '—'}
+              trail={
+                <MobileStatusTag tone={contractStage(row).tone}>
+                  {contractStage(row).label}
+                </MobileStatusTag>
+              }
               onClick={() => void openDetail(row)}
             />
           ))}
@@ -291,6 +305,13 @@ export default function ContractsMobile() {
       <MobileSheet
         open={Boolean(detail) || detailLoading}
         title={detail?.contract_no || '合同详情'}
+        titleExtra={
+          detail ? (
+            <MobileStatusTag tone={detailStage.tone} large>
+              {detailStage.label}
+            </MobileStatusTag>
+          ) : undefined
+        }
         onClose={() => setDetail(null)}
       >
         {detail ? (
@@ -565,6 +586,12 @@ export default function ContractsMobile() {
       />
 
       <MobileToastHost items={[toast]} />
+      <SuccessToast
+        open={Boolean(success)}
+        title={success?.title ?? ''}
+        subtitle={success?.subtitle ?? ''}
+        onDone={() => setSuccess(null)}
+      />
     </div>
   )
 }
