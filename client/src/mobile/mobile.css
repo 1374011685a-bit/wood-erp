@@ -124,12 +124,6 @@
   margin-top: var(--s-3);
 }
 
-.m-card-title {
-  font-size: var(--t-17);
-  font-weight: 600;
-  margin-bottom: var(--s-3);
-}
-
 /* ---------- 列表 ---------- */
 .m-list {
   border-radius: var(--r-16);
@@ -265,6 +259,34 @@
   align-items: end;
 }
 
+/* 入库明细：一行放 4 格（包号/厚/宽/长、品名/片数/件数/单价） */
+.m-line-grid-4 {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+/* 方案 D 的四段排版：1 格 / 2 格 / 3 格 / 4 格 */
+.m-line-grid-1 {
+  grid-template-columns: 1fr;
+}
+
+.m-line-grid-2 {
+  grid-template-columns: 1fr 1fr;
+}
+
+.m-line-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* 行尾：本行立方（自动算，只显示） */
+.m-line-total {
+  margin-left: auto;
+  align-self: center;
+  font-size: var(--t-13);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+}
+
 .m-line-field {
   display: block;
   min-width: 0;
@@ -284,6 +306,7 @@
   border: 0;
   border-radius: var(--r-10);
   background-color: var(--bg-2);
+  box-shadow: inset 0 0 0 0.5px #d6d6db;
   font-family: inherit;
   font-size: var(--t-17);
   color: var(--ink-1);
@@ -437,7 +460,44 @@
   padding: 0 var(--s-3);
   border-radius: var(--r-10);
   background-color: var(--bg-2);
+  box-shadow: inset 0 0 0 0.5px #d6d6db;
   color: var(--ink-3);
+}
+
+/* 小操作按钮：统一 36px（大按钮统一 44px，别再有第三种高度） */
+.m-btn-sm {
+  height: 36px;
+  padding: 0 var(--s-3);
+  font-size: var(--t-13);
+  border-radius: var(--r-12);
+}
+
+.m-icon-btn-sm {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-12);
+  font-size: var(--t-15);
+}
+
+/* 卡片标题分级：主标题 15/600，带计数的副标题 13/500 灰 */
+.m-card-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--t-15);
+  font-weight: 600;
+  margin-bottom: var(--s-3);
+}
+
+.m-card-hint {
+  font-size: var(--t-13);
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+/* 明细第 2 行：品名要宽一点（能放下「樟子松（进口）」），数字格够用就行 */
+.m-line-grid-4 {
+  grid-template-columns: 1.4fr 0.8fr 0.8fr 0.8fr;
 }
 
 .m-search svg {
@@ -485,6 +545,8 @@
   border: 0;
   border-radius: var(--r-10);
   background-color: var(--bg-2);
+  /* 灰底 + 0.5px 发丝边：看得出哪里能填（老版是白底 + 1px 实边） */
+  box-shadow: inset 0 0 0 0.5px #d6d6db;
   font-family: inherit;
   font-size: var(--t-17);
   color: var(--ink-1);

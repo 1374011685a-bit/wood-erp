@@ -47,14 +47,22 @@ export function MobileListItem({
 
 export function MobileCard({
   title,
+  hint,
   children,
 }: {
   title?: string
+  /** 标题后面的浅色小字（比如「明细 3 行」），比主标题轻一档 */
+  hint?: ReactNode
   children: ReactNode
 }) {
   return (
     <section className="m-card">
-      {title ? <h2 className="m-card-title">{title}</h2> : null}
+      {title ? (
+        <h2 className="m-card-title">
+          {title}
+          {hint ? <span className="m-card-hint">{hint}</span> : null}
+        </h2>
+      ) : null}
       {children}
     </section>
   )

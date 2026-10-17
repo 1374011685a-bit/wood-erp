@@ -55,11 +55,15 @@ const toRow = (bale: {
   length: number
   pieces: number
   cubic: number
+  brand?: string
 }): Row => ({
   key: bale.id ?? bale.bale_id ?? 0,
   baleId: bale.id ?? bale.bale_id ?? 0,
   baleNo: bale.bale_no,
-  spec: `${bale.species} ${bale.grade || ''} ${bale.thickness}×${bale.width}×${bale.length}`.trim(),
+  /* 品牌 / 等级从码单带出来，只读展示（出库不改货的归属） */
+  spec: `${bale.species} ${bale.grade || ''} ${bale.brand || ''} ${bale.thickness}×${bale.width}×${bale.length}`
+    .replace(/\s+/g, ' ')
+    .trim(),
   cubic: bale.cubic,
   pieces: String(bale.pieces),
   unitPrice: '',
@@ -227,7 +231,7 @@ export default function OutboundFormMobile() {
         <MobileInput label="备注" value={remark} placeholder="选填" onChange={setRemark} />
       </MobileCard>
 
-      <MobileCard title={`明细（${rows.length} 包 · ${formatCubic(totalCubic)} m³）`}>
+      <MobileCard title="明细" hint={`${rows.length} 包 · ${formatCubic(totalCubic)} m³`}>
         <div className="m-sheet-actions" style={{ marginTop: 0, marginBottom: 12 }}>
           <button
             type="button"
@@ -373,10 +377,12 @@ export default function OutboundFormMobile() {
                     </span>
                     <span className="m-item-main">
                       <span className="m-item-title">
-                        {bale.bale_no} · {bale.species} {bale.grade || ''}
+                        {/* 包号可以是空的（入库时留空自动编号的包），那就显示条码号 */}
+                        {bale.bale_no || bale.barcode} · 提单 {bale.bl_no || '—'}
                       </span>
                       <span className="m-item-sub">
-                        {bale.thickness}×{bale.width}×{bale.length} · {bale.bl_no || '—'}
+                        {bale.species} {bale.grade || ''} {bale.thickness}×{bale.width}×{bale.length}
+                        {bale.contract_no ? ` · 合同 ${bale.contract_no}` : ''}
                       </span>
                     </span>
                     <span className="m-item-trail is-num">{formatCubic(bale.cubic)} m³</span>

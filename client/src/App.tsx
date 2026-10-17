@@ -9,6 +9,7 @@ import StockMobile from './mobile/StockMobile'
 import RecordsMobile from './mobile/RecordsMobile'
 import OutboundListMobile from './mobile/OutboundListMobile'
 import OutboundFormMobile from './mobile/OutboundFormMobile'
+import InboundFormMobile from './mobile/InboundFormMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { useIsMobileViewport } from './mobile/ShellSwitch'
@@ -54,6 +55,12 @@ function OutboundSwitch() {
 function OutboundNewSwitch() {
   const mobile = useIsMobileViewport()
   return mobile ? <OutboundFormMobile /> : <Outbound defaultMode="create" />
+}
+
+/** 入库表单分流：手机端走 InboundFormMobile，桌面端原样（检查点5） */
+function InboundNewSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <InboundFormMobile /> : <Inbound defaultMode="method" />
 }
 
 /**
@@ -120,7 +127,7 @@ export default function App() {
           <Route index element={<HomeSwitch />} />
           <Route path="inbound" element={<InboundSwitch />} />
           {/* 首页「新增入库 / 新增出库」直接落到录入界面 */}
-          <Route path="inbound/new" element={<Inbound defaultMode="method" />} />
+          <Route path="inbound/new" element={<InboundNewSwitch />} />
           {/* 编辑某张入库单：可直接分享/跳转的地址（列表的「编辑」按钮也走这里） */}
           <Route path="inbound/edit/:id" element={<Inbound defaultMode="edit" />} />
           <Route path="outbound" element={<OutboundSwitch />} />
