@@ -1,5 +1,7 @@
 /** 单据（手机版）：把常用单据入口按大厂 App 的分组排开 */
 import { useNavigate } from 'react-router-dom'
+import { useRole } from '../hooks/useRole'
+import { canVisit } from '../permissions'
 import { MobileCard, MobileIcon, MobileList, MobileListItem } from './components'
 
 const GROUPS: Array<{
@@ -35,12 +37,15 @@ const GROUPS: Array<{
 
 export default function DocumentsMobile() {
   const navigate = useNavigate()
+  const role = useRole()
   return (
     <div className="m-stack">
       {GROUPS.map((group) => (
         <MobileCard title={group.title} key={group.title}>
           <MobileList>
-            {group.items.map((item) => (
+            {group.items
+              .filter((item) => canVisit(role, item.to))
+              .map((item) => (
               <MobileListItem
                 key={item.to + item.label}
                 title={item.label}
@@ -54,7 +59,7 @@ export default function DocumentsMobile() {
                   navigate(item.to)
                 }}
               />
-            ))}
+              ))}
           </MobileList>
         </MobileCard>
       ))}

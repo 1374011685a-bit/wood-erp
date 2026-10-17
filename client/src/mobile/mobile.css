@@ -682,6 +682,475 @@
   color: var(--ink-2);
 }
 
+/* ---------- 登录 / 我的 ---------- */
+.m-login-page {
+  min-height: 100vh;
+  padding: calc(44px + env(safe-area-inset-top)) 24px calc(28px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background:
+    radial-gradient(90% 48% at 100% 0%, rgba(166, 123, 91, 0.18), transparent 72%),
+    #f5f5f7;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  color: #1d1d1f;
+}
+
+.m-login-main {
+  width: 100%;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+.m-login-brand {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.m-login-brand img {
+  width: 76px;
+  height: 76px;
+  object-fit: contain;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+}
+
+.m-login-brand h1 {
+  margin: 16px 0 4px;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.m-login-brand p {
+  margin: 0;
+  font-size: var(--t-15);
+  color: var(--ink-3);
+}
+
+.m-login-card {
+  padding: 20px;
+  border-radius: var(--r-16);
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.02);
+}
+
+.m-login-card.is-shaking {
+  animation: m-login-shake 440ms ease-in-out;
+}
+
+@keyframes m-login-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-7px);
+  }
+  40%,
+  80% {
+    transform: translateX(7px);
+  }
+}
+
+.m-login-card .m-field + .m-field {
+  margin-top: 12px;
+}
+
+.m-login-password {
+  position: relative;
+  display: block;
+}
+
+.m-login-password .m-input {
+  padding-right: 58px;
+}
+
+.m-login-password > button {
+  position: absolute;
+  right: 4px;
+  top: 4px;
+  height: 36px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: var(--t-13);
+  font-weight: 500;
+}
+
+.m-login-options {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.m-login-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--t-13);
+  color: var(--ink-2);
+}
+
+.m-login-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--brand);
+}
+
+.m-login-link {
+  border: 0;
+  background: none;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: var(--t-13);
+  font-weight: 500;
+  text-align: left;
+}
+
+.m-login-submit {
+  width: 100%;
+  margin-top: 20px;
+}
+
+.m-login-notice,
+.m-login-error {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border-radius: var(--r-10);
+  font-size: var(--t-13);
+  line-height: 1.45;
+}
+
+.m-login-notice {
+  color: var(--brand);
+  background: rgba(107, 74, 47, 0.08);
+}
+
+.m-login-error {
+  color: var(--danger);
+  background: rgba(255, 59, 48, 0.08);
+}
+
+.m-login-version {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 28px 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.m-sheet-help {
+  margin: 0 0 16px;
+  font-size: var(--t-13);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.m-stack-tight {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.m-reset-done {
+  text-align: center;
+}
+
+.m-reset-done p {
+  margin: 0 0 18px;
+  color: var(--ink-2);
+}
+
+.m-profile-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 24px 20px;
+}
+
+.m-profile-card .m-avatar {
+  flex: 0 0 58px;
+  width: 58px;
+  height: 58px;
+  font-size: 23px;
+}
+
+.m-profile-text {
+  min-width: 0;
+}
+
+.m-profile-text b {
+  display: block;
+  overflow: hidden;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink-1);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-profile-text span {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-version-box {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-logout-btn {
+  width: 100%;
+}
+
+/* ---------- 码单 / 合同下钻 ---------- */
+.m-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 4px;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-breadcrumb button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--brand);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.m-breadcrumb b {
+  overflow: hidden;
+  color: var(--ink-1);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-bales-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 4px 4px;
+}
+
+.m-bales-summary b {
+  font-size: var(--t-15);
+  font-weight: 600;
+}
+
+.m-bales-summary span {
+  font-size: var(--t-13);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-chip-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 6px 0 8px;
+  scrollbar-width: none;
+}
+
+.m-chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+.m-bale-list {
+  border-radius: var(--r-16);
+  overflow: hidden;
+  background: var(--bg-1);
+}
+
+.m-bale-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--bg-1);
+}
+
+.m-bale-row + .m-bale-row {
+  box-shadow: 0 -0.5px 0 var(--line);
+}
+
+.m-bale-row.is-on {
+  background: rgba(107, 74, 47, 0.055);
+}
+
+.m-bale-row .m-check-box {
+  flex: 0 0 22px;
+  margin-top: 2px;
+}
+
+.m-bale-main {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  text-align: left;
+}
+
+.m-bale-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--t-15);
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.m-bale-title > :first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-bale-sub {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-bale-cubic {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--t-13);
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 合同 Mobile ---------- */
+.m-contract-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  box-shadow: 0 0.5px 0 var(--line);
+}
+
+.m-contract-item b {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--t-13);
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-contract-item span {
+  flex: 0 0 auto;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-file-input {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: var(--r-10);
+  background: var(--bg-2);
+  box-shadow: inset 0 0 0 0.5px #d6d6db;
+  font-family: inherit;
+  font-size: var(--t-13);
+  color: var(--ink-2);
+}
+
+.m-contract-form-row {
+  padding: 14px 0;
+  box-shadow: 0 0.5px 0 var(--line);
+}
+
+.m-contract-form-row .m-line-grid + .m-line-grid {
+  margin-top: 8px;
+}
+
+.m-add-row {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* ---------- 盘点 Mobile ---------- */
+.m-count-line {
+  padding: 14px 0;
+  box-shadow: 0 0.5px 0 var(--line);
+}
+
+.m-count-line .m-line-grid + .m-line-grid {
+  margin-top: 8px;
+}
+
+.m-count-spec {
+  margin: 0 0 8px;
+  font-size: var(--t-13);
+  color: var(--ink-3);
+}
+
+.m-count-diff {
+  margin: 8px 0 0;
+  text-align: right;
+  font-size: var(--t-13);
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.m-count-diff.is-short {
+  color: var(--danger);
+}
+
+.m-count-detail-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  padding: 10px 0;
+  box-shadow: 0 0.5px 0 var(--line);
+  font-size: var(--t-13);
+}
+
+.m-count-detail-row b {
+  grid-column: 1 / -1;
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.m-count-detail-row span {
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ---------- 按钮 ---------- */
 .m-btn {
   display: inline-flex;

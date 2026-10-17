@@ -11,6 +11,12 @@ import OutboundListMobile from './mobile/OutboundListMobile'
 import OutboundFormMobile from './mobile/OutboundFormMobile'
 import InboundFormMobile from './mobile/InboundFormMobile'
 import RepackMobile from './mobile/RepackMobile'
+import LoginMobile from './mobile/LoginMobile'
+import MeMobile from './mobile/MeMobile'
+import BalesMobile from './mobile/BalesMobile'
+import ContractsMobile from './mobile/ContractsMobile'
+import CountMobile from './mobile/CountMobile'
+import RecycleMobile from './mobile/RecycleMobile'
 import RequireAuth from './components/RequireAuth'
 import RequireRole from './components/RequireRole'
 import { useIsMobileViewport } from './mobile/ShellSwitch'
@@ -70,6 +76,36 @@ function RepackSwitch() {
   return mobile ? <RepackMobile /> : <Repack />
 }
 
+function LoginSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <LoginMobile /> : <Login />
+}
+
+function MeSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <MeMobile /> : <Me />
+}
+
+function BalesSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <BalesMobile /> : <Bales />
+}
+
+function ContractsSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <ContractsMobile /> : <Contracts />
+}
+
+function CountSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <CountMobile /> : <Count />
+}
+
+function RecycleSwitch() {
+  const mobile = useIsMobileViewport()
+  return mobile ? <RecycleMobile /> : <Recycle />
+}
+
 /**
  * 页面按需加载：首屏只下载登录页和外壳，
  * 点到哪个功能才拉那个页面的代码（表单页最大，省下来的就是首屏时间）。
@@ -119,7 +155,7 @@ export default function App() {
           path="/login"
           element={
             <Suspense fallback={null}>
-              <Login />
+              <LoginSwitch />
             </Suspense>
           }
         />
@@ -140,17 +176,17 @@ export default function App() {
           <Route path="outbound" element={<OutboundSwitch />} />
           <Route path="outbound/new" element={<OutboundNewSwitch />} />
           <Route path="stock" element={<StockSwitch />} />
-          <Route path="count" element={<Count />} />
+          <Route path="count" element={<CountSwitch />} />
           <Route path="repack" element={<RepackSwitch />} />
-          <Route path="contracts" element={<Contracts />} />
-          <Route path="bales" element={<Bales />} />
+          <Route path="contracts" element={<ContractsSwitch />} />
+          <Route path="bales" element={<BalesSwitch />} />
           <Route path="records" element={<RecordsSwitch />} />
-          <Route path="recycle" element={<Recycle />} />
+          <Route path="recycle" element={<RecycleSwitch />} />
           <Route path="settlement" element={<Settlement />} />
           <Route path="dict" element={<Dict />} />
           {/* 手机端底部 Tab 的路由（PC 端也能直接打开） */}
           <Route path="documents" element={<DocumentsSwitch />} />
-          <Route path="me" element={<Me />} />
+          <Route path="me" element={<MeSwitch />} />
           {/* AI 助手（DeepSeek） */}
           <Route path="ai" element={<Ai />} />
           {/* 用户管理：只有管理员进得去（菜单和路由都挡，后端还有 requireCap 兜底） */}

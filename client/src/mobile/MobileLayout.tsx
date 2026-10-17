@@ -66,10 +66,23 @@ const META: Record<string, { title: string; back?: string }> = {
   '/repack': { title: '改包', back: '/' },
   '/count': { title: '盘点', back: '/' },
   '/recycle': { title: '回收站', back: '/' },
+  '/me': { title: '我的' },
 }
 
 /** 底部 Tab 落到哪个路径 */
 const TAB_PATHS = ['/', '/documents', '/stock', '/me']
+
+/** 二级页面归属哪个底部 Tab（不归属就一个都不高亮） */
+const TAB_ALIASES: Record<string, string> = {
+  '/inbound': '/documents',
+  '/outbound': '/documents',
+  '/contracts': '/documents',
+  '/bales': '/documents',
+  '/repack': '/documents',
+  '/count': '/documents',
+  '/records': '/documents',
+  '/recycle': '/documents',
+}
 
 /**
  * 全屏子页面：表单页。
@@ -82,13 +95,17 @@ export default function MobileLayout() {
   const location = useLocation()
   const search = new URLSearchParams(location.search)
   const repackForm = location.pathname === '/repack' && search.get('mode') === 'new'
+  const countForm = location.pathname === '/count' && search.get('mode') === 'new'
   const meta = repackForm
     ? { title: '新增改包', back: '/repack' }
-    : (META[location.pathname] ?? { title: '立川云' })
+    : countForm
+      ? { title: '新增盘点', back: '/count' }
+      : (META[location.pathname] ?? { title: '立川云' })
   const activeTab =
     TAB_PATHS.find((path) => path === location.pathname) ??
-    (location.pathname.startsWith('/me') ? '/me' : '/')
-  const fullscreen = FULLSCREEN_PATHS.includes(location.pathname) || repackForm
+    TAB_ALIASES[location.pathname] ??
+    ''
+  const fullscreen = FULLSCREEN_PATHS.includes(location.pathname) || repackForm || countForm
 
   return (
     <div className="m-shell">
