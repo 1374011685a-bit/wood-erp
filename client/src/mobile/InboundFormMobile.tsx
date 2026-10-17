@@ -24,6 +24,7 @@ import { useMobileFormKeyboard } from './useMobileFormKeyboard'
 import {
   MobileCard,
   MobileEmpty,
+  MobileFormActionBar,
   MobileInput,
   MobileSearchBar,
   MobileSheet,
@@ -340,7 +341,7 @@ export default function InboundFormMobile() {
   }
 
   return (
-    <div className="m-stack" style={{ paddingBottom: 56 }}>
+    <div className="m-stack m-form-page">
       <datalist id="m-inbound-species">
         {dict.species.map((item) => (
           <option value={item.name} key={item.id} />
@@ -639,7 +640,7 @@ export default function InboundFormMobile() {
         </p>
       </MobileCard>
 
-      <div className="m-actionbar m-actionbar-3">
+      <MobileFormActionBar>
         <button
           type="button"
           className="m-btn m-btn-primary"
@@ -669,7 +670,7 @@ export default function InboundFormMobile() {
         >
           取消
         </button>
-      </div>
+      </MobileFormActionBar>
 
       {/* 选合同 */}
       <MobileSheet open={contractOpen} title="选采购合同" onClose={() => setContractOpen(false)}>

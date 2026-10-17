@@ -22,6 +22,7 @@ import { useMobileFormKeyboard } from './useMobileFormKeyboard'
 import {
   MobileCard,
   MobileEmpty,
+  MobileFormActionBar,
   MobileInput,
   MobileSearchBar,
   MobileSheet,
@@ -249,7 +250,7 @@ export default function OutboundFormMobile() {
 
   // paddingBottom 56 = 底部操作栏高度；Tab 栏那 72px 由外壳 .m-body 自己的 padding 兜着
   return (
-    <div className="m-stack" style={{ paddingBottom: 56 }}>
+    <div className="m-stack m-form-page">
       <MobileTopbarActions>
         <MobileTopbarButton label="扫一扫" onClick={() => setScannerOpen(true)} />
       </MobileTopbarActions>
@@ -370,7 +371,7 @@ export default function OutboundFormMobile() {
         )}
       </MobileCard>
 
-      <div className="m-actionbar m-actionbar-3">
+      <MobileFormActionBar>
         <button
           type="button"
           className="m-btn m-btn-primary"
@@ -400,7 +401,7 @@ export default function OutboundFormMobile() {
         >
           取消
         </button>
-      </div>
+      </MobileFormActionBar>
 
       <MobileSheet open={pickerOpen} title="选择码单" onClose={() => setPickerOpen(false)}>
         <MobileSearchBar value={pickerKeyword} placeholder="包号 / 条码 / 规格" onChange={setPickerKeyword} />

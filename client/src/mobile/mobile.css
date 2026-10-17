@@ -318,7 +318,18 @@
 
 /* 改包表单是 query 打开的全屏子页，没有底部 Tab，操作栏落回安全区 */
 .m-actionbar-full {
-  bottom: env(safe-area-inset-bottom);
+  bottom: 0;
+  z-index: 99;
+  height: calc(56px + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background-color: #fff;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 -0.5px 0 var(--line), 0 -6px 18px rgba(0, 0, 0, 0.04);
+}
+
+.m-form-page {
+  padding-bottom: calc(72px + env(safe-area-inset-bottom)) !important;
 }
 
 /* 明细行：单价 / 件数 各占一格，字段名在上（和入库表单两行制一个口径） */
@@ -1811,7 +1822,7 @@
 .m-overlay {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: 120;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
@@ -1946,7 +1957,7 @@
   left: 0;
   right: 0;
   bottom: calc(132px + env(safe-area-inset-bottom));
-  z-index: 70;
+  z-index: 150;
   display: flex;
   flex-direction: column;
   align-items: center;

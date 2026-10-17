@@ -252,6 +252,42 @@ export function MobileRefreshBar({ active }: { active: boolean }) {
   )
 }
 
+/**
+ * 表单底部三按钮：直接 portal 到 body，彻底绕开祖先 transform/overflow
+ * 对 position:fixed 的影响；键盘弹起时整体抬到可视区底部。
+ */
+export function MobileFormActionBar({ children }: { children: ReactNode }) {
+  const [keyboardOffset, setKeyboardOffset] = useState(0)
+
+  useEffect(() => {
+    const viewport = window.visualViewport
+    if (!viewport) return
+    const update = () => {
+      const layoutHeight = document.documentElement.clientHeight
+      setKeyboardOffset(
+        Math.max(0, Math.round(layoutHeight - viewport.height - viewport.offsetTop)),
+      )
+    }
+    viewport.addEventListener('resize', update)
+    viewport.addEventListener('scroll', update)
+    update()
+    return () => {
+      viewport.removeEventListener('resize', update)
+      viewport.removeEventListener('scroll', update)
+    }
+  }, [])
+
+  return createPortal(
+    <div
+      className="m-actionbar m-actionbar-3 m-actionbar-full"
+      style={{ bottom: keyboardOffset }}
+    >
+      {children}
+    </div>,
+    document.body,
+  )
+}
+
 /* ============ Toast ============ */
 
 export type MobileToastItem = {

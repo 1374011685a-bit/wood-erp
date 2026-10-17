@@ -26,6 +26,7 @@ import {
   MobileCard,
   MobileDatePicker,
   MobileEmpty,
+  MobileFormActionBar,
   MobileInput,
   MobileList,
   MobileListItem,
@@ -627,7 +628,7 @@ export default function RepackMobile() {
 
   if (formOpen) {
     return (
-      <div className="m-stack repack-form" style={{ paddingBottom: 56 }}>
+      <div className="m-stack repack-form m-form-page">
         <datalist id="m-repack-species">
           {dict.species.map((item) => (
             <option value={item.name} key={item.id} />
@@ -812,7 +813,7 @@ export default function RepackMobile() {
           ))}
         </MobileCard>
 
-        <div className="m-actionbar m-actionbar-3 m-actionbar-full">
+        <MobileFormActionBar>
           <button
             type="button"
             className="m-btn m-btn-primary"
@@ -836,7 +837,7 @@ export default function RepackMobile() {
           >
             取消
           </button>
-        </div>
+        </MobileFormActionBar>
 
         <MobileSheet
           open={pickerOpen}
