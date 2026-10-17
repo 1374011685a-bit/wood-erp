@@ -7065,6 +7065,32 @@ section > .toolbar .btn-primary {
    * 批次 1 的其余改动（卡片分级 / 数字等宽 / 文本截断 / 面包屑吸顶 / 阴影收敛 /
    * 按压弹性 / 触觉分级）全部保留。
    */
+
+  /*
+   * touch-action 只加回来一半（2026-10-17 第二批）：**只给纯按钮类元素**，
+   * 去掉 iOS 那 ~300ms 的"等一下看你是不是双击缩放"。
+   *
+   * ⚠️ 故意**不加**在 input / textarea / select / .sheet-input 上 ——
+   *    真机反馈"明细区上下滑整页不动"，最大嫌疑就是输入框上的这条把滚动手势
+   *    交给了控件自己。也**不加**在 body / 容器 / 卡片上，不再碰整页滚动。
+   * ⚠️ overscroll-behavior 全程不加回来（任何元素都不加）。
+   */
+  button,
+  a,
+  [role='button'],
+  .bottom-nav-item,
+  .tab-label {
+    touch-action: manipulation;
+  }
+
+  /*
+   * 滚动回弹（2026-10-17 第三步单独加回）：只加这一条 ——
+   * 掐掉 Chrome Android 的"下拉刷新整个页面"，保留 iOS 自己的橡皮筋手感。
+   * 内部容器 / 卡片 / .sheet-scroll 上依然**不加** overscroll-behavior。
+   */
+  body {
+    overscroll-behavior-y: contain;
+  }
   /*
    * 18 按压弹性统一：全站按下去都是 0.97、120ms 回弹（原来有 0.94/0.97/0.98/0.99
    * 四种幅度，还有一大半按钮只有背景变化、完全没有"被按住"的手感）。
