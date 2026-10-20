@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
+    "@tabler/icons-react": "^3.49.0",
     "antd": "^5.29.3",
     "dayjs": "^1.11.23",
     "html5-qrcode": "^2.3.8",
