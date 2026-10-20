@@ -6,6 +6,17 @@ import {
   useRef,
   useState,
 } from 'react'
+import {
+  Button,
+  DatePicker,
+  Drawer,
+  Input,
+  Modal,
+  Table,
+  Tag,
+  type TableProps,
+} from 'antd'
+import dayjs, { type Dayjs } from 'dayjs'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import {
@@ -43,7 +54,6 @@ import {
   PageHead,
   Pager,
   PullIndicator,
-  TableSkeleton,
   ToastHost,
 } from '../components/Ui'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
@@ -116,6 +126,11 @@ const previewCubic = (row: FormRow) => {
 
 const previewAmount = (cubic: number, unitPrice: string) =>
   roundTo(cubic * toNumber(unitPrice), 2)
+
+const datePickerValue = (value: string): Dayjs | null => (value ? dayjs(value) : null)
+
+const datePickerText = (value: Dayjs | null) =>
+  value ? value.format('YYYY-MM-DD') : ''
 
 /* ---------- 明细行 ---------- */
 
@@ -1534,8 +1549,122 @@ export default function Inbound({
     }
   }
 
+  const listColumns: NonNullable<TableProps<InboundListItem>['columns']> = [
+    {
+      title: '单号',
+      dataIndex: 'order_no',
+      width: 170,
+      fixed: 'left',
+      render: (value: string, order) => (
+        <div className="inbound-primary-cell">
+          <span className="inbound-order-no">{value}</span>
+          <span className="cell-sub">{order.order_date || '—'}</span>
+        </div>
+      ),
+    },
+    {
+      title: '往来单位 / 仓库',
+      dataIndex: 'supplier',
+      width: 150,
+      render: (value: string | null, order) => (
+        <div className="inbound-primary-cell">
+          <span>{value || '—'}</span>
+          <span className="cell-sub">仓库 {order.warehouse || '—'}</span>
+        </div>
+      ),
+    },
+    {
+      title: '状态',
+      width: 84,
+      render: () => (
+        <Tag bordered={false} color="success">
+          已入库
+        </Tag>
+      ),
+    },
+    {
+      title: '合同号 / 提单号',
+      width: 170,
+      render: (_, order) => (
+        <div className="inbound-contract-cell">
+          {order.contract_no ? (
+            order.contract_id ? (
+              <Button
+                type="link"
+                className="inbound-table-link"
+                onClick={() => void handleOpenContract(order.contract_id!, order.contract_no!)}
+              >
+                {order.contract_no}
+              </Button>
+            ) : (
+              order.contract_no
+            )
+          ) : (
+            '—'
+          )}
+          {order.bl_no ? <span className="cell-sub">提单 {order.bl_no}</span> : null}
+        </div>
+      ),
+    },
+    {
+      title: money ? '立方 / 金额' : '总立方',
+      dataIndex: 'total_cubic',
+      width: 115,
+      align: 'right',
+      render: (value: number, order) => (
+        <div className="inbound-primary-cell is-end">
+          <span>{formatCubic(value)} m³</span>
+          {money ? <span className="cell-sub">¥ {formatAmount(order.total_amount)}</span> : null}
+        </div>
+      ),
+    },
+    {
+      title: '明细 / 码单',
+      width: 130,
+      align: 'right',
+      render: (_, order) =>
+        <div className="inbound-primary-cell is-end">
+          <span>
+            {order.item_count ?? 0} 项 · {order.bale_total > 0 ? `${order.bale_total} 包` : '无码单'}
+          </span>
+          {order.bale_total > 0 ? (
+            <span className="cell-sub">
+              在库 {order.bale_in_stock} / 已出 {order.bale_total - order.bale_in_stock}
+            </span>
+          ) : null}
+        </div>
+    },
+    {
+      title: '操作',
+      width: canWrite ? 240 : 90,
+      fixed: 'right',
+      render: (_, order) => (
+        <div className="row-actions inbound-row-actions">
+          <Button onClick={() => void openDetail(order.id)}>查看</Button>
+          {canWrite && (
+            <>
+              <Button onClick={() => navigate(`/inbound/edit/${order.id}`)}>编辑</Button>
+              <Button
+                danger
+                title="移入回收站，可在回收站恢复"
+                onClick={() =>
+                  setDeleteTarget({
+                    id: order.id,
+                    order_no: order.order_no,
+                  })
+                }
+              >
+                移入回收站
+              </Button>
+            </>
+          )}
+        </div>
+      ),
+    },
+  ]
+
   return (
-    <section>
+    <section className={mode === 'list' ? 'inbound-ant-page' : undefined}>
       <PageHead
         title="采购入库"
         subtitle={
@@ -1548,13 +1677,13 @@ export default function Inbound({
         extra={
           mode === 'list' ? (
             <>
-              <button className="btn" onClick={handleExport} disabled={exporting}>
+              <Button onClick={handleExport} loading={exporting}>
                 {exporting ? '导出中…' : '导出 Excel'}
-              </button>
+              </Button>
               {canWrite && (
-                <button className="btn btn-primary" onClick={openCreate}>
+                <Button type="primary" onClick={openCreate}>
                   新增采购
-                </button>
+                </Button>
               )}
             </>
           ) : null
@@ -1713,95 +1842,89 @@ export default function Inbound({
       ) : mode === 'list' ? (
         <>
           <PullIndicator distance={pullDistance} busy={pullBusy} />
-          <div className="toolbar toolbar-sticky">
-            <input
-              className="input toolbar-search"
+          <div className="toolbar toolbar-sticky inbound-ant-toolbar">
+            <Input
+              className="toolbar-search"
               placeholder="单号关键字"
               value={input.order_no}
+              allowClear
               onChange={(event) =>
                 setInput((prev) => ({ ...prev, order_no: event.target.value }))
               }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') handleSearch()
-              }}
+              onPressEnter={handleSearch}
             />
             {/* 手机端：搜索一行 + 「筛选」按钮，其余条件收进底部 sheet */}
-            <button
-              type="button"
-              className="btn filter-toggle"
+            <Button
+              className="filter-toggle"
               onClick={() => setFilterOpen((open) => !open)}
             >
               筛选
               {activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
-            </button>
+            </Button>
             <div className={filterOpen ? 'filter-sheet is-open' : 'filter-sheet'}>
               <div className="filter-sheet-head">
                 <span>筛选</span>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-quiet"
+                <Button
+                  type="text"
+                  size="small"
                   onClick={() => setFilterOpen(false)}
                 >
                   关闭
-                </button>
+                </Button>
               </div>
-            <input
-              className="input"
+            <Input
               placeholder="供应商关键字"
               value={input.supplier}
+              allowClear
               onChange={(event) =>
                 setInput((prev) => ({ ...prev, supplier: event.target.value }))
               }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') handleSearch()
-              }}
+              onPressEnter={handleSearch}
             />
-            <input
-              className="input"
+            <Input
               placeholder="仓库关键字"
               value={input.warehouse}
+              allowClear
               onChange={(event) =>
                 setInput((prev) => ({ ...prev, warehouse: event.target.value }))
               }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') handleSearch()
-              }}
+              onPressEnter={handleSearch}
             />
-            <input
-              className="input"
+            <Input
               placeholder="操作员"
               value={input.operator}
+              allowClear
               onChange={(event) =>
                 setInput((prev) => ({ ...prev, operator: event.target.value }))
               }
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') handleSearch()
-              }}
+              onPressEnter={handleSearch}
             />
-            <input
-              className="input"
-              type="date"
-              value={input.date_from}
-              onChange={(event) =>
-                setInput((prev) => ({ ...prev, date_from: event.target.value }))
+            <DatePicker
+              className="inbound-date-picker"
+              placeholder="开始日期"
+              value={datePickerValue(input.date_from)}
+              format="YYYY-MM-DD"
+              onChange={(value) =>
+                setInput((prev) => ({ ...prev, date_from: datePickerText(value) }))
               }
             />
             <span className="muted">至</span>
-            <input
-              className="input"
-              type="date"
-              value={input.date_to}
-              onChange={(event) =>
-                setInput((prev) => ({ ...prev, date_to: event.target.value }))
+            <DatePicker
+              className="inbound-date-picker"
+              placeholder="结束日期"
+              value={datePickerValue(input.date_to)}
+              format="YYYY-MM-DD"
+              onChange={(value) =>
+                setInput((prev) => ({ ...prev, date_to: datePickerText(value) }))
               }
             />
               <div className="filter-sheet-actions">
-                <button className="btn" onClick={handleResetFilters}>
+                <Button onClick={handleResetFilters}>
                   重置
-                </button>
-                <button className="btn btn-primary" onClick={() => { handleSearch(); setFilterOpen(false) }}>
+                </Button>
+                <Button type="primary" onClick={() => { handleSearch(); setFilterOpen(false) }}>
                   查询
-                </button>
+                </Button>
               </div>
             </div>
             {filterOpen && (
@@ -1811,163 +1934,52 @@ export default function Inbound({
             {listRefreshing && <span className="list-refreshing">刷新中…</span>}
           </div>
 
-          <div className="card">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>单号</th>
-                <th>供应商</th>
-                <th>日期</th>
-                <th>状态</th>
-                <th>仓库</th>
-                <th>合同号 / 提单号</th>
-                <th className="num">总立方</th>
-                {money && <th className="num">总金额</th>}
-                <th className="num">明细数</th>
-                <th className="num">码单</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.map((order) => (
-                <tr
-                  key={order.id}
-                  className={swipedId === order.id ? 'is-swiped' : undefined}
-                  /* 手机端左滑露出快捷操作；桌面端不触发（没有 touch 事件） */
-                  onTouchStart={(event) => {
-                    swipeStartX.current = event.touches[0]?.clientX ?? 0
-                  }}
-                  onTouchMove={(event) => {
-                    const dx = (event.touches[0]?.clientX ?? 0) - swipeStartX.current
-                    if (dx < -34) setSwipedId(order.id)
-                    else if (dx > 34) setSwipedId(null)
-                  }}
-                  onClickCapture={(event) => {
-                    // 已经滑开时，点卡片本身先收起来（别顺手点了按钮）
-                    if (swipedId === order.id) {
-                      event.preventDefault()
-                      event.stopPropagation()
-                      setSwipedId(null)
-                    }
-                  }}
-                >
-                  <td className="col-wide">{order.order_no}</td>
-                  <td className="col-third">{order.supplier}</td>
-                  <td className="col-third">{order.order_date}</td>
-                  <td><span className="tag tag-status tag-status-in">已入库</span></td>
-                  <td className="col-third">{order.warehouse || '—'}</td>
-                  <td className="col-wide">
-                    {order.contract_no ? (
-                      order.contract_id ? (
-                        <button
-                          type="button"
-                          className="link-btn"
-                          onClick={() => void handleOpenContract(order.contract_id!, order.contract_no!)}
-                        >
-                          {order.contract_no}
-                        </button>
-                      ) : (
-                        order.contract_no
-                      )
-                    ) : (
-                      '—'
-                    )}
-                    {order.bl_no ? (
-                      <span className="cell-sub">提单 {order.bl_no}</span>
-                    ) : null}
-                  </td>
-                  <td className="num col-third">{formatCubic(order.total_cubic)}</td>
-                  {money && (
-                    <td className="num amount col-third">
-                      {formatAmount(order.total_amount)}
-                    </td>
-                  )}
-                  <td className="num col-third">{order.item_count}</td>
-                  <td className="num col-wide">
-                    {order.bale_total > 0 ? (
-                      <>
-                        {order.bale_total} 包
-                        <span className="cell-sub">
-                          在库 {order.bale_in_stock} / 已出{' '}
-                          {order.bale_total - order.bale_in_stock}
-                        </span>
-                      </>
-                    ) : (
-                      '—'
-                    )}
-                  </td>
-                  <td className="cell-actions">
-                    {/* 左滑露出来的两个快捷按钮（桌面端隐藏：桌面有整排按钮） */}
-                    <div className="swipe-actions">
-                      <button
-                        type="button"
-                        className="swipe-btn"
-                        onClick={() => navigate(`/inbound/edit/${order.id}`)}
-                      >
-                        编辑
-                      </button>
-                      <button
-                        type="button"
-                        className="swipe-btn is-danger"
-                        onClick={() => {
-                          setSwipedId(null)
-                          setDeleteTarget({ id: order.id, order_no: order.order_no })
-                        }}
-                      >
-                        移入回收站
-                      </button>
-                    </div>
-                    <div className="row-actions">
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => void openDetail(order.id)}
-                      >
-                        查看
-                      </button>
-                      {canWrite && (
-                        <>
-                          <button
-                            className="btn btn-sm"
-                            onClick={() => navigate(`/inbound/edit/${order.id}`)}
-                          >
-                            编辑
-                          </button>
-                          <button
-                            className="btn btn-sm btn-danger"
-                            title="移入回收站，可在回收站恢复"
-                            onClick={() =>
-                              setDeleteTarget({
-                                id: order.id,
-                                order_no: order.order_no,
-                              })
-                            }
-                          >
-                            移入回收站
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!listLoading && list.length === 0 && (
-            <EmptyState
-              text="暂无入库单"
-              hint="按提单一包包进货；同一张单里品名/规格/片数一样的两行会自动合并"
-              action={{ label: '新增入库', to: '/inbound/new' }}
+          <div className="card inbound-table-card">
+            <Table<InboundListItem>
+              className="inbound-ant-table"
+              columns={listColumns}
+              dataSource={list}
+              rowKey="id"
+              loading={listLoading}
+              bordered={false}
+              scroll={{ x: 1060 }}
+              locale={{
+                emptyText: listLoading ? null : (
+                  <EmptyState
+                    text="暂无入库单"
+                    hint="按提单一包包进货；同一张单里品名/规格/片数一样的两行会自动合并"
+                    action={{ label: '新增入库', to: '/inbound/new' }}
+                  />
+                ),
+              }}
+              rowClassName={(order) => (swipedId === order.id ? 'is-swiped' : '')}
+              onRow={(order) => ({
+                onTouchStart: (event) => {
+                  swipeStartX.current = event.touches[0]?.clientX ?? 0
+                },
+                onTouchMove: (event) => {
+                  const dx = (event.touches[0]?.clientX ?? 0) - swipeStartX.current
+                  if (dx < -34) setSwipedId(order.id)
+                  else if (dx > 34) setSwipedId(null)
+                },
+                onClickCapture: (event) => {
+                  if (swipedId === order.id) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setSwipedId(null)
+                  }
+                },
+              })}
+              pagination={{
+                current: Math.floor(offset / PAGE_SIZE) + 1,
+                pageSize: PAGE_SIZE,
+                total,
+                showSizeChanger: false,
+                showTotal: (count) => `共 ${count} 张入库单`,
+                onChange: (page) => setOffset((page - 1) * PAGE_SIZE),
+              }}
             />
-          )}
-        {listLoading && <TableSkeleton rows={6} cols={5} />}
-          <Pager
-            total={total}
-            limit={PAGE_SIZE}
-            offset={offset}
-            onChange={setOffset}
-            unit="张入库单"
-          />
-        </div>
+          </div>
         </>
       ) : (
         <div className="card sheet">
@@ -2542,51 +2554,53 @@ export default function Inbound({
         </div>
       )}
 
-      {(detail || detailLoading || detailError) && (
-        <div className="overlay" onClick={closeDetail}>
-          <div className="modal modal-xwide" onClick={(event) => event.stopPropagation()}>
-            <div className="modal-head">
-              <h2 className="modal-title">
-                入库单详情{detail ? `：${detail.order_no}` : ''}
-                {detail ? (
-                  <span className="tag tag-status tag-detail-status tag-status-in">已入库</span>
-                ) : null}
-              </h2>
-              <div className="modal-actions">
-                {detail && (
-                  <>
-                    {canWrite && (
-                      <>
-                        <button
-                          className="btn btn-sm"
-                          onClick={() => {
-                            closeDetail()
-                            navigate(`/inbound/edit/${detail.id}`)
-                          }}
-                        >
-                          编辑
-                        </button>
-                        <button
-                          className="btn btn-sm btn-danger"
-                          title="移入回收站，可在回收站恢复"
-                          onClick={() =>
-                            setDeleteTarget({
-                              id: detail.id,
-                              order_no: detail.order_no,
-                            })
-                          }
-                        >
-                          移入回收站
-                        </button>
-                      </>
-                    )}
-                  </>
-                )}
-                <button className="btn btn-quiet" onClick={closeDetail}>
-                  关闭
-                </button>
-              </div>
-            </div>
+      <Drawer
+        open={Boolean(detail || detailLoading || detailError)}
+        onClose={closeDetail}
+        width="min(1180px, 92vw)"
+        destroyOnClose={false}
+        className="inbound-detail-drawer"
+        title={
+          <span className="inbound-drawer-title">
+            入库单详情{detail ? `：${detail.order_no}` : ''}
+            {detail ? (
+              <Tag bordered={false} color="success">
+                已入库
+              </Tag>
+            ) : null}
+          </span>
+        }
+        extra={
+          <div className="modal-actions">
+            {detail && canWrite ? (
+              <>
+                <Button
+                  onClick={() => {
+                    closeDetail()
+                    navigate(`/inbound/edit/${detail.id}`)
+                  }}
+                >
+                  编辑
+                </Button>
+                <Button
+                  danger
+                  title="移入回收站，可在回收站恢复"
+                  onClick={() =>
+                    setDeleteTarget({
+                      id: detail.id,
+                      order_no: detail.order_no,
+                    })
+                  }
+                >
+                  移入回收站
+                </Button>
+              </>
+            ) : null}
+            <Button onClick={closeDetail}>关闭</Button>
+          </div>
+        }
+        styles={{ body: { padding: 24 }, header: { padding: '16px 24px' } }}
+      >
 
             {detailLoading && <p className="muted">加载中…</p>}
 
@@ -2794,84 +2808,70 @@ export default function Inbound({
 
               </>
             )}
-          </div>
-        </div>
-      )}
+      </Drawer>
 
       {/* 这个提单号已经有活单：让用户选「去那张单追加」「仍要新建」「取消」 */}
-      {blConflict && (
-        <div className="overlay" onClick={() => setBlConflict(null)}>
-          <div
-            className="modal modal-narrow modal-alert"
-            onClick={(event) => event.stopPropagation()}
+      <Modal
+        open={Boolean(blConflict)}
+        title="这个提单号已经有入库单"
+        onCancel={() => setBlConflict(null)}
+        footer={[
+          blConflict?.order ? (
+            <Button
+              key="edit"
+              onClick={() => {
+                const id = blConflict.order?.id
+                setBlConflict(null)
+                if (id) navigate(`/inbound/edit/${id}`)
+              }}
+            >
+              去编辑那张单
+            </Button>
+          ) : null,
+          <Button
+            key="cancel"
+            onClick={() => setBlConflict(null)}
           >
-            <h2 className="modal-title">这个提单号已经有入库单</h2>
-            <p className="confirm-text">{blConflict.message}</p>
-            <div className="confirm-actions">
-              {blConflict.order && (
-                <button
-                  className="btn"
-                  onClick={() => {
-                    const id = blConflict.order?.id
-                    setBlConflict(null)
-                    if (id) navigate(`/inbound/edit/${id}`)
-                  }}
-                >
-                  去编辑那张单
-                </button>
-              )}
-              <button
-                className="btn btn-primary"
-                onClick={() => {
-                  setBlConflict(null)
-                  // 带 force 重发同一份表单
-                  void handleSave(true)
-                }}
-              >
-                仍要新建
-              </button>
-              <button className="btn" onClick={() => setBlConflict(null)}>
-                取消
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+            取消
+          </Button>,
+          <Button
+            key="create"
+            type="primary"
+            onClick={() => {
+              setBlConflict(null)
+              void handleSave(true)
+            }}
+          >
+            仍要新建
+          </Button>,
+        ]}
+      >
+        <p className="confirm-text">{blConflict?.message}</p>
+      </Modal>
 
-      {deleteTarget && (
-        <div className="overlay" onClick={() => setDeleteTarget(null)}>
-          <div
-            className="modal modal-narrow modal-alert"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <h2 className="modal-title">移入回收站</h2>
-            <p className="confirm-text">
-              确认把入库单 {deleteTarget.order_no} 移入回收站？
-              <br />
-              库存会退出，之后可以在「回收站」里恢复。
-            </p>
-            <div className="confirm-actions">
-              <button
-                className="btn"
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                取消
-              </button>
-              <button
-                className="btn btn-danger-solid"
-                onClick={() => {
-                  tapHeavy()
-                  void confirmDelete()
-                }}
-                disabled={deleting}
-              >
-                {deleting ? '处理中…' : '移入回收站'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={Boolean(deleteTarget)}
+        title="移入回收站"
+        okText="移入回收站"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+        confirmLoading={deleting}
+        closable={!deleting}
+        maskClosable={!deleting}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null)
+        }}
+        onOk={() => {
+          tapHeavy()
+          void confirmDelete()
+        }}
+      >
+        <p className="confirm-text">
+          确认把入库单 {deleteTarget?.order_no} 移入回收站？
+          <br />
+          库存会退出，之后可以在「回收站」里恢复。
+        </p>
+      </Modal>
 
       {/* 关联采购合同：大页面按合同明细挑，比只给一个合同号下拉好选 */}
       {pickerOpen && (

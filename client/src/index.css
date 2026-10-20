@@ -8745,3 +8745,156 @@ section > .toolbar .btn-primary {
   }
 }
 
+/* Ant Design 入库列表试点：组件库负责交互，下面只负责与现有页面的布局衔接。 */
+@media (min-width: 768px) {
+  .inbound-ant-toolbar {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .inbound-ant-toolbar .ant-input-affix-wrapper {
+    width: 140px;
+    flex: 0 1 145px;
+    min-width: 120px;
+  }
+
+  .inbound-ant-toolbar .toolbar-search {
+    width: 170px;
+    flex-basis: 175px;
+  }
+
+  .inbound-ant-toolbar .inbound-date-picker {
+    width: 126px;
+    flex: 0 0 126px;
+  }
+
+  .inbound-ant-toolbar .filter-sheet-actions {
+    display: contents;
+  }
+
+  .inbound-table-card {
+    padding: 24px;
+    overflow: hidden;
+  }
+
+  .inbound-table-card .ant-table-wrapper {
+    width: 100%;
+  }
+
+  .inbound-ant-table .ant-table {
+    background: #ffffff;
+  }
+
+  .inbound-ant-table .ant-table-container {
+    border: 0;
+    border-radius: 0;
+  }
+
+  .inbound-ant-table .ant-table-thead > tr > th {
+    height: 48px;
+    padding: 0 16px;
+    border-bottom: 1px solid #f0f0f0;
+    background: #fafafa;
+    color: #8c8c8c;
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .inbound-ant-table .ant-table-thead > tr > th::before {
+    display: none;
+  }
+
+  .inbound-ant-table .ant-table-tbody > tr > td {
+    padding: 15px 16px;
+    border-bottom: 1px solid #f0f0f0;
+    color: #344054;
+    font-size: 14px;
+  }
+
+  .inbound-ant-table .ant-table-tbody > tr:last-child > td {
+    border-bottom: 0;
+  }
+
+  .inbound-ant-table .ant-table-tbody > tr.ant-table-row:hover > td,
+  .inbound-ant-table .ant-table-tbody > tr > td.ant-table-cell-row-hover {
+    background: #fafafa;
+  }
+
+  .inbound-ant-table .ant-table-pagination.ant-pagination {
+    margin: 18px 0 0;
+  }
+
+  .inbound-ant-table .ant-empty {
+    margin: 28px 0;
+  }
+
+  .inbound-primary-cell,
+  .inbound-contract-cell,
+  .inbound-bales-cell {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .inbound-primary-cell.is-end {
+    align-items: flex-end;
+  }
+
+  .inbound-order-no {
+    color: #1f2937;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .inbound-contract-cell .cell-sub,
+  .inbound-primary-cell .cell-sub,
+  .inbound-bales-cell .cell-sub {
+    color: #98a2b3;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .inbound-table-link.ant-btn {
+    height: auto;
+    padding: 0;
+    color: var(--brand);
+    font-size: 14px;
+    line-height: 1.4;
+    text-align: left;
+  }
+
+  .inbound-row-actions {
+    justify-content: flex-end;
+    gap: 8px;
+    white-space: nowrap;
+  }
+
+  .inbound-row-actions .ant-btn {
+    height: 34px;
+    padding: 0 13px;
+    border-radius: 8px;
+  }
+
+  .inbound-detail-drawer .ant-drawer-header {
+    border-bottom: 1px solid #f0f0f0;
+  }
+
+  .inbound-detail-drawer .ant-drawer-body {
+    background: #f8fafc;
+  }
+
+  .inbound-detail-drawer .section-title {
+    margin-top: 20px;
+  }
+
+  .inbound-drawer-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: #1f2937;
+    font-size: 16px;
+    font-weight: 600;
+  }
+}
+
