@@ -13551,3 +13551,161 @@ section > .toolbar .btn-primary {
     min-height: 34px;
   }
 }
+
+/* Final pixel refinements requested for the commerce workbench */
+@media (min-width: 768px) {
+  .sidebar {
+    background: #0f172a;
+    border-right-color: rgb(255 255 255 / 8%);
+  }
+
+  .sidebar-brand {
+    color: #ffffff;
+    border-bottom-color: rgb(255 255 255 / 9%);
+  }
+
+  .sidebar-brand-logo {
+    background: rgb(255 255 255 / 7%);
+  }
+
+  .nav-group-head {
+    color: rgb(255 255 255 / 42%);
+  }
+
+  .nav-item {
+    color: #a6adb4;
+    background: transparent;
+    transition: none;
+  }
+
+  .nav-item:hover {
+    color: #ffffff;
+    background: rgb(255 255 255 / 6%);
+  }
+
+  .nav-item::before {
+    display: block;
+    top: 7px;
+    bottom: 7px;
+    left: -8px;
+    width: 3px;
+    border-radius: 0 2px 2px 0;
+    background: transparent;
+  }
+
+  .nav-item-active,
+  .nav-item-active:hover {
+    color: #ffffff;
+    background: rgb(107 74 47 / 10%);
+    font-weight: 600;
+  }
+
+  .nav-item-active::before {
+    background: #6b4a2f;
+  }
+
+  .nav-item-active .nav-icon,
+  .nav-item-active .nav-icon svg,
+  .nav-item:hover .nav-icon,
+  .nav-item:hover .nav-icon svg {
+    color: currentColor;
+    stroke: currentColor;
+  }
+
+  .sidebar-user-footer {
+    background: #0f172a;
+    border-top-color: rgb(255 255 255 / 9%);
+  }
+
+  .sidebar-user-avatar {
+    background: rgb(255 255 255 / 8%);
+    color: #ffffff;
+  }
+
+  .sidebar-user-copy strong {
+    color: rgb(255 255 255 / 90%);
+  }
+
+  .sidebar-user-copy small {
+    color: rgb(255 255 255 / 44%);
+  }
+
+  .wb-kpi-label {
+    color: #666666;
+    font-size: 14px;
+  }
+
+  .wb-kpi-value {
+    margin-top: 2px;
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 38px;
+    letter-spacing: -1px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .wb-kpi-value small {
+    display: inline-block;
+    margin-left: 4px;
+    color: #8c8c8c;
+    font-size: 14px;
+    font-weight: 400;
+    letter-spacing: 0;
+    transform: translateY(-2px);
+  }
+
+  .wb-kpi-foot {
+    margin-top: 2px;
+  }
+
+  .wb-kpi-trend {
+    padding: 0;
+    background: transparent;
+    font-size: 11px;
+  }
+
+  .page-home .wb-kpi-card,
+  .page-home .wb-panel,
+  .page-home .wb-quick-grid button {
+    border: 0;
+    border-radius: 12px;
+    box-shadow: none;
+    transition: box-shadow 0.16s ease;
+  }
+
+  .page-home .wb-kpi-card:hover,
+  .page-home .wb-side > .wb-panel:last-child:hover,
+  .page-home .wb-chart-panel:hover,
+  .page-home .wb-activity:hover,
+  .page-home .wb-quick-grid button:hover {
+    box-shadow: 0 4px 16px rgb(0 0 0 / 4%);
+  }
+
+  .page-home .wb-side > .wb-panel:first-child {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .page-home .wb-quick-grid {
+    gap: 16px;
+  }
+
+  .page-home .wb-quick-grid button {
+    height: auto;
+    min-height: 120px;
+    padding: 24px;
+  }
+
+  .page-home .wb-quick-grid button > span {
+    border-radius: 12px;
+    background: rgb(107 74 47 / 8%);
+    color: #6b4a2f;
+  }
+
+  .page-home .wb-quick-grid button > span svg,
+  .page-home .wb-quick-grid svg {
+    color: #6b4a2f;
+    stroke: #6b4a2f;
+    stroke-width: 2px;
+  }
+}
