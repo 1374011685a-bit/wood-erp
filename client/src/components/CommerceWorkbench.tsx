@@ -30,7 +30,7 @@ function PercentHint({ value }: { value: number | null | undefined }) {
   }
   return (
     <span className={`wb-kpi-trend ${value >= 0 ? 'is-up' : 'is-down'}`}>
-      {value >= 0 ? '↑' : '↓'} {Math.abs(value)}%
+      较上期 {value >= 0 ? '↑' : '↓'} {Math.abs(value)}%
     </span>
   )
 }
@@ -110,16 +110,22 @@ export default function CommerceWorkbench({
         summary?.days_of_supply != null && summary.days_of_supply < 7
           ? 'warning'
           : 'success',
+      tag:
+        summary?.days_of_supply != null && summary.days_of_supply < 7
+          ? '库存预警'
+          : '正常',
     },
     {
       label: '最近单据',
       text: `${summary?.recent_records.length ?? 0} 条动态待查看`,
       tone: 'info',
+      tag: '待查看',
     },
     {
       label: '系统公告',
       text: '经营数据已同步至最新状态',
       tone: 'neutral',
+      tag: '已同步',
     },
   ]
 
@@ -286,7 +292,7 @@ export default function CommerceWorkbench({
           <section className="wb-panel">
             <div className="wb-panel-head">
               <div>
-                <h2>待办提醒</h2>
+                <h2>待办事项</h2>
                 <p>需要重点关注</p>
               </div>
             </div>
@@ -298,6 +304,7 @@ export default function CommerceWorkbench({
                     <b>{item.label}</b>
                     <small>{item.text}</small>
                   </span>
+                  <em>{item.tag}</em>
                 </div>
               ))}
             </div>

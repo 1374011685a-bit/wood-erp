@@ -13170,3 +13170,297 @@ section > .toolbar .btn-primary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* Final commerce workbench grid */
+@media (min-width: 768px) {
+  :root {
+    --final-bg: #f0f2f5;
+    --final-sidebar: #f7f8fa;
+    --final-line: #e5e6eb;
+  }
+
+  html,
+  body,
+  #root,
+  .layout,
+  .content {
+    background: var(--final-bg);
+  }
+
+  .content {
+    padding: 0 20px 24px;
+  }
+
+  .topbar {
+    margin: 0 -20px;
+    padding: 0 20px;
+  }
+
+  .tabbar {
+    margin-right: -20px;
+    margin-left: -20px;
+    padding-right: 20px;
+    padding-left: 20px;
+  }
+
+  .sidebar {
+    background: var(--final-sidebar);
+    border-right: 1px solid var(--final-line);
+  }
+
+  .nav-item {
+    color: #333333;
+    background: transparent;
+  }
+
+  .nav-item:hover {
+    color: #333333;
+    background: #ebebeb;
+  }
+
+  .nav-item::before {
+    display: none;
+  }
+
+  .nav-item-active,
+  .nav-item-active:hover {
+    color: #6b4a2f;
+    background: rgb(107 74 47 / 10%);
+    font-weight: 600;
+  }
+
+  .btn,
+  .btn-sm,
+  .ant-btn,
+  .input,
+  .input-cell,
+  .sheet-input,
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-picker,
+  .ant-select-selector {
+    border-radius: 4px;
+  }
+
+  .card,
+  .page-body,
+  .stat-card,
+  .mini-card,
+  .dash-hero,
+  .filter-bar,
+  .data-card,
+  .drill-panel,
+  .pc-ai-shell,
+  .page-form-stack .card,
+  .page-form-stack .app-form-card {
+    border: 1px solid var(--final-line);
+    border-radius: 8px;
+    box-shadow: none;
+  }
+
+  .page-home {
+    padding: 0;
+  }
+
+  .page-home .page-head {
+    margin-bottom: 24px;
+  }
+
+  .page-home .page-head h1 {
+    font-size: 24px;
+    font-weight: 600;
+    letter-spacing: -0.5px;
+  }
+
+  .commerce-workbench {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 24px;
+  }
+
+  .wb-kpi-card {
+    grid-column: 1 / -1;
+    order: 0;
+    border: 0;
+    box-shadow: 0 2px 12px rgb(0 0 0 / 4%);
+  }
+
+  .wb-main-grid,
+  .wb-side {
+    display: contents;
+  }
+
+  .wb-side > .wb-panel:first-child {
+    grid-column: span 8;
+    order: 1;
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+
+  .wb-side > .wb-panel:last-child {
+    grid-column: span 4;
+    order: 2;
+    padding: 24px;
+    border: 1px solid var(--final-line);
+    border-radius: 8px;
+    background: #ffffff;
+  }
+
+  .wb-chart-panel {
+    grid-column: span 7;
+    order: 3;
+    min-height: 380px;
+    padding: 24px;
+    border: 0;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgb(0 0 0 / 4%);
+  }
+
+  .wb-activity {
+    grid-column: span 5;
+    order: 4;
+    min-width: 0;
+    padding: 24px 16px 8px;
+    border: 1px solid var(--final-line);
+    border-radius: 8px;
+  }
+
+  .wb-side > .wb-panel:first-child .wb-panel-head {
+    margin-bottom: 16px;
+  }
+
+  .wb-side > .wb-panel:first-child .wb-panel-head h2,
+  .wb-side > .wb-panel:last-child .wb-panel-head h2,
+  .wb-chart-panel .wb-panel-head h2,
+  .wb-activity .wb-panel-head h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .wb-quick-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-top: 0;
+  }
+
+  .wb-quick-grid button {
+    height: 92px;
+    gap: 8px;
+    border: 0;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 3%),
+      0 4px 12px rgb(0 0 0 / 3%);
+    transition:
+      transform 0.16s ease,
+      box-shadow 0.16s ease,
+      color 0.16s ease;
+  }
+
+  .wb-quick-grid button:hover {
+    color: #6b4a2f;
+    border-color: transparent;
+    background: #ffffff;
+    box-shadow:
+      0 3px 6px rgb(0 0 0 / 5%),
+      0 8px 18px rgb(0 0 0 / 4%);
+    transform: translateY(-2px);
+  }
+
+  .wb-quick-grid button > span {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    place-items: center;
+    border-radius: 12px;
+    background: rgb(107 74 47 / 10%);
+    color: #6b4a2f;
+  }
+
+  .wb-quick-grid button > b {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .wb-quick-grid svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .wb-reminders {
+    gap: 0;
+    margin-top: 12px;
+  }
+
+  .wb-reminders > div {
+    position: relative;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 0;
+    border-bottom: 1px solid #f0f1f3;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  .wb-reminders > div:last-child {
+    border-bottom: 0;
+  }
+
+  .wb-reminders i {
+    margin-top: 0;
+  }
+
+  .wb-reminders span {
+    flex: 1;
+  }
+
+  .wb-reminders b {
+    font-size: 13px;
+  }
+
+  .wb-reminders small {
+    font-size: 12px;
+  }
+
+  .wb-reminders em {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 2px;
+    background: #f4f5f7;
+    color: #7b8088;
+    font-size: 11px;
+    font-style: normal;
+    line-height: 18px;
+  }
+
+  .wb-trend {
+    min-height: 280px;
+  }
+
+  .wb-activity-table {
+    margin-top: 12px;
+  }
+
+  .wb-activity-row {
+    min-height: 44px;
+    font-size: 11px;
+  }
+
+  .wb-activity-row.has-money {
+    grid-template-columns: 72px 56px minmax(96px, 1fr) minmax(82px, 0.9fr) 74px;
+  }
+
+  .wb-activity-row.is-compact {
+    grid-template-columns: 72px 56px minmax(96px, 1fr) minmax(82px, 1fr);
+  }
+
+  .wb-activity-row > span {
+    padding: 0 6px;
+  }
+
+  .wb-activity-head {
+    min-height: 34px;
+  }
+}

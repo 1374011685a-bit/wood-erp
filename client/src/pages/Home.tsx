@@ -302,36 +302,16 @@ export default function Home() {
     </svg>
   )
 
-  const commerceQuickActions: CommerceQuickAction[] = [
-    ...appTiles
-      .filter((tile) => ['入库', '出库', '扫码'].includes(tile.label))
-      .map((tile) => ({
-        to: tile.to,
-        label: tile.label,
-        icon: quickIcon(tile.icon),
-      })),
-    ...(canWrite('count.write')
-      ? [
-          {
-            to: '/count',
-            label: '盘点',
-            icon: quickIcon(
-              <>
-                <path d="M6.5 5.5h11v13h-11z" />
-                <path d="M9 9h6M9 12h6M9 15h4" />
-              </>,
-            ),
-          },
-        ]
-      : []),
-    ...appTiles
-      .filter((tile) => ['码单', '合同', '库存'].includes(tile.label))
-      .map((tile) => ({
-        to: tile.to,
-        label: tile.label,
-        icon: quickIcon(tile.icon),
-      })),
-  ].slice(0, 6)
+  const quickOrder = ['入库', '出库', '改包', '合同', '码单', '库存']
+  const commerceQuickActions: CommerceQuickAction[] = APP_TILES
+    .filter((tile) => quickOrder.includes(tile.label))
+    .filter((tile) => (tile.cap ? can(role, tile.cap) : canVisit(role, tile.to)))
+    .sort((a, b) => quickOrder.indexOf(a.label) - quickOrder.indexOf(b.label))
+    .map((tile) => ({
+      to: tile.to,
+      label: tile.label,
+      icon: quickIcon(tile.icon),
+    }))
 
   /**
    * 手机端首页的 4 张数字卡：**按角色给不同的 4 个数**。
