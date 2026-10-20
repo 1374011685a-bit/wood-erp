@@ -706,7 +706,10 @@ export default function Layout() {
   return (
     <div className="layout">
       <aside className={drawerOpen ? 'sidebar is-open' : 'sidebar'}>
-        <div className="sidebar-brand">立川云木材管理系统</div>
+        <div className="sidebar-brand">
+          <img className="sidebar-brand-logo" src="/logo.png" alt="" />
+          <span>立川云木材管理系统</span>
+        </div>
         <nav className="sidebar-nav">
           {/* 首页独立，不归到任何分类里 */}
           <NavLink
