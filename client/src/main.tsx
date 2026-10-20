@@ -14,13 +14,24 @@ createRoot(document.getElementById('root') as HTMLElement).render(
       theme={{
         token: {
           colorPrimary: '#6B4A2F',
+          colorPrimaryHover: '#5A3D27',
+          colorPrimaryActive: '#4D3421',
           colorInfo: '#6B4A2F',
           colorLink: '#6B4A2F',
           colorBgLayout: '#F5F7FA',
+          colorBgContainer: '#FFFFFF',
           colorBorder: '#E5E7EB',
+          colorBorderSecondary: '#F0F0F0',
+          colorFillAlter: '#FAFAFA',
+          colorText: '#1F2937',
+          colorTextSecondary: '#667085',
           borderRadius: 8,
+          borderRadiusLG: 16,
           controlHeight: 36,
           fontSize: 14,
+          lineHeight: 1.5715,
+          fontFamily:
+            '-apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", Arial, sans-serif',
         },
         components: {
           Table: {
@@ -28,12 +39,28 @@ createRoot(document.getElementById('root') as HTMLElement).render(
             headerColor: '#8C8C8C',
             headerSplitColor: 'transparent',
             borderColor: '#F0F0F0',
-            rowHoverBg: '#FAFAFA',
+            rowHoverBg: '#F5F7FA',
             cellPaddingBlock: 16,
+            headerBorderRadius: 0,
           },
           Button: {
-            primaryShadow: 'none',
+            primaryShadow: '0 3px 10px rgba(107, 74, 47, 0.18)',
+            defaultBg: '#FFFFFF',
             defaultBorderColor: '#E5E7EB',
+            defaultColor: '#344054',
+            defaultHoverBg: '#FAFAFA',
+            borderRadius: 8,
+          },
+          Input: {
+            activeBorderColor: '#6B4A2F',
+            hoverBorderColor: '#D0D5DD',
+            activeShadow: '0 0 0 3px rgba(107, 74, 47, 0.07)',
+          },
+          Modal: {
+            borderRadiusLG: 16,
+          },
+          Drawer: {
+            colorBgElevated: '#FFFFFF',
           },
         },
       }}
