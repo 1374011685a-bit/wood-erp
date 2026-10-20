@@ -218,10 +218,11 @@ const toolOrders = (args, { seesMoney }) => {
     params.push(String(args.date_to))
   }
   const limit = clampLimit(args?.limit, 10)
+  const inboundOnlyFields = type === 'in' ? ', o.bl_no, o.contract_no' : ''
 
   const rows = db
     .prepare(
-      `SELECT o.order_no, o.order_date, o.${partnerCol} AS partner, o.bl_no, o.contract_no,
+      `SELECT o.order_no, o.order_date, o.${partnerCol} AS partner${inboundOnlyFields},
               COUNT(i.id)                     AS item_count,
               COALESCE(SUM(i.cubic), 0)       AS total_cubic,
               COALESCE(SUM(i.bundles), 0)     AS total_bundles
