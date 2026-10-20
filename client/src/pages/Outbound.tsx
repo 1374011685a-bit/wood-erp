@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
 } from 'react'
+import { DatePicker, Input } from 'antd'
+import dayjs from 'dayjs'
 import { useEscapeKey } from '../hooks/useEscapeKey'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
@@ -40,6 +42,7 @@ import {
   TableSkeleton,
   ToastHost,
 } from '../components/Ui'
+import { DataCard, FilterBar } from '../components/PageScaffold'
 
 // 扫码库挺大，点「扫一扫」才去下载
 const Scanner = lazy(() => import('../components/Scanner'))
@@ -263,6 +266,7 @@ export default function Outbound({
   const [undo, setUndo] = useState<{ label: string; run: () => void } | null>(null)
   /** 后台静默刷新中 */
   const [listRefreshing, setListRefreshing] = useState(false)
+  const [compactTable, setCompactTable] = useState(false)
   /** 保存失败后可以「重试」的那一下 */
   const [retrySave, setRetrySave] = useState<null | (() => void)>(null)
   /** 离线时禁用保存 */
@@ -1049,9 +1053,16 @@ export default function Outbound({
         title="出库"
         subtitle="从库存里挑规格出库，保存前会校验库存是否足够；支持按客户与日期查询"
         extra={
-          <button className="btn" onClick={handleExport} disabled={exporting}>
-            {exporting ? '导出中…' : '导出 Excel'}
-          </button>
+          <>
+            <button className="btn" onClick={handleExport} disabled={exporting}>
+              {exporting ? '导出中…' : '导出 Excel'}
+            </button>
+            {canWrite ? (
+              <button className="btn btn-primary" onClick={openCreate}>
+                新增出库
+              </button>
+            ) : null}
+          </>
         }
       />
 
@@ -1143,7 +1154,89 @@ export default function Outbound({
       {mode === 'list' ? (
         <>
           <PullIndicator distance={pullDistance} busy={pullBusy} />
-          <div className="toolbar toolbar-sticky">
+          <FilterBar
+            className="desktop-saas-filter"
+            actions={
+              <>
+                <button className="btn" onClick={handleResetFilters}>
+                  重置
+                </button>
+                <button className="btn btn-primary" onClick={handleSearch}>
+                  查询
+                </button>
+              </>
+            }
+          >
+            <label className="filter-field">
+              <span>单号</span>
+              <Input
+                placeholder="输入单号关键字"
+                value={input.order_no}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, order_no: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>客户</span>
+              <Input
+                placeholder="输入客户关键字"
+                value={input.customer}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, customer: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>仓库</span>
+              <Input
+                placeholder="输入仓库关键字"
+                value={input.warehouse}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, warehouse: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>操作员</span>
+              <Input
+                placeholder="输入操作员"
+                value={input.operator}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, operator: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>日期范围</span>
+              <DatePicker.RangePicker
+                placeholder={['开始', '结束']}
+                value={[
+                  input.date_from ? dayjs(input.date_from) : null,
+                  input.date_to ? dayjs(input.date_to) : null,
+                ]}
+                format="YYYY-MM-DD"
+                allowClear
+                onChange={(_, values) =>
+                  setInput((prev) => ({
+                    ...prev,
+                    date_from: values[0] ?? '',
+                    date_to: values[1] ?? '',
+                  }))
+                }
+              />
+            </label>
+          </FilterBar>
+
+          <div className="toolbar toolbar-sticky mobile-legacy-filter">
             <input
               className="input toolbar-search"
               placeholder="单号关键字"
@@ -1254,8 +1347,43 @@ export default function Outbound({
             )}
           </div>
 
-          <div className="card">
-          <table className="table">
+          <DataCard
+            className={
+              compactTable ? 'outbound-data-card is-compact' : 'outbound-data-card'
+            }
+            toolbar={
+              <>
+                <span className="data-card-title">出库单列表</span>
+                <div className="data-card-toolbar-actions">
+                  {listRefreshing ? <span className="list-refreshing">刷新中…</span> : null}
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void loadList(filters, offset)}
+                  >
+                    刷新
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => setCompactTable((value) => !value)}
+                  >
+                    {compactTable ? '标准' : '紧凑'}
+                  </button>
+                </div>
+              </>
+            }
+            footer={
+              <Pager
+                total={total}
+                limit={PAGE_SIZE}
+                offset={offset}
+                onChange={setOffset}
+                unit="张出库单"
+              />
+            }
+          >
+          <table className="table outbound-table">
             <thead>
               <tr>
                 <th>单号</th>
@@ -1369,17 +1497,12 @@ export default function Outbound({
             />
           )}
         {listLoading && <TableSkeleton rows={6} cols={5} />}
-          <Pager
-            total={total}
-            limit={PAGE_SIZE}
-            offset={offset}
-            onChange={setOffset}
-            unit="张出库单"
-          />
-        </div>
+          </DataCard>
         </>
       ) : (
-        <div className="card sheet">
+        <div className="page-form-stack">
+        <div className="card sheet app-form-card">
+          <h2 className="form-section">基础信息</h2>
           {/* 表头一行：客户 / 出库日期 / 单号，右侧保存 */}
           <div className="sheet-top">
             <label className="sheet-field">
@@ -1454,7 +1577,10 @@ export default function Outbound({
               <option key={name} value={name} />
             ))}
           </datalist>
+        </div>
 
+        <div className="card sheet app-form-card">
+          <h2 className="form-section">单据明细</h2>
           <div className="sheet-toolbar">
             <button className="btn btn-sm" onClick={() => openPicker('multi')}>
               选择码单
@@ -1741,7 +1867,10 @@ export default function Outbound({
               </tfoot>
             </table>
           </div>
+        </div>
 
+        <div className="card sheet app-form-card">
+          <h2 className="form-section">附加信息</h2>
           <textarea
             className="input textarea sheet-note"
             placeholder="备注（选填）"
@@ -1793,6 +1922,37 @@ export default function Outbound({
               : '单号保存时自动生成（CK + 日期 + 流水）。'}
             单价必填；立方按规格和数量实时算。
           </p>
+        </div>
+        </div>
+      )}
+
+      {mode === 'create' && (
+        <div className="pc-form-actionbar">
+          {!online && <span className="action-offline-hint">请检查网络</span>}
+          <button className="btn" onClick={backToList}>
+            取消
+          </button>
+          <button
+            className="btn btn-continue"
+            onClick={() => {
+              tapMedium()
+              void handleSave(true)
+            }}
+            disabled={saving}
+          >
+            保存并继续
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              tapMedium()
+              void handleSave()
+            }}
+            disabled={saving || !online}
+          >
+            {saving && <span className="btn-spinner" aria-hidden="true" />}
+            {saving ? '保存中…' : '保存'}
+          </button>
         </div>
       )}
 

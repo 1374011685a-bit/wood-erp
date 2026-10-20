@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Input } from 'antd'
 import {
   downloadFile,
   fetchStockList,
@@ -11,6 +12,7 @@ import {
   TableSkeleton,
   ToastHost,
 } from '../components/Ui'
+import { DataCard, FilterBar } from '../components/PageScaffold'
 import { roundTo, formatCubic } from '../utils/num'
 import { useRole } from '../hooks/useRole'
 import { seesMoney } from '../permissions'
@@ -32,6 +34,7 @@ export default function Stock() {
   const [appliedSpecies, setAppliedSpecies] = useState('')
   const [exporting, setExporting] = useState(false)
   const [exportHint, setExportHint] = useState('')
+  const [compactTable, setCompactTable] = useState(false)
 
   const load = useCallback(async (species: string) => {
     // 缓存先渲染 + 后台静默刷新（同入库/出库列表一个口径）
@@ -124,27 +127,63 @@ export default function Stock() {
         ]}
       />
 
-      <div className="toolbar">
-        <input
-          className="input"
-          placeholder="品名关键字"
-          value={speciesInput}
-          onChange={(event) => setSpeciesInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') handleSearch()
-          }}
-        />
-        <button className="btn" onClick={handleSearch}>
-          查询
-        </button>
-        <button className="btn" onClick={handleReset}>
-          重置
-        </button>
-        {refreshing && <span className="list-refreshing">刷新中…</span>}
-      </div>
+      <FilterBar
+        className="desktop-saas-filter stock-filter-bar"
+        actions={
+          <>
+            <button className="btn" onClick={handleReset}>
+              重置
+            </button>
+            <button className="btn btn-primary" onClick={handleSearch}>
+              查询
+            </button>
+          </>
+        }
+      >
+        <label className="filter-field">
+          <span>品名</span>
+          <Input
+            placeholder="输入品名关键字"
+            value={speciesInput}
+            allowClear
+            onChange={(event) => setSpeciesInput(event.target.value)}
+            onPressEnter={handleSearch}
+          />
+        </label>
+      </FilterBar>
 
-      <div className="card">
-        <table className="table">
+      <DataCard
+        className={compactTable ? 'stock-data-card is-compact' : 'stock-data-card'}
+        toolbar={
+          <>
+            <span className="data-card-title">实时库存</span>
+            <div className="data-card-toolbar-actions">
+              {refreshing ? <span className="list-refreshing">刷新中…</span> : null}
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void load(appliedSpecies)}
+              >
+                刷新
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setCompactTable((value) => !value)}
+              >
+                {compactTable ? '标准' : '紧凑'}
+              </button>
+            </div>
+          </>
+        }
+        footer={
+          <>
+            <span>当前共 {rows.length} 个规格</span>
+            <span>合计立方：{formatCubic(totalCubic)}</span>
+          </>
+        }
+      >
+        <table className="table stock-table">
           <thead>
             <tr>
               <th>品名</th>
@@ -217,11 +256,7 @@ export default function Stock() {
         )}
         {loading && <TableSkeleton rows={5} cols={5} />}
 
-        <div className="totals">
-          <span>当前共 {rows.length} 个规格</span>
-          <span>合计立方：{formatCubic(totalCubic)}</span>
-        </div>
-      </div>
+      </DataCard>
     </section>
   )
 }

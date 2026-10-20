@@ -13,6 +13,7 @@ import { canVisit } from '../permissions'
 import { useOnline } from '../hooks/useOnline'
 import { applyTableLabels } from '../utils/tableLabels'
 import BottomNav from './BottomNav'
+import { PageContainer } from './PageScaffold'
 import { RouteProgress, ToastHost, type ToastItem } from './Ui'
 
 type NavItem = {
@@ -228,6 +229,14 @@ const EXTRA_LABELS: Record<string, string> = {
   '/me': '我的',
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  admin: '管理员',
+  finance: '财务',
+  sales: '业务员',
+  warehouse: '仓管',
+  viewer: '只读',
+}
+
 /** 路由 → 标签名（和左侧菜单同名） */
 function labelOf(path: string) {
   // /inbound/new、/outbound/new 这类「直接进录入」的地址，标签跟它所属的功能同名
@@ -259,6 +268,9 @@ export default function Layout() {
       ? null
       : { path: location.pathname, label: labelOf(location.pathname) },
   ].filter(Boolean) as { path: string; label: string }[])
+  const [tabMenu, setTabMenu] = useState<{ x: number; y: number; path: string } | null>(null)
+  const [globalSearch, setGlobalSearch] = useState('')
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false)
   // RequireAuth 校验通过后会把用户名写进 localStorage，这里读一次即可
   const [username] = useState(() => getStoredUsername())
   const [passwordOpen, setPasswordOpen] = useState(false)
@@ -273,6 +285,8 @@ export default function Layout() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const accountRef = useRef<HTMLDivElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const searchRef = useRef<HTMLDivElement | null>(null)
+  const tabMenuRef = useRef<HTMLDivElement | null>(null)
   // 分组默认全展开，点标题可以收起；切到某个功能时会自动把它所在的分组展开
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(navGroups.map((group) => [group.key, true])),
@@ -292,7 +306,25 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handlePointerDown)
   }, [menuOpen])
 
+  useEffect(() => {
+    if (!globalSearchOpen && !tabMenu) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!searchRef.current?.contains(event.target as Node)) {
+        setGlobalSearchOpen(false)
+      }
+      if (!tabMenuRef.current?.contains(event.target as Node)) {
+        setTabMenu(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [globalSearchOpen, tabMenu])
+
   useEscapeKey(menuOpen, () => setMenuOpen(false))
+  useEscapeKey(globalSearchOpen, () => setGlobalSearchOpen(false))
+  useEscapeKey(Boolean(tabMenu), () => setTabMenu(null))
 
   /*
    * 底部 sheet 的「按住把手往下拖 = 关闭」。
@@ -452,6 +484,35 @@ export default function Layout() {
       navigate(target.path)
     }
   }
+
+  const closeOtherTabs = (path: string) => {
+    const keep = tabs.find((tab) => tab.path === path)
+    setTabs(keep ? [keep] : [])
+    setTabMenu(null)
+    if (location.pathname !== path) navigate(path)
+  }
+
+  const closeAllTabs = () => {
+    setTabs([])
+    setTabMenu(null)
+    navigate('/')
+  }
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen()
+    } else {
+      void document.documentElement.requestFullscreen()
+    }
+  }
+
+  const searchMenuItems = navItems
+    .filter((item) => canVisit(role, item.to))
+    .filter((item) => {
+      const keyword = globalSearch.trim().toLowerCase()
+      return !keyword || item.label.toLowerCase().includes(keyword) || item.to.includes(keyword)
+    })
+    .slice(0, 8)
 
   // 菜单一打开就把焦点交给第一项，键盘可以直接上下选、回车确认
   useEffect(() => {
@@ -730,6 +791,15 @@ export default function Layout() {
             )
           })}
         </nav>
+        <div className="sidebar-user-footer">
+          <span className="sidebar-user-avatar" aria-hidden="true">
+            {initial}
+          </span>
+          <span className="sidebar-user-copy">
+            <strong>{username}</strong>
+            <small>{ROLE_LABELS[role] ?? role}</small>
+          </span>
+        </div>
       </aside>
 
       {/* 手机上抽屉外的遮罩，点一下收起 */}
@@ -786,6 +856,78 @@ export default function Layout() {
           <span className="topbar-title">
             {location.pathname === '/' ? '首页' : labelOf(location.pathname)}
           </span>
+          <nav className="app-breadcrumb" aria-label="面包屑">
+            <span>立川云</span>
+            <i>/</i>
+            <span>{location.pathname === '/' ? '工作台' : labelOf(location.pathname)}</span>
+          </nav>
+          <div className="app-global-search" ref={searchRef}>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.2" />
+              <path d="m15.2 15.2 4.3 4.3" />
+            </svg>
+            <input
+              value={globalSearch}
+              placeholder="搜索菜单"
+              onChange={(event) => {
+                setGlobalSearch(event.target.value)
+                setGlobalSearchOpen(true)
+              }}
+              onFocus={() => setGlobalSearchOpen(true)}
+            />
+            {globalSearchOpen ? (
+              <div className="app-global-search-menu">
+                {searchMenuItems.length > 0 ? (
+                  searchMenuItems.map((item) => (
+                    <button
+                      key={item.to}
+                      type="button"
+                      onClick={() => {
+                        setGlobalSearch('')
+                        setGlobalSearchOpen(false)
+                        navigate(item.to)
+                      }}
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        {item.icon}
+                      </svg>
+                      <span>{item.label}</span>
+                      <small>{item.to}</small>
+                    </button>
+                  ))
+                ) : (
+                  <p>没有匹配的菜单</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            className="app-header-icon"
+            aria-label="切换全屏"
+            title="切换全屏"
+            onClick={toggleFullscreen}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M8.5 4H4v4.5M15.5 4H20v4.5M20 15.5V20h-4.5M8.5 20H4v-4.5" />
+            </svg>
+          </button>
           <div className="account" ref={accountRef}>
             <button
               type="button"
@@ -907,6 +1049,10 @@ export default function Layout() {
               className={
                 tab.path === location.pathname ? 'tab-item tab-item-active' : 'tab-item'
               }
+              onContextMenu={(event) => {
+                event.preventDefault()
+                setTabMenu({ x: event.clientX, y: event.clientY, path: tab.path })
+              }}
             >
               <button
                 type="button"
@@ -928,6 +1074,22 @@ export default function Layout() {
         </nav>
         )}
 
+        {tabMenu ? (
+          <div
+            ref={tabMenuRef}
+            className="tab-context-menu"
+            style={{ left: tabMenu.x, top: tabMenu.y }}
+            role="menu"
+          >
+            <button type="button" onClick={() => closeOtherTabs(tabMenu.path)}>
+              关闭其他
+            </button>
+            <button type="button" onClick={closeAllTabs}>
+              关闭所有
+            </button>
+          </div>
+        ) : null}
+
         {/* 页面是按需加载的，切页面时先显示一个轻量加载态 */}
         {offlineBarVisible && (
           <div className={offlineBarFading ? 'offline-bar is-hiding' : 'offline-bar'}>
@@ -939,11 +1101,13 @@ export default function Layout() {
           CSS 的 page-in（140ms 淡入 + 8px 上移）就跑一遍，切页有"进场"的感觉。
           切页加载：顶上一条细进度条 + 一块骨架（比整页空白/一个转圈更像 App）。
         */}
-        <div className="page-transition" key={location.pathname}>
-          <Suspense fallback={<RouteProgress />}>
-            <Outlet />
-          </Suspense>
-        </div>
+        <PageContainer className="route-page-container">
+          <div className="page-transition" key={location.pathname}>
+            <Suspense fallback={<RouteProgress />}>
+              <Outlet />
+            </Suspense>
+          </div>
+        </PageContainer>
       </main>
 
       {/*

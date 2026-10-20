@@ -8,10 +8,13 @@ import {
 } from 'react'
 import {
   Button,
+  Checkbox,
   DatePicker,
   Drawer,
   Input,
   Modal,
+  Pagination,
+  Popover,
   Table,
   Tag,
   type TableProps,
@@ -56,6 +59,7 @@ import {
   PullIndicator,
   ToastHost,
 } from '../components/Ui'
+import { DataCard, FilterBar } from '../components/PageScaffold'
 import { toNumber, roundTo, formatCubic, formatAmount, todayISO } from '../utils/num'
 import { tapFeedback, tapHeavy, tapMedium } from '../utils/haptics'
 import { usePullToRefresh } from '../hooks/usePullToRefresh'
@@ -128,9 +132,6 @@ const previewAmount = (cubic: number, unitPrice: string) =>
   roundTo(cubic * toNumber(unitPrice), 2)
 
 const datePickerValue = (value: string): Dayjs | null => (value ? dayjs(value) : null)
-
-const datePickerText = (value: Dayjs | null) =>
-  value ? value.format('YYYY-MM-DD') : ''
 
 /* ---------- 明细行 ---------- */
 
@@ -545,8 +546,12 @@ export default function Inbound({
 
   const [input, setInput] = useState(emptyInput)
   const [filters, setFilters] = useState<InboundListFilters>(emptyFilters)
-  /** 手机端：筛选字段收进底部 sheet（桌面端还是平铺一行） */
-  const [filterOpen, setFilterOpen] = useState(false)
+  const [compactTable, setCompactTable] = useState(false)
+  const [columnVisibility, setColumnVisibility] = useState({
+    contract: true,
+    amount: true,
+    bales: true,
+  })
   /** 手机端：表单里「更多信息」（操作员 / 柜数）是否展开 */
   const [moreOpen, setMoreOpen] = useState(false)
   /** 常用规格（本机记的，最近用过的排在前面） */
@@ -554,15 +559,6 @@ export default function Inbound({
   /** 手机端左滑：露出「编辑 / 移入回收站」（一次只开一行） */
   const [swipedId, setSwipedId] = useState<number | null>(null)
   const swipeStartX = useRef(0)
-  /** 「筛选」按钮上的角标：当前生效了几个筛选条件（不含单号关键字） */
-  const activeFilterCount = [
-    filters.supplier,
-    filters.warehouse,
-    filters.operator,
-    filters.date_from,
-    filters.date_to,
-  ].filter(Boolean).length
-
   /** 手机端下拉刷新：拉一下重新拉当前筛选条件的列表 */
   const { distance: pullDistance, busy: pullBusy } = usePullToRefresh(
     () => loadList(filters, offset),
@@ -1614,7 +1610,9 @@ export default function Inbound({
       render: (value: number, order) => (
         <div className="inbound-primary-cell is-end">
           <span>{formatCubic(value)} m³</span>
-          {money ? <span className="cell-sub">¥ {formatAmount(order.total_amount)}</span> : null}
+          {money && columnVisibility.amount ? (
+            <span className="cell-sub">¥ {formatAmount(order.total_amount)}</span>
+          ) : null}
         </div>
       ),
     },
@@ -1662,6 +1660,11 @@ export default function Inbound({
       ),
     },
   ]
+  const displayedListColumns = listColumns.filter((column) => {
+    if (!columnVisibility.contract && column.title === '合同号 / 提单号') return false
+    if (!columnVisibility.bales && column.title === '明细 / 码单') return false
+    return true
+  })
 
   return (
     <section className={mode === 'list' ? 'inbound-ant-page' : undefined}>
@@ -1842,106 +1845,167 @@ export default function Inbound({
       ) : mode === 'list' ? (
         <>
           <PullIndicator distance={pullDistance} busy={pullBusy} />
-          <div className="toolbar toolbar-sticky inbound-ant-toolbar">
-            <Input
-              className="toolbar-search"
-              placeholder="单号关键字"
-              value={input.order_no}
-              allowClear
-              onChange={(event) =>
-                setInput((prev) => ({ ...prev, order_no: event.target.value }))
-              }
-              onPressEnter={handleSearch}
-            />
-            {/* 手机端：搜索一行 + 「筛选」按钮，其余条件收进底部 sheet */}
-            <Button
-              className="filter-toggle"
-              onClick={() => setFilterOpen((open) => !open)}
-            >
-              筛选
-              {activeFilterCount > 0 ? ` · ${activeFilterCount}` : ''}
-            </Button>
-            <div className={filterOpen ? 'filter-sheet is-open' : 'filter-sheet'}>
-              <div className="filter-sheet-head">
-                <span>筛选</span>
-                <Button
-                  type="text"
-                  size="small"
-                  onClick={() => setFilterOpen(false)}
-                >
-                  关闭
-                </Button>
-              </div>
-            <Input
-              placeholder="供应商关键字"
-              value={input.supplier}
-              allowClear
-              onChange={(event) =>
-                setInput((prev) => ({ ...prev, supplier: event.target.value }))
-              }
-              onPressEnter={handleSearch}
-            />
-            <Input
-              placeholder="仓库关键字"
-              value={input.warehouse}
-              allowClear
-              onChange={(event) =>
-                setInput((prev) => ({ ...prev, warehouse: event.target.value }))
-              }
-              onPressEnter={handleSearch}
-            />
-            <Input
-              placeholder="操作员"
-              value={input.operator}
-              allowClear
-              onChange={(event) =>
-                setInput((prev) => ({ ...prev, operator: event.target.value }))
-              }
-              onPressEnter={handleSearch}
-            />
-            <DatePicker
-              className="inbound-date-picker"
-              placeholder="开始日期"
-              value={datePickerValue(input.date_from)}
-              format="YYYY-MM-DD"
-              onChange={(value) =>
-                setInput((prev) => ({ ...prev, date_from: datePickerText(value) }))
-              }
-            />
-            <span className="muted">至</span>
-            <DatePicker
-              className="inbound-date-picker"
-              placeholder="结束日期"
-              value={datePickerValue(input.date_to)}
-              format="YYYY-MM-DD"
-              onChange={(value) =>
-                setInput((prev) => ({ ...prev, date_to: datePickerText(value) }))
-              }
-            />
-              <div className="filter-sheet-actions">
-                <Button onClick={handleResetFilters}>
-                  重置
-                </Button>
-                <Button type="primary" onClick={() => { handleSearch(); setFilterOpen(false) }}>
+          <FilterBar
+            className="inbound-ant-toolbar"
+            actions={
+              <>
+                <Button onClick={handleResetFilters}>重置</Button>
+                <Button type="primary" onClick={handleSearch}>
                   查询
                 </Button>
-              </div>
-            </div>
-            {filterOpen && (
-              <div className="filter-sheet-mask" onClick={() => setFilterOpen(false)} />
-            )}
-            <span className="spacer" />
-            {listRefreshing && <span className="list-refreshing">刷新中…</span>}
-          </div>
+              </>
+            }
+          >
+            <label className="filter-field">
+              <span>单号</span>
+              <Input
+                placeholder="输入单号关键字"
+                value={input.order_no}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, order_no: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>供应商</span>
+              <Input
+                placeholder="输入供应商关键字"
+                value={input.supplier}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, supplier: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>仓库</span>
+              <Input
+                placeholder="输入仓库关键字"
+                value={input.warehouse}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, warehouse: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field">
+              <span>操作员</span>
+              <Input
+                placeholder="输入操作员"
+                value={input.operator}
+                allowClear
+                onChange={(event) =>
+                  setInput((prev) => ({ ...prev, operator: event.target.value }))
+                }
+                onPressEnter={handleSearch}
+              />
+            </label>
+            <label className="filter-field filter-field-wide">
+              <span>日期范围</span>
+              <DatePicker.RangePicker
+                className="inbound-date-range"
+                placeholder={['开始', '结束']}
+                value={[
+                  datePickerValue(input.date_from),
+                  datePickerValue(input.date_to),
+                ]}
+                format="YYYY-MM-DD"
+                allowClear
+                onChange={(_, values) =>
+                  setInput((prev) => ({
+                    ...prev,
+                    date_from: values[0] ?? '',
+                    date_to: values[1] ?? '',
+                  }))
+                }
+              />
+            </label>
+          </FilterBar>
 
-          <div className="card inbound-table-card">
+          <DataCard
+            className={compactTable ? 'inbound-table-card is-compact' : 'inbound-table-card'}
+            toolbar={
+              <>
+                <span className="data-card-title">入库单列表</span>
+                <div className="data-card-toolbar-actions">
+                  {listRefreshing ? <span className="list-refreshing">刷新中…</span> : null}
+                  <Button onClick={() => void loadList(filters, offset)}>刷新</Button>
+                  <Button onClick={() => setCompactTable((value) => !value)}>
+                    {compactTable ? '标准' : '紧凑'}
+                  </Button>
+                  <Popover
+                    trigger="click"
+                    placement="bottomRight"
+                    content={
+                      <div className="column-setting-list">
+                        <Checkbox
+                          checked={columnVisibility.contract}
+                          onChange={(event) =>
+                            setColumnVisibility((prev) => ({
+                              ...prev,
+                              contract: event.target.checked,
+                            }))
+                          }
+                        >
+                          合同号 / 提单号
+                        </Checkbox>
+                        <Checkbox
+                          checked={columnVisibility.bales}
+                          onChange={(event) =>
+                            setColumnVisibility((prev) => ({
+                              ...prev,
+                              bales: event.target.checked,
+                            }))
+                          }
+                        >
+                          明细 / 码单
+                        </Checkbox>
+                        <Checkbox
+                          checked={columnVisibility.amount}
+                          disabled={!money}
+                          onChange={(event) =>
+                            setColumnVisibility((prev) => ({
+                              ...prev,
+                              amount: event.target.checked,
+                            }))
+                          }
+                        >
+                          金额
+                        </Checkbox>
+                      </div>
+                    }
+                  >
+                    <Button>列设置</Button>
+                  </Popover>
+                </div>
+              </>
+            }
+            footer={
+              <>
+                <span className="data-card-total">共 {total} 张入库单</span>
+                <Pagination
+                  current={Math.floor(offset / PAGE_SIZE) + 1}
+                  pageSize={PAGE_SIZE}
+                  total={total}
+                  showSizeChanger={false}
+                  showLessItems
+                  onChange={(page) => setOffset((page - 1) * PAGE_SIZE)}
+                />
+              </>
+            }
+          >
             <Table<InboundListItem>
               className="inbound-ant-table"
-              columns={listColumns}
+              columns={displayedListColumns}
               dataSource={list}
               rowKey="id"
               loading={listLoading}
               bordered={false}
+              pagination={false}
               scroll={{ x: 1060 }}
               locale={{
                 emptyText: listLoading ? null : (
@@ -1970,19 +2034,12 @@ export default function Inbound({
                   }
                 },
               })}
-              pagination={{
-                current: Math.floor(offset / PAGE_SIZE) + 1,
-                pageSize: PAGE_SIZE,
-                total,
-                showSizeChanger: false,
-                showTotal: (count) => `共 ${count} 张入库单`,
-                onChange: (page) => setOffset((page - 1) * PAGE_SIZE),
-              }}
             />
-          </div>
+          </DataCard>
         </>
       ) : (
-        <div className="card sheet">
+        <div className="page-form-stack">
+        <div className="card sheet app-form-card">
           <datalist id="contract-options">
             {contractOptions.map((option) => (
               <option key={option.id} value={option.contract_no}>
@@ -2082,7 +2139,9 @@ export default function Inbound({
             </div>
           </div>
 
-          <h2 className="form-section">明细</h2>
+        </div>
+        <div className="card sheet app-form-card">
+          <h2 className="form-section">单据明细</h2>
           {/*
             常用规格：一点就把这一行的品名/等级/厚/宽/长填好。
             数据是本机记的（上一次保存时存的），不需要服务端配合。
@@ -2372,7 +2431,9 @@ export default function Inbound({
             </table>
           </div>
 
-          <h2 className="form-section">备注</h2>
+        </div>
+        <div className="card sheet app-form-card">
+          <h2 className="form-section">附加信息</h2>
           <textarea
             className="input textarea sheet-note"
             placeholder="备注（选填）"
@@ -2507,6 +2568,45 @@ export default function Inbound({
               已打印的标签会失效。
             </p>
           )}
+        </div>
+        </div>
+      )}
+
+      {/* 桌面端：固定操作栏贴在内容区底部，表单一长也随时能保存。 */}
+      {mode === 'create' && (
+        <div className="pc-form-actionbar">
+          {!online && <span className="action-offline-hint">请检查网络</span>}
+          <button
+            className="btn"
+            onClick={() => {
+              setMode('list')
+              setEditing(null)
+              if (defaultMode !== 'list') navigate('/inbound', { replace: true })
+            }}
+          >
+            取消
+          </button>
+          <button
+            className="btn btn-continue"
+            onClick={() => {
+              tapMedium()
+              void handleSave(false, true)
+            }}
+            disabled={saving}
+          >
+            保存并继续
+          </button>
+          <button
+            className="btn btn-primary"
+            onClick={() => {
+              tapMedium()
+              void handleSave()
+            }}
+            disabled={saving || !online}
+          >
+            {saving && <span className="btn-spinner" aria-hidden="true" />}
+            {saving ? '保存中…' : '保存'}
+          </button>
         </div>
       )}
 

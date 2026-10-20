@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
+import { DatePicker, Input } from 'antd'
+import dayjs from 'dayjs'
 import {
   deleteContract,
   fetchContractDetail,
@@ -19,6 +21,7 @@ import {
   TableSkeleton,
   ToastHost,
 } from '../components/Ui'
+import { DataCard, FilterBar } from '../components/PageScaffold'
 import { toNumber, formatAmount, todayLocal } from '../utils/num'
 import { contractStage } from '../utils/contractStatus'
 import { readListCache, writeListCache } from '../utils/listCache'
@@ -79,6 +82,7 @@ export default function Contracts() {
   const [loading, setLoading] = useState(false)
   /** 有缓存时后台静默刷新中 */
   const [refreshing, setRefreshing] = useState(false)
+  const [compactTable, setCompactTable] = useState(false)
   const [notice, setNotice] = useState('')
   const [success, setSuccess] = useState<{ title: string; subtitle: string } | null>(null)
   const [error, setError] = useState('')
@@ -353,48 +357,98 @@ export default function Contracts() {
         onDone={() => setSuccess(null)}
       />
 
-      <div className="toolbar">
-        <input
-          className="input"
-          placeholder="合同号 / 名称关键字"
-          value={input.keyword}
-          onChange={(event) => setInput((prev) => ({ ...prev, keyword: event.target.value }))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') handleSearch()
-          }}
-        />
-        <input
-          className="input"
-          placeholder="往来单位"
-          value={input.partner}
-          onChange={(event) => setInput((prev) => ({ ...prev, partner: event.target.value }))}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') handleSearch()
-          }}
-        />
-        <input
-          className="input"
-          type="date"
-          value={input.date_from}
-          onChange={(event) => setInput((prev) => ({ ...prev, date_from: event.target.value }))}
-        />
-        <span className="muted">至</span>
-        <input
-          className="input"
-          type="date"
-          value={input.date_to}
-          onChange={(event) => setInput((prev) => ({ ...prev, date_to: event.target.value }))}
-        />
-        <button className="btn" onClick={handleSearch}>
-          查询
-        </button>
-        <button className="btn" onClick={handleReset}>
-          重置
-        </button>
-        {refreshing && <span className="list-refreshing">刷新中…</span>}
-      </div>
+      <FilterBar
+        className="desktop-saas-filter"
+        actions={
+          <>
+            <button className="btn" onClick={handleReset}>
+              重置
+            </button>
+            <button className="btn btn-primary" onClick={handleSearch}>
+              查询
+            </button>
+          </>
+        }
+      >
+        <label className="filter-field">
+          <span>合同号 / 名称</span>
+          <Input
+            placeholder="输入合同号或名称"
+            value={input.keyword}
+            allowClear
+            onChange={(event) =>
+              setInput((prev) => ({ ...prev, keyword: event.target.value }))
+            }
+            onPressEnter={handleSearch}
+          />
+        </label>
+        <label className="filter-field">
+          <span>往来单位</span>
+          <Input
+            placeholder="输入往来单位"
+            value={input.partner}
+            allowClear
+            onChange={(event) =>
+              setInput((prev) => ({ ...prev, partner: event.target.value }))
+            }
+            onPressEnter={handleSearch}
+          />
+        </label>
+        <label className="filter-field">
+          <span>签订日期</span>
+          <DatePicker.RangePicker
+            placeholder={['开始', '结束']}
+            value={[
+              input.date_from ? dayjs(input.date_from) : null,
+              input.date_to ? dayjs(input.date_to) : null,
+            ]}
+            format="YYYY-MM-DD"
+            allowClear
+            onChange={(_, values) =>
+              setInput((prev) => ({
+                ...prev,
+                date_from: values[0] ?? '',
+                date_to: values[1] ?? '',
+              }))
+            }
+          />
+        </label>
+      </FilterBar>
 
-      <div className="card">
+      <DataCard
+        className={compactTable ? 'contracts-data-card is-compact' : 'contracts-data-card'}
+        toolbar={
+          <>
+            <span className="data-card-title">合同列表</span>
+            <div className="data-card-toolbar-actions">
+              {refreshing ? <span className="list-refreshing">刷新中…</span> : null}
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void load(filters, offset)}
+              >
+                刷新
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setCompactTable((value) => !value)}
+              >
+                {compactTable ? '标准' : '紧凑'}
+              </button>
+            </div>
+          </>
+        }
+        footer={
+          <Pager
+            total={total}
+            limit={PAGE_SIZE}
+            offset={offset}
+            onChange={setOffset}
+            unit="份合同"
+          />
+        }
+      >
         <table className="table">
           <thead>
             <tr>
@@ -478,14 +532,7 @@ export default function Contracts() {
         )}
         {loading && <TableSkeleton rows={6} cols={5} />}
 
-        <Pager
-          total={total}
-          limit={PAGE_SIZE}
-          offset={offset}
-          onChange={setOffset}
-          unit="份合同"
-        />
-      </div>
+      </DataCard>
 
       {sheetOpen && (
         <div className="overlay" onClick={() => setSheetOpen(false)}>
