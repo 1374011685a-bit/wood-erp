@@ -13175,7 +13175,7 @@ section > .toolbar .btn-primary {
 @media (min-width: 768px) {
   :root {
     --final-bg: #f0f2f5;
-    --final-sidebar: #f7f8fa;
+    --final-sidebar: #1e293b;
     --final-line: #e5e6eb;
   }
 
@@ -13205,17 +13205,36 @@ section > .toolbar .btn-primary {
 
   .sidebar {
     background: var(--final-sidebar);
-    border-right: 1px solid var(--final-line);
+    border-right: 1px solid rgb(255 255 255 / 8%);
+    box-shadow: none;
+  }
+
+  .sidebar-brand {
+    color: #ffffff;
+    border-bottom-color: rgb(255 255 255 / 9%);
+  }
+
+  .sidebar-brand-logo {
+    background: rgb(255 255 255 / 7%);
+  }
+
+  .nav-group-head {
+    color: rgb(255 255 255 / 42%);
+  }
+
+  .nav-group-head:hover {
+    color: rgb(255 255 255 / 72%);
+    background: rgb(255 255 255 / 4%);
   }
 
   .nav-item {
-    color: #333333;
+    color: #cbd5e1;
     background: transparent;
   }
 
   .nav-item:hover {
-    color: #333333;
-    background: #ebebeb;
+    color: #ffffff;
+    background: rgb(255 255 255 / 6%);
   }
 
   .nav-item::before {
@@ -13224,9 +13243,35 @@ section > .toolbar .btn-primary {
 
   .nav-item-active,
   .nav-item-active:hover {
-    color: #6b4a2f;
-    background: rgb(107 74 47 / 10%);
+    color: #ffffff;
+    background: rgb(107 74 47 / 32%);
     font-weight: 600;
+  }
+
+  .nav-item:hover .nav-icon,
+  .nav-item:hover .nav-icon svg,
+  .nav-item-active .nav-icon,
+  .nav-item-active .nav-icon svg {
+    color: currentColor;
+    stroke: currentColor;
+  }
+
+  .sidebar-user-footer {
+    border-top-color: rgb(255 255 255 / 9%);
+    background: var(--final-sidebar);
+  }
+
+  .sidebar-user-avatar {
+    background: rgb(255 255 255 / 8%);
+    color: #ffffff;
+  }
+
+  .sidebar-user-copy strong {
+    color: rgb(255 255 255 / 90%);
+  }
+
+  .sidebar-user-copy small {
+    color: rgb(255 255 255 / 44%);
   }
 
   .btn,
@@ -13282,7 +13327,49 @@ section > .toolbar .btn-primary {
     grid-column: 1 / -1;
     order: 0;
     border: 0;
-    box-shadow: 0 2px 12px rgb(0 0 0 / 4%);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 3%),
+      0 4px 12px rgb(0 0 0 / 4%);
+  }
+
+  .wb-kpi {
+    padding: 14px 20px 12px;
+    border-right-color: #eef0f2;
+  }
+
+  .wb-kpi-value {
+    margin-top: 3px;
+    font-size: 22px;
+    line-height: 28px;
+  }
+
+  .wb-kpi-foot {
+    margin-top: 3px;
+  }
+
+  .wb-side > .wb-panel,
+  .wb-chart-panel,
+  .wb-activity {
+    border: 0;
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 3%),
+      0 4px 12px rgb(0 0 0 / 4%);
+  }
+
+  .wb-quick-grid button {
+    border: 0;
+  }
+
+  .wb-arrival-dot {
+    background: #6b4a2f;
+  }
+
+  .wb-reminders i {
+    background: #6b4a2f !important;
+  }
+
+  .wb-activity-row i {
+    background: #6b4a2f !important;
   }
 
   .wb-main-grid,
@@ -13345,10 +13432,10 @@ section > .toolbar .btn-primary {
   }
 
   .wb-quick-grid button {
-    height: 92px;
+    height: 96px;
     gap: 8px;
     border: 0;
-    border-radius: 8px;
+    border-radius: 12px;
     background: #ffffff;
     box-shadow:
       0 1px 2px rgb(0 0 0 / 3%),
@@ -13374,7 +13461,7 @@ section > .toolbar .btn-primary {
     width: 40px;
     height: 40px;
     place-items: center;
-    border-radius: 12px;
+    border-radius: 16px;
     background: rgb(107 74 47 / 10%);
     color: #6b4a2f;
   }
