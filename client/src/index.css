@@ -8318,91 +8318,120 @@ section > .toolbar .btn-primary {
 
 /* PC 端飞书 / Ant Design 5 风格覆盖：仅桌面端生效。 */
 @media (min-width: 768px) {
+  :root {
+    --pc-canvas: #eef2f7;
+    --pc-container: rgba(255, 255, 255, 0.84);
+    --pc-container-solid: #ffffff;
+    --pc-sidebar: #0b1424;
+    --pc-sidebar-soft: rgba(255, 255, 255, 0.06);
+    --pc-sidebar-line: rgba(255, 255, 255, 0.07);
+    --pc-text-1: #161b26;
+    --pc-text-2: #667085;
+    --pc-text-3: #98a2b3;
+    --pc-line: rgba(15, 23, 42, 0.07);
+    --pc-hover: rgba(15, 23, 42, 0.018);
+    --pc-shadow-card: 0 4px 20px rgba(15, 23, 42, 0.035);
+    --pc-shadow-float: 0 16px 48px rgba(15, 23, 42, 0.09);
+  }
+
   body,
   #root,
-  .layout,
-  .content {
-    background-color: #f5f7fa;
+  .layout {
+    background-color: var(--pc-canvas);
   }
 
   body {
-    color: #1f2937;
+    color: var(--pc-text-1);
     font-size: 14px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-      'PingFang SC', 'Microsoft YaHei', Arial, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC',
+      'Helvetica Neue', Arial, sans-serif;
   }
 
   .sidebar {
     padding: 20px 14px;
-    border-right: 0;
-    background-color: #ffffff;
+    border-right: 1px solid rgba(255, 255, 255, 0.035);
+    background: linear-gradient(180deg, #111c2e 0%, #0b1424 62%, #09111e 100%);
+    box-shadow: 2px 0 8px rgba(29, 35, 41, 0.05);
   }
 
   .sidebar-brand {
     padding: 2px 10px 18px;
-    border-bottom: 0;
-    color: #111827;
+    border-bottom: 1px solid var(--pc-sidebar-line);
+    color: #ffffff;
     font-size: 16px;
     font-weight: 650;
   }
 
   .nav-group-head {
     height: 32px;
-    color: #98a2b3;
+    color: rgba(255, 255, 255, 0.42);
   }
 
   .nav-group-head:hover {
-    background-color: #f7f8fa;
-    color: #667085;
+    background-color: rgba(255, 255, 255, 0.045);
+    color: rgba(255, 255, 255, 0.72);
   }
 
   .nav-item {
     height: 38px;
     border-radius: 8px;
-    color: #344054;
+    color: rgba(255, 255, 255, 0.72);
     font-size: 14px;
   }
 
   .nav-item:hover {
-    background-color: #f7f8fa;
+    background-color: rgba(255, 255, 255, 0.055);
+    color: #ffffff;
   }
 
   .nav-item-active,
   .nav-item-active:hover {
     border-color: transparent;
     border-radius: 0 8px 8px 0;
-    background-color: #f7f3ef;
-    color: #4b3424;
-    box-shadow: inset 3px 0 0 var(--brand);
+    background-color: rgba(255, 255, 255, 0.075);
+    color: #ffffff;
+    box-shadow: inset 3px 0 0 #b48762;
     font-weight: 600;
   }
 
+  .nav-icon {
+    color: rgba(255, 255, 255, 0.46);
+  }
+
+  .nav-item:hover .nav-icon,
   .nav-item-active .nav-icon {
-    color: var(--brand);
+    color: #d1ac88;
   }
 
   .content {
     padding: 20px 32px 48px;
+    background:
+      radial-gradient(circle at 88% -8%, rgba(120, 157, 190, 0.11), transparent 28%),
+      var(--pc-canvas);
   }
 
   .topbar {
-    padding-bottom: 4px;
-    margin-bottom: 12px;
+    padding-bottom: 0;
+    margin-bottom: 10px;
     border-bottom: 0;
   }
 
   .account-trigger {
     height: 34px;
-    border-color: transparent;
-    background-color: #ffffff;
-    box-shadow: 0 1px 4px rgba(16, 24, 40, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    background-color: rgba(255, 255, 255, 0.64);
+    box-shadow: 0 1px 2px rgba(0, 21, 41, 0.04);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
   }
 
   .tabbar {
-    margin: -8px -32px 20px;
-    padding: 8px 32px;
+    margin: -6px -32px 18px;
+    padding: 7px 32px;
     border-bottom: 0;
-    background-color: rgba(245, 247, 250, 0.94);
+    background-color: rgba(238, 242, 247, 0.82);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
   }
 
   .tab-item {
@@ -8412,8 +8441,9 @@ section > .toolbar .btn-primary {
 
   .tab-item-active,
   .tab-item-active:hover {
-    border-color: transparent;
-    box-shadow: 0 1px 4px rgba(16, 24, 40, 0.07);
+    border-color: rgba(255, 255, 255, 0.8);
+    background-color: rgba(255, 255, 255, 0.82);
+    box-shadow: 0 1px 2px rgba(0, 21, 41, 0.06);
   }
 
   .page-head {
@@ -8424,7 +8454,7 @@ section > .toolbar .btn-primary {
   }
 
   .page-head h1 {
-    color: #111827;
+    color: var(--pc-text-1);
     font-size: 18px;
     font-weight: 600;
     letter-spacing: -0.02em;
@@ -8432,7 +8462,7 @@ section > .toolbar .btn-primary {
 
   .page-head p {
     margin-top: 6px;
-    color: #667085;
+    color: var(--pc-text-2);
     font-size: 13px;
   }
 
@@ -8442,11 +8472,13 @@ section > .toolbar .btn-primary {
   .mini-card,
   .dash-hero,
   .login-card {
-    border: 0;
+    border: 1px solid rgba(255, 255, 255, 0.76);
     border-radius: 16px;
-    background-color: #ffffff;
+    background-color: var(--pc-container);
     background-image: none;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+    box-shadow: var(--pc-shadow-card);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
   }
 
   .card,
@@ -8466,8 +8498,8 @@ section > .toolbar .btn-primary {
 
   .stat-card:hover,
   button.mini-card:hover {
-    border-color: transparent;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+    border-color: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 12px 32px rgba(15, 23, 42, 0.055);
     transform: none;
   }
 
@@ -8487,10 +8519,12 @@ section > .toolbar .btn-primary {
 
   section > .toolbar,
   .drill-panel {
-    border: 0;
+    border: 1px solid rgba(255, 255, 255, 0.76);
     border-radius: 16px;
-    background-color: #ffffff;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+    background-color: rgba(255, 255, 255, 0.72);
+    box-shadow: var(--pc-shadow-card);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
   }
 
   section > .toolbar {
@@ -8513,11 +8547,11 @@ section > .toolbar .btn-primary {
   .sheet-input,
   .login-card .input {
     height: 36px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid transparent;
     border-radius: 8px;
-    background-color: #ffffff;
-    color: #1f2937;
-    box-shadow: none;
+    background-color: rgba(255, 255, 255, 0.7);
+    color: var(--pc-text-1);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.045);
   }
 
   .input,
@@ -8529,8 +8563,9 @@ section > .toolbar .btn-primary {
   .input-cell:hover,
   .sheet-input:hover,
   .login-card .input:hover {
-    border-color: #d0d5dd;
-    background-color: #ffffff;
+    border-color: transparent;
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
   }
 
   .input:focus,
@@ -8538,8 +8573,8 @@ section > .toolbar .btn-primary {
   .sheet-input:focus,
   .login-card .input:focus {
     border-color: var(--brand);
-    background-color: #ffffff;
-    box-shadow: 0 0 0 3px rgba(107, 74, 47, 0.07);
+    background-color: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 0 0 3px rgba(107, 74, 47, 0.075);
   }
 
   .input-cell,
@@ -8551,21 +8586,22 @@ section > .toolbar .btn-primary {
   .input-locked:hover,
   .input-readonly,
   .input-readonly:hover {
-    border-color: #e5e7eb;
-    background-color: #f2f4f7;
-    color: #667085;
+    border-color: transparent;
+    background-color: rgba(15, 23, 42, 0.035);
+    color: var(--pc-text-2);
+    box-shadow: none;
   }
 
   .btn,
   .btn-sm {
     height: 36px;
-    border: 1px solid #e4e7ec;
+    border: 1px solid rgba(15, 23, 42, 0.08);
     border-radius: 8px;
-    background-color: #ffffff;
-    color: #344054;
+    background-color: rgba(255, 255, 255, 0.58);
+    color: var(--pc-text-1);
     font-size: 14px;
     font-weight: 500;
-    box-shadow: none;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
   }
 
   .btn-sm {
@@ -8574,14 +8610,14 @@ section > .toolbar .btn-primary {
 
   .btn:hover,
   .btn-sm:hover {
-    border-color: #d0d5dd;
-    background-color: #fafafa;
-    box-shadow: none;
+    border-color: rgba(15, 23, 42, 0.14);
+    background-color: rgba(255, 255, 255, 0.88);
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
   }
 
   .btn:active,
   .btn-sm:active {
-    background-color: #f2f4f7;
+    background-color: rgba(15, 23, 42, 0.055);
     box-shadow: none;
   }
 
@@ -8589,6 +8625,7 @@ section > .toolbar .btn-primary {
     border-color: var(--brand);
     background-color: var(--brand);
     color: #ffffff;
+    box-shadow: 0 4px 12px rgba(107, 74, 47, 0.18);
   }
 
   .btn-primary:hover {
@@ -8631,15 +8668,15 @@ section > .toolbar .btn-primary {
     padding: 0 16px;
     border: 0;
     border-bottom: 1px solid #f0f0f0;
-    background-color: #fafafa;
+    background-color: transparent;
     color: #8c8c8c;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 400;
     letter-spacing: 0;
   }
 
   .table td {
-    height: 54px;
+    height: 64px;
     padding: 0 16px;
     border: 0;
     border-bottom: 1px solid #f0f0f0;
@@ -8653,7 +8690,7 @@ section > .toolbar .btn-primary {
   }
 
   .table tbody tr:hover td {
-    background-color: #f5f7fa;
+    background-color: rgba(15, 23, 42, 0.012);
   }
 
   .table tbody tr:last-child td {
@@ -8663,10 +8700,10 @@ section > .toolbar .btn-primary {
   .sheet-table th {
     border: 0;
     border-bottom: 1px solid #f0f0f0;
-    background-color: #fafafa;
+    background-color: transparent;
     color: #8c8c8c;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 400;
   }
 
   .sheet-table td {
@@ -8676,7 +8713,7 @@ section > .toolbar .btn-primary {
   }
 
   .sheet-table tbody tr:hover td {
-    background-color: #f5f7fa;
+    background-color: rgba(15, 23, 42, 0.012);
   }
 
   .sheet-act,
@@ -8690,9 +8727,12 @@ section > .toolbar .btn-primary {
   }
 
   .modal {
-    border: 0;
-    border-radius: 12px;
-    box-shadow: 0 12px 36px rgba(0, 0, 0, 0.12);
+    border: 1px solid rgba(255, 255, 255, 0.72);
+    border-radius: 16px;
+    background-color: rgba(255, 255, 255, 0.9);
+    box-shadow: var(--pc-shadow-float);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
   }
 
   .modal-head,
@@ -8709,9 +8749,12 @@ section > .toolbar .btn-primary {
   }
 
   .pc-ai-shell {
-    border: 0;
+    border: 1px solid rgba(255, 255, 255, 0.76);
     border-radius: 16px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.03);
+    background-color: var(--pc-container);
+    box-shadow: var(--pc-shadow-card);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
   }
 
   .pc-ai-new,
@@ -8756,6 +8799,9 @@ section > .toolbar .btn-primary {
     width: 140px;
     flex: 0 1 145px;
     min-width: 120px;
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.64);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.045);
   }
 
   .inbound-ant-toolbar .toolbar-search {
@@ -8766,6 +8812,23 @@ section > .toolbar .btn-primary {
   .inbound-ant-toolbar .inbound-date-picker {
     width: 126px;
     flex: 0 0 126px;
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.64);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.045);
+  }
+
+  .inbound-ant-toolbar .ant-input-affix-wrapper:hover,
+  .inbound-ant-toolbar .inbound-date-picker:hover {
+    border-color: transparent;
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  }
+
+  .inbound-ant-toolbar .ant-input-affix-wrapper-focused,
+  .inbound-ant-toolbar .inbound-date-picker-focused {
+    border-color: var(--brand);
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 0 0 3px rgba(107, 74, 47, 0.07);
   }
 
   .inbound-ant-toolbar .filter-sheet-actions {
@@ -8774,7 +8837,12 @@ section > .toolbar .btn-primary {
 
   .inbound-table-card {
     padding: 24px;
+    border: 1px solid rgba(255, 255, 255, 0.76);
     border-radius: 16px;
+    background-color: var(--pc-container);
+    box-shadow: var(--pc-shadow-card);
+    backdrop-filter: blur(18px) saturate(150%);
+    -webkit-backdrop-filter: blur(18px) saturate(150%);
     overflow: hidden;
   }
 
@@ -8783,7 +8851,7 @@ section > .toolbar .btn-primary {
   }
 
   .inbound-ant-table .ant-table {
-    background: #ffffff;
+    background: transparent;
   }
 
   .inbound-ant-table .ant-table-container {
@@ -8795,10 +8863,10 @@ section > .toolbar .btn-primary {
     height: 48px;
     padding: 0 16px;
     border-bottom: 1px solid #f0f0f0;
-    background: #fafafa;
+    background: transparent;
     color: #8c8c8c;
-    font-size: 13px;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 400;
   }
 
   .inbound-ant-table .ant-table-thead > tr > th::before {
@@ -8819,7 +8887,7 @@ section > .toolbar .btn-primary {
 
   .inbound-ant-table .ant-table-tbody > tr.ant-table-row:hover > td,
   .inbound-ant-table .ant-table-tbody > tr > td.ant-table-cell-row-hover {
-    background: #f5f7fa;
+    background: rgba(15, 23, 42, 0.012);
   }
 
   .inbound-ant-table .ant-table-pagination.ant-pagination {
@@ -8876,6 +8944,17 @@ section > .toolbar .btn-primary {
     height: 34px;
     padding: 0 13px;
     border-radius: 8px;
+  }
+
+  .inbound-row-actions .ant-btn-default {
+    border-color: rgba(15, 23, 42, 0.08);
+    background: rgba(255, 255, 255, 0.56);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+  }
+
+  .inbound-row-actions .ant-btn-default:hover {
+    border-color: rgba(15, 23, 42, 0.14);
+    background: rgba(255, 255, 255, 0.9);
   }
 
   .inbound-detail-drawer .ant-drawer-header {
