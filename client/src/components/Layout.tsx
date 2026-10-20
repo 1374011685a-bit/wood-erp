@@ -2,31 +2,6 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
-  IconArrowLeft,
-  IconArrowsShuffle,
-  IconBook2,
-  IconBox,
-  IconBoxMultiple,
-  IconCash,
-  IconChevronDown,
-  IconChevronRight,
-  IconClipboardList,
-  IconFileDescription,
-  IconHome,
-  IconList,
-  IconLock,
-  IconLogout,
-  IconMaximize,
-  IconMenu2,
-  IconPackageExport,
-  IconPackageImport,
-  IconSearch,
-  IconSparkles,
-  IconTrash,
-  IconUserCircle,
-  IconUsers,
-} from '@tabler/icons-react'
-import {
   changePassword,
   clearSession,
   getStoredUsername,
@@ -53,7 +28,7 @@ const homeItem: NavItem = {
   to: '/',
   label: '首页',
   end: true,
-  icon: <IconHome size={18} stroke={1.8} />,
+  icon: <path d="M3 10.6 12 3l9 7.6V20a1 1 0 0 1-1 1h-5.5v-6h-5v6H4a1 1 0 0 1-1-1z" />,
 }
 
 type NavGroup = {
@@ -73,17 +48,35 @@ const navGroups: NavGroup[] = [
       {
     to: '/contracts',
     label: '采购合同',
-    icon: <IconFileDescription size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M6.8 3.6h7.4l4.2 4.2v12.6H6.8z" />
+        <path d="M13.9 3.6v4.5h4.5" />
+        <path d="M9.6 13.4h5M9.6 16.4h5" />
+      </>
+    ),
       },
       {
     to: '/inbound',
     label: '采购入库',
-    icon: <IconPackageImport size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M12 3v10" />
+        <path d="m8 9 4 4 4-4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </>
+    ),
       },
       {
     to: '/bales',
     label: '采购入库明细',
-    icon: <IconBoxMultiple size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <rect x="3.5" y="6" width="17" height="12" rx="2.2" />
+        <path d="M7.5 10h5M7.5 13.5h9" />
+        <path d="M16.5 9.5h1.2v5h-1.2z" />
+      </>
+    ),
       },
     ],
   },
@@ -95,7 +88,13 @@ const navGroups: NavGroup[] = [
       {
     to: '/outbound',
     label: '出库',
-    icon: <IconPackageExport size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M12 13V3" />
+        <path d="m8 7 4-4 4 4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+      </>
+    ),
       },
     ],
   },
@@ -107,22 +106,44 @@ const navGroups: NavGroup[] = [
       {
     to: '/stock',
     label: '库存',
-    icon: <IconBox size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" />
+        <path d="M3 7.5 12 12l9-4.5" />
+        <path d="M12 12v9" />
+      </>
+    ),
       },
       {
     to: '/count',
     label: '盘点',
-    icon: <IconClipboardList size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M9 4.5h6a1 1 0 0 1 1 1v1H8v-1a1 1 0 0 1 1-1z" />
+        <path d="M6.5 6.5h11v12a2 2 0 0 1-2 2h-7a2 2 0 0 1-2-2z" />
+        <path d="m9.6 13.4 1.7 1.7 3.4-3.6" />
+      </>
+    ),
       },
       {
         to: '/repack',
         label: '改包',
-    icon: <IconArrowsShuffle size={18} stroke={1.8} />,
+        icon: (
+          <>
+            <path d="M4 8.5 12 4.5l8 4v7l-8 4-8-4z" />
+            <path d="m9.2 12.6 2 2 4-4.4" />
+          </>
+        ),
       },
       {
     to: '/records',
     label: '流水',
-    icon: <IconList size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M8 6h13M8 12h13M8 18h13" />
+        <path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01" />
+      </>
+    ),
       },
     ],
   },
@@ -134,7 +155,15 @@ const navGroups: NavGroup[] = [
       {
     to: '/settlement',
     label: '对账',
-    icon: <IconCash size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M6.8 3.6h6.9l4.5 4.5v12.3H6.8z" />
+        <path d="M13.4 3.6v4.8h4.8" />
+        <path d="m9.9 12.3 2.1 2.4 2.1-2.4" />
+        <path d="M12 14.7v4" />
+        <path d="M9.9 15.9h4.2M9.9 17.3h4.2" />
+      </>
+    ),
       },
     ],
   },
@@ -146,22 +175,47 @@ const navGroups: NavGroup[] = [
       {
         to: '/dict',
         label: '常用项',
-    icon: <IconBook2 size={18} stroke={1.8} />,
+        icon: (
+          <>
+            <path d="M4.5 6.5h9M4.5 12h6" />
+            <path d="M17.4 4.8v6.4" />
+            <path d="M14.2 8h6.4" />
+            <path d="M4.5 17.5h15" />
+          </>
+        ),
       },
       {
     to: '/recycle',
     label: '回收站',
-    icon: <IconTrash size={18} stroke={1.8} />,
+    icon: (
+      <>
+        <path d="M4 6.5h16" />
+        <path d="M9.5 6.5V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5" />
+        <path d="M6.5 6.5 7.4 19a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.9-12.5" />
+        <path d="M10.2 10.5v6M13.8 10.5v6" />
+      </>
+    ),
       },
       {
         to: '/users',
         label: '用户管理',
-    icon: <IconUsers size={18} stroke={1.8} />,
+        icon: (
+          <>
+            <circle cx="9.5" cy="8.5" r="3.2" />
+            <path d="M3.8 19.5c0-3.1 2.6-5.2 5.7-5.2s5.7 2.1 5.7 5.2" />
+            <path d="M16.2 6.4h4.2M18.3 4.3v4.2" />
+          </>
+        ),
       },
       {
         to: '/ai',
         label: 'AI 助手',
-    icon: <IconSparkles size={18} stroke={1.8} />,
+        icon: (
+          <>
+            <path d="M12 3.6l1.9 4.9 4.9 1.9-4.9 1.9L12 17.2l-1.9-4.9L5.2 10.4l4.9-1.9z" />
+            <path d="M18.4 16.2l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" />
+          </>
+        ),
       },
     ],
   },
@@ -666,7 +720,18 @@ export default function Layout() {
               isActive ? 'nav-item nav-item-active' : 'nav-item'
             }
           >
-            <span className="nav-icon" aria-hidden="true">{homeItem.icon}</span>
+            <svg
+              className="nav-icon"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              {homeItem.icon}
+            </svg>
             <span>{homeItem.label}</span>
           </NavLink>
 
@@ -684,12 +749,16 @@ export default function Layout() {
                   }
                 >
                   <span className="nav-group-label">{group.label}</span>
-                  <IconChevronRight
-                    className="nav-group-chevron"
-                    size={12}
-                    stroke={1.8}
-                    aria-hidden="true"
-                  />
+                  <svg className="nav-group-chevron" viewBox="0 0 8 8" aria-hidden="true">
+                    <path
+                      d="M2.6 1.4 5.4 4l-2.8 2.6"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
                 </button>
 
                 <div className="nav-group-body">
@@ -704,7 +773,18 @@ export default function Layout() {
                           isActive ? 'nav-item nav-item-active' : 'nav-item'
                         }
                       >
-                        <span className="nav-icon" aria-hidden="true">{item.icon}</span>
+                        <svg
+                          className="nav-icon"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          {item.icon}
+                        </svg>
                         <span>{item.label}</span>
                       </NavLink>
                     ))}
@@ -743,7 +823,17 @@ export default function Layout() {
               aria-label="返回上一层"
               onClick={() => void goBack()}
             >
-              <IconArrowLeft size={18} stroke={2} aria-hidden="true" />
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M14.5 5.5 8 12l6.5 6.5" />
+              </svg>
               <span>返回</span>
             </button>
           )}
@@ -754,7 +844,16 @@ export default function Layout() {
             aria-expanded={drawerOpen}
             onClick={() => setDrawerOpen((open) => !open)}
           >
-            <IconMenu2 size={20} stroke={1.8} aria-hidden="true" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M4 7h16M4 12h16M4 17h16" />
+            </svg>
           </button>
           {/* 手机上顶栏中间显示当前功能名（桌面端不显示） */}
           <span className="topbar-title">
@@ -766,7 +865,10 @@ export default function Layout() {
             <span>{location.pathname === '/' ? '工作台' : labelOf(location.pathname)}</span>
           </nav>
           <div className="app-global-search" ref={searchRef}>
-            <IconSearch size={16} stroke={1.8} aria-hidden="true" />
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="10.5" cy="10.5" r="6.2" />
+              <path d="m15.2 15.2 4.3 4.3" />
+            </svg>
             <input
               value={globalSearch}
               placeholder="搜索菜单"
@@ -789,9 +891,17 @@ export default function Layout() {
                         navigate(item.to)
                       }}
                     >
-                      <span className="app-global-search-menu-icon" aria-hidden="true">
+                      <svg
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
                         {item.icon}
-                      </span>
+                      </svg>
                       <span>{item.label}</span>
                       <small>{item.to}</small>
                     </button>
@@ -809,7 +919,17 @@ export default function Layout() {
             title="切换全屏"
             onClick={toggleFullscreen}
           >
-            <IconMaximize size={18} stroke={1.8} aria-hidden="true" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M8.5 4H4v4.5M15.5 4H20v4.5M20 15.5V20h-4.5M8.5 20H4v-4.5" />
+            </svg>
           </button>
           <div className="account" ref={accountRef}>
             <button
@@ -823,12 +943,20 @@ export default function Layout() {
                 {initial}
               </span>
               <span className="account-name">{username}</span>
-              <IconChevronDown
+              <svg
                 className="account-chevron"
-                size={12}
-                stroke={1.8}
+                viewBox="0 0 10 6"
                 aria-hidden="true"
-              />
+              >
+                <path
+                  d="M1 1.2 5 5 9 1.2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
             </button>
 
             {menuOpen && (
@@ -847,12 +975,19 @@ export default function Layout() {
                     navigate('/me')
                   }}
                 >
-                  <IconUserCircle
+                  <svg
                     className="account-menu-icon"
-                    size={18}
-                    stroke={1.7}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     aria-hidden="true"
-                  />
+                  >
+                    <circle cx="12" cy="8" r="3.6" />
+                    <path d="M5 20c.8-3.4 3.6-5.4 7-5.4s6.2 2 7 5.4" />
+                  </svg>
                   <span>我的</span>
                 </button>
                 <button
@@ -864,12 +999,20 @@ export default function Layout() {
                     openPassword()
                   }}
                 >
-                  <IconLock
+                  <svg
                     className="account-menu-icon"
-                    size={18}
-                    stroke={1.7}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     aria-hidden="true"
-                  />
+                  >
+                    <rect x="4.5" y="10.5" width="15" height="9.5" rx="2.6" />
+                    <path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7" />
+                    <path d="M12 14.2v2.4" />
+                  </svg>
                   <span>修改密码</span>
                 </button>
                 <div className="account-menu-sep" />
@@ -879,12 +1022,20 @@ export default function Layout() {
                   role="menuitem"
                   onClick={handleLogout}
                 >
-                  <IconLogout
+                  <svg
                     className="account-menu-icon"
-                    size={18}
-                    stroke={1.7}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                     aria-hidden="true"
-                  />
+                  >
+                    <path d="M14.5 4h3.6A1.9 1.9 0 0 1 20 5.9v12.2a1.9 1.9 0 0 1-1.9 1.9h-3.6" />
+                    <path d="M9.8 8.2 6 12l3.8 3.8" />
+                    <path d="M6.4 12H15" />
+                  </svg>
                   <span>退出登录</span>
                 </button>
               </div>
