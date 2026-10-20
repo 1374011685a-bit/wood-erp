@@ -288,7 +288,10 @@ export default function Users() {
             </label>
 
             <label className="field" style={{ marginTop: 14 }}>
-              <span>初始密码（至少 6 位）</span>
+              <span className="field-label">
+                <span>初始密码</span>
+                <small>至少 6 位</small>
+              </span>
               <input
                 className="input"
                 type="text"

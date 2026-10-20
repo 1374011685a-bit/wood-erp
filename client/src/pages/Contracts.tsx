@@ -627,8 +627,11 @@ export default function Contracts() {
             </label>
 
             <label className="field" style={{ marginTop: 14 }}>
-              <span>
-                {editing ? '更换合同文件（PDF，留空则不改）' : '合同文件（PDF，选填）'}
+              <span className="field-label">
+                <span>合同文件</span>
+                <small>
+                  {editing ? 'PDF，留空则不改' : 'PDF，选填'}
+                </small>
               </span>
               <input
                 className="input"

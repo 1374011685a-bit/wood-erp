@@ -1101,7 +1101,10 @@ export default function Bales() {
 
             <div className="field-row">
               <label className="field field-required">
-                <span>包号（货上写的那个）</span>
+                <span className="field-label">
+                  <span>包号</span>
+                  <small>照货上写的填</small>
+                </span>
                 <input
                   className="input"
                   value={editNo}

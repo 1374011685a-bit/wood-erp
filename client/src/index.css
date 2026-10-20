@@ -12312,3 +12312,299 @@ section > .toolbar .btn-primary {
     transition: none !important;
   }
 }
+
+/* ============================================================
+   E-commerce modal/form correction
+   ============================================================ */
+
+@media (min-width: 768px) {
+  :root {
+    --ecom-sidebar: #1e2024;
+    --ecom-sidebar-text: #a6adb4;
+    --ecom-sidebar-hover: rgb(255 255 255 / 6%);
+    --ecom-sidebar-line: rgb(255 255 255 / 8%);
+    --ecom-table-head: #f7f8fa;
+  }
+
+  .sidebar {
+    background: var(--ecom-sidebar);
+    border-right: 1px solid rgb(0 0 0 / 18%);
+  }
+
+  .sidebar-brand {
+    color: #ffffff;
+    border-bottom-color: var(--ecom-sidebar-line);
+  }
+
+  .sidebar-brand-logo {
+    background: rgb(255 255 255 / 8%);
+  }
+
+  .sidebar-nav {
+    padding: 8px;
+  }
+
+  .nav-group-head {
+    color: rgb(255 255 255 / 42%);
+  }
+
+  .nav-group-head:hover {
+    color: rgb(255 255 255 / 78%);
+    background: var(--ecom-sidebar-hover);
+  }
+
+  .nav-item {
+    color: var(--ecom-sidebar-text);
+    background: transparent;
+  }
+
+  .nav-item:hover {
+    color: #ffffff;
+    background: var(--ecom-sidebar-hover);
+  }
+
+  .nav-item-active,
+  .nav-item-active:hover {
+    color: #ffffff;
+    background: rgb(107 74 47 / 20%);
+    font-weight: 600;
+  }
+
+  .nav-icon,
+  .nav-icon svg {
+    color: currentColor;
+    stroke: currentColor;
+  }
+
+  .sidebar-user-footer {
+    border-top-color: var(--ecom-sidebar-line);
+    background: var(--ecom-sidebar);
+  }
+
+  .sidebar-user-avatar {
+    border: 0;
+    background: rgb(255 255 255 / 9%);
+    color: #ffffff;
+  }
+
+  .sidebar-user-copy strong {
+    color: rgb(255 255 255 / 88%);
+  }
+
+  .sidebar-user-copy small {
+    color: rgb(255 255 255 / 42%);
+  }
+
+  .btn,
+  .btn-sm,
+  .ant-btn {
+    border-radius: 4px;
+  }
+
+  .input,
+  .input-cell,
+  .sheet-input,
+  .ant-input,
+  .ant-input-affix-wrapper,
+  .ant-picker,
+  .ant-select-selector {
+    border-radius: 4px;
+  }
+
+  .table th,
+  .sheet-table th,
+  .inbound-ant-table .ant-table-thead > tr > th {
+    background: var(--ecom-table-head);
+    color: #333333;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .modal,
+  .ant-modal-content,
+  .ant-drawer-content {
+    border-radius: 4px;
+  }
+
+  .modal-head,
+  .ant-modal-header,
+  .ant-drawer-header {
+    min-height: 52px;
+    padding-bottom: 12px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--ecom-cell-border);
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 24px;
+  }
+
+  .modal .field,
+  .ant-modal .field,
+  .ant-drawer .field {
+    display: grid;
+    grid-template-columns: 112px minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .modal .field > span,
+  .ant-modal .field > span,
+  .ant-drawer .field > span {
+    width: 112px;
+    min-width: 0;
+    padding-top: 7px;
+    overflow: hidden;
+    color: var(--ecom-text-2);
+    font-size: 13px;
+    font-weight: 400;
+    line-height: 18px;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .modal .field > input,
+  .modal .field > select,
+  .modal .field > textarea,
+  .ant-modal .field > input,
+  .ant-modal .field > select,
+  .ant-modal .field > textarea,
+  .ant-drawer .field > input,
+  .ant-drawer .field > select,
+  .ant-drawer .field > textarea {
+    grid-column: 2;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .modal .field-row,
+  .ant-modal .field-row,
+  .ant-drawer .field-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+  }
+
+  .modal .field-row > .field,
+  .ant-modal .field-row > .field,
+  .ant-drawer .field-row > .field {
+    min-width: 0;
+  }
+
+  .modal .field > span[title],
+  .ant-modal .field > span[title],
+  .ant-drawer .field > span[title] {
+    cursor: help;
+  }
+
+  .modal .field > .field-label,
+  .ant-modal .field > .field-label,
+  .ant-drawer .field > .field-label {
+    display: flex;
+    overflow: visible;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    white-space: normal;
+  }
+
+  .modal .field-label > span,
+  .ant-modal .field-label > span,
+  .ant-drawer .field-label > span {
+    color: var(--ecom-text-2);
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .modal .field-label > small,
+  .ant-modal .field-label > small,
+  .ant-drawer .field-label > small {
+    color: var(--ecom-text-3);
+    font-size: 11px;
+    font-weight: 400;
+    line-height: 15px;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .modal .input::placeholder,
+  .ant-modal .input::placeholder,
+  .ant-drawer .input::placeholder {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .overlay .confirm-actions,
+  .ant-modal-footer,
+  .ant-drawer-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding-top: 14px;
+    margin-top: 18px;
+    border-top: 1px solid var(--ecom-cell-border);
+  }
+
+  .overlay .confirm-actions .btn,
+  .ant-modal-footer .ant-btn,
+  .ant-drawer-footer .ant-btn {
+    flex: 0 0 auto;
+    min-width: 72px;
+    margin-inline-start: 0 !important;
+  }
+
+  .modal .sheet-table,
+  .ant-modal .sheet-table,
+  .ant-drawer .sheet-table {
+    border-radius: 4px;
+  }
+
+  .modal .sheet-table th,
+  .ant-modal .sheet-table th,
+  .ant-drawer .sheet-table th {
+    height: 38px;
+    padding: 0 8px;
+    background: var(--ecom-table-head);
+    color: #333333;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .modal .sheet-table td,
+  .ant-modal .sheet-table td,
+  .ant-drawer .sheet-table td {
+    height: 40px;
+    padding: 4px 8px;
+  }
+
+  .modal .sheet-input,
+  .ant-modal .sheet-input,
+  .ant-drawer .sheet-input {
+    height: 32px;
+    min-height: 32px;
+    border-color: transparent;
+    border-radius: 4px;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  .modal .sheet-input:hover,
+  .ant-modal .sheet-input:hover,
+  .ant-drawer .sheet-input:hover {
+    border-color: var(--ecom-input-border);
+  }
+
+  .modal .sheet-input:focus,
+  .ant-modal .sheet-input:focus,
+  .ant-drawer .sheet-input:focus {
+    border-color: hsl(var(--primary));
+    box-shadow: 0 0 0 2px hsl(var(--primary) / 8%);
+  }
+}
